@@ -1,0 +1,273 @@
+"""
+core/tool_executor.py
+ToolExecutor — 工具执行调度器：查找、审批、钩子、执行、遥测。
+
+设计理念（融合 StreamingToolExecutor + 错误即观察）：
+1. 薄胶水层：PolicyEngine/HookOrchestrator/Telemetry 已独立实现，本模块只做编排
+2. 并发执行：asyncio.Semaphore 控制上限
+3. 错误即观察：执行异常不抛，包装为 ToolResult(error=True) 反馈给 LLM
+4. 超时+退避重试：仅网络/超时可重试，权限/黑名单拦截不重试（参考 Harness）
+5. 遥测透明：执行完成后自动调用 telemetry.agent.record_tool_call()（可选注入）
+
+用法:
+    registry = {"read_file": read_file_fn, "shell": shell_fn}
+    executor = ToolExecutor(registry, policy_engine, hook_orch, telemetry=telemetry)
+    result = await executor.execute("read_file", {"path": "/tmp/a.py"}, "session-1")
+"""
+
+import asyncio
+import logging
+import time
+from dataclasses import dataclass, field
+from typing import Any, Callable, Coroutine, Dict, List, Optional, Union
+
+logger = logging.getLogger(__name__)
+
+# 工具函数签名：async (arguments: dict) -> str
+ToolFunc = Callable[[Dict[str, Any]], Coroutine[Any, Any, str]]
+
+
+# ========================= 错误分类 =========================
+
+class ToolNotFoundError(Exception):
+    """工具未注册"""
+    pass
+
+
+class ToolTimeoutError(Exception):
+    """工具执行超时"""
+    pass
+
+
+class ToolPermissionError(Exception):
+    """权限不足（PolicyEngine 拦截）"""
+    pass
+
+
+# ========================= 执行结果 =========================
+
+@dataclass
+class ToolResult:
+    """工具执行结果"""
+    tool_use_id: str
+    tool_name: str
+    status: str = "success"       # success | error | blocked | timeout
+    output: str = ""               # 工具输出文本
+    error: Optional[str] = None    # 错误详情
+    duration_ms: int = 0           # 耗时（毫秒）
+    truncated: bool = False        # 输出是否被截断
+
+
+# ========================= 工具执行器 =========================
+
+class ToolExecutor:
+    """
+    工具执行调度器。
+
+    执行流程:
+      find → policy → pre-hooks → execute → post-hooks → telemetry → return
+
+    参数 injected 均可为 None（测试/渐进构建友好）。
+    """
+
+    def __init__(
+        self,
+        tools: Optional[list] = None,                # List[BaseTool] 或 Dict[str, Callable]（向后兼容）
+        policy_engine: Optional[Any] = None,        # PolicyEngine
+        hook_orchestrator: Optional[Any] = None,     # HookOrchestrator
+        telemetry: Optional[Any] = None,             # Telemetry
+        max_concurrent: int = 5,
+        default_timeout: float = 60.0,
+        max_retries: int = 2,
+        max_output_chars: int = 100_000,
+    ):
+        self._tools: dict[str, Any] = {}
+        self._tool_objects: list = list(tools or [])
+
+        if self._tool_objects and hasattr(self._tool_objects[0], 'name'):
+            # List[BaseTool] → 建立 name→object 映射
+            for t in self._tool_objects:
+                self._tools[t.name] = t
+        elif isinstance(self._tool_objects, dict):
+            self._tools = self._tool_objects
+        elif tools and isinstance(tools, dict):
+            self._tools = tools
+
+        self._policy = policy_engine
+        self._hooks = hook_orchestrator
+        self._telemetry = telemetry
+        self._semaphore = asyncio.Semaphore(max_concurrent)
+        self._timeout = default_timeout
+        self._max_retries = max_retries
+        self._max_output_chars = max_output_chars
+
+    # ====== 公开接口 ======
+
+    def get_schemas(self) -> list[dict]:
+        """获取所有工具的 function calling schema"""
+        if self._tool_objects and hasattr(self._tool_objects[0], 'to_function_schema'):
+            return [t.to_function_schema() for t in self._tool_objects]
+        return []
+
+    async def execute(
+        self,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        session_id: str,
+        tool_use_id: str = "",
+    ) -> ToolResult:
+        """执行单个工具，含审批、钩子、超时、重试。"""
+        t0 = time.monotonic()
+
+        # 0. 查找工具
+        tool_fn = self._tools.get(tool_name)
+        if tool_fn is None:
+            return ToolResult(
+                tool_use_id=tool_use_id, tool_name=tool_name,
+                status="error", error=f"Tool '{tool_name}' not found",
+                duration_ms=0,
+            )
+
+        # 1. 策略评估
+        if self._policy:
+            decision = self._policy.evaluate_tool(
+                tool_name, command_or_action=str(arguments.get("cmd", "")),
+                session_id=session_id,
+            )
+            if not decision.allowed:
+                return ToolResult(
+                    tool_use_id=tool_use_id, tool_name=tool_name,
+                    status="blocked",
+                    error=decision.blocked_reason or "Policy blocked",
+                    duration_ms=int((time.monotonic() - t0) * 1000),
+                )
+            if decision.needs_approval:
+                # 挂起，等待 Orchestrator 处理审批
+                # 由 Orchestrator 调用 execute_approved() 继续
+                return ToolResult(
+                    tool_use_id=tool_use_id, tool_name=tool_name,
+                    status="blocked",
+                    error="Approval required",
+                    duration_ms=int((time.monotonic() - t0) * 1000),
+                )
+
+        # 2. 前置钩子
+        if self._hooks:
+            from core.models.hook import ToolCallContext, HookPoint
+            tc = ToolCallContext(
+                tool_name=tool_name, tool_use_id=tool_use_id,
+                arguments=arguments,
+            )
+            result = await self._hooks.run(
+                session_id=session_id,
+                hook_point=HookPoint.PRE_TOOL_EXECUTION,
+                tool_call=tc,
+            )
+            if result.is_blocked():
+                return ToolResult(
+                    tool_use_id=tool_use_id, tool_name=tool_name,
+                    status="blocked",
+                    error=result.message or "Hooks blocked",
+                    duration_ms=int((time.monotonic() - t0) * 1000),
+                )
+            if result.is_modified() and result.modified_tool_args:
+                arguments.update(result.modified_tool_args)
+
+        # 3. 执行（带超时 + 重试）
+        output, error, status = await self._execute_with_retry(tool_name, arguments)
+
+        # 4. 截断超长输出
+        truncated = False
+        if len(output) > self._max_output_chars:
+            output = output[:self._max_output_chars] + "\n... [truncated]"
+            truncated = True
+
+        duration = int((time.monotonic() - t0) * 1000)
+
+        # 5. 后置钩子
+        if self._hooks:
+            from core.models.hook import HookPoint
+            await self._hooks.run(
+                session_id=session_id,
+                hook_point=HookPoint.POST_TOOL_EXECUTION,
+                tool_call=None,
+            )
+
+        # 6. 遥测
+        if self._telemetry:
+            self._telemetry.agent.record_tool_call(
+                tool_name, duration, status == "success",
+                output_lines=output.count("\n") + 1,
+            )
+
+        return ToolResult(
+            tool_use_id=tool_use_id, tool_name=tool_name,
+            status=status, output=output, error=error,
+            duration_ms=duration, truncated=truncated,
+        )
+
+    async def execute_batch(
+        self,
+        calls: List[Dict[str, Any]],
+        session_id: str,
+    ) -> List[ToolResult]:
+        """并发执行多个工具调用（参考 Claude Code StreamingToolExecutor）。"""
+        tasks = []
+        for call in calls:
+            tasks.append(
+                self.execute(
+                    tool_name=call["tool_name"],
+                    arguments=call.get("arguments", {}),
+                    session_id=session_id,
+                    tool_use_id=call.get("tool_use_id", ""),
+                )
+            )
+        return await asyncio.gather(*tasks)
+
+    # ====== 内部 ======
+
+    async def _execute_with_retry(
+        self, tool_name: str, arguments: Dict[str, Any]
+    ) -> tuple[str, Optional[str], str]:
+        """超时退避重试（参考 Harness：权限/黑名单不重试，超时/网络错误重试）。"""
+        last_error = None
+
+        for attempt in range(self._max_retries + 1):
+            try:
+                async with self._semaphore:
+                    tool = self._tools[tool_name]
+                    # BaseTool → call .execute(**args); Callable → call directly
+                    if hasattr(tool, 'execute'):
+                        output = await asyncio.wait_for(
+                            tool.execute(**arguments),
+                            timeout=self._timeout,
+                        )
+                    else:
+                        output = await asyncio.wait_for(
+                            tool(arguments),
+                            timeout=self._timeout,
+                        )
+                return str(output), None, "success"
+
+            except asyncio.TimeoutError:
+                last_error = f"Tool '{tool_name}' timed out after {self._timeout}s (attempt {attempt + 1})"
+                if attempt < self._max_retries:
+                    backoff = 2 ** attempt
+                    logger.warning("%s, retrying in %ds", last_error, backoff)
+                    await asyncio.sleep(backoff)
+                else:
+                    return "", last_error, "timeout"
+
+            except Exception as e:
+                # 其他异常不重试
+                return "", str(e), "error"
+
+        return "", last_error or "unknown", "timeout"
+
+    # ====== 查询 ======
+
+    def list_tools(self) -> List[str]:
+        return sorted(self._tools.keys())
+
+    def has_tool(self, name: str) -> bool:
+        return name in self._tools

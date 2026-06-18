@@ -45,20 +45,8 @@ def main():
             path.mkdir(parents=True)
             print(f"创建目录: {path}")
 
-    memory_file = runtime_dir / f"memory/projects/{project_id}/memory/MEMORY.md"
-    if not memory_file.exists() or force:
-        memory_file.parent.mkdir(parents=True, exist_ok=True)
-        memory_file.write_text(f"""# MEMORY.md - 项目 {project_id} 的核心记忆
-
-此文件由 ChachaAgent 自动维护，用于存储项目长期记忆。
-请勿手动编辑，除非您清楚其格式要求。
-
----
-# 以下为记忆条目（由系统自动追加）
-""")
-        print(f"创建记忆文件: {memory_file}")
-    else:
-        print(f"记忆文件已存在，跳过: {memory_file}")
+    # MEMORY.md 由 autoDream 管道异步生成，不创建占位文件
+    print(f"记忆目录已准备: memory/projects/{project_id}/memory")
 
     config_file = Path("chachaConfig.toml")
     examples_dir = Path("examples")
@@ -83,7 +71,8 @@ default_model = "gpt-4"
 max_tokens = 128000
 
 [memory]
-project_dir = ".chacha_agent/memory"
+prune_days = 30                  # 每日记忆文件保留天数
+max_memory_lines = 200           # MEMORY.md 索引最大条目数
 
 [sandbox]
 allowed_commands = ["ls", "cat", "grep", "python", "pytest", "git"]

@@ -24,7 +24,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 
 # ========================= 块类型与修复置信度 =========================
@@ -150,10 +150,12 @@ class OutputGovernor:
     def __init__(
         self,
         content_rules: Optional[List[ContentRule]] = None,
-        max_buffer_size: int = 64 * 1024,  # 64KB
+        max_buffer_size: int = 64 * 1024,
+        telemetry: Optional[Any] = None,
     ):
         self._content_rules = content_rules or DEFAULT_CONTENT_RULES
         self._max_buffer_size = max_buffer_size
+        self._telemetry = telemetry
 
         # 积累的完整文本（用于 JSON 修复）
         self._full_text: List[str] = []
@@ -236,6 +238,14 @@ class OutputGovernor:
             repaired, confidence = self._repair_json(json_text)
             self._output_len = len(full)
             self._collecting_json = False
+
+            # 遥测：记录 JSON 修复事件
+            if self._telemetry and json_text != repaired:
+                self._telemetry.metrics.inc(
+                    "chacha_json_repairs_total",
+                    tags={"confidence": confidence.value},
+                )
+
             return FlushResult(
                 output=repaired,
                 repaired=(repaired != json_text),

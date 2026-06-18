@@ -288,3 +288,35 @@ web_enabled = true
 web_host = "0.0.0.0"
 web_port = 8080
 ```
+
+---
+
+## 静态规则 (CHACHA.md)
+
+ChachaAgent 支持通过 `CHACHA.md` 文件按目录层级声明静态行为规则，参考 Claude Code 的 `.claude/CLAUDE.md` 机制。详见 `docs/static_rule_loader.md`。
+
+### 加载顺序
+
+```
+~/.chacha/CHACHA.md              # 用户级全局规则（最先加载）
+{project_root}/CHACHA.md         # 项目级规则
+{project_root}/{sub_dir}/CHACHA.md  # 子目录级规则（最后加载，追加到末尾）
+```
+
+### @import 指令
+
+CHACHA.md 内可使用 `@import` 引用其他文件：
+
+```markdown
+# 项目 CHACHA.md
+使用 Python 3.11+
+@import ./rules/coding-style.md
+@import ~/.chacha/shared/python.md
+```
+
+### 注入 ContextManager
+
+`StaticRuleLoader` 加载的规则文本直接传递给 `ContextManager.assemble(static_rules=...)`，作为 `protected` 区的上下文块，优先于对话历史。配置文件本身不包含规则内容，规则内容由独立文件承载。
+
+```
+```

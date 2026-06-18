@@ -11,7 +11,7 @@ hook 理念：钩子是纯函数，接收上下文、返回决策、不改全局
 - **不可变上下文**：`HookContext` 为 `frozen=True`，钩子链中只读传递，保证并发安全。
 - **纯返回值**：`HookResult` 不含任何副作用，`additional_context` 通过编排层注入对话。
 - **匹配器筛选**：`HookMatcher` 决定哪些钩子在哪些事件上触发，支持工具名/命令/组合匹配。
-- **面向规则引擎**：数据模型与执行逻辑分离，由后续 `hook_orchestrator.py` + `rule_engine.py` 驱动。
+- **面向规则引擎**：数据模型与执行逻辑分离，由 `hook_orchestrator.py` + `rule_engine.py`（YAML 声明式）驱动。
 
 ---
 
@@ -325,4 +325,4 @@ class HookResult(BaseModel):
 
 5. **审批集成**：`additional_context` 在审批场景中可同时注入对话和 UI 层，用户看到警告 → 确认 → LLM 也感知到用户已知风险。
 
-6. **后续扩展点**：`Rule Engine`（`core/rule_engine.py`）将使用 YAML 配置 + `HookMatcher` 实现声明式钩子注册，非开发人员可直接编辑 YAML 文件添加钩子规则。
+6. **声明式规则**：`RuleEngine`（`core/rule_engine.py`）已实现 YAML 配置 + `HookMatcher` 声明式钩子注册，非开发人员可直接编辑 YAML 文件。详见 `docs/rule_engine.md`。

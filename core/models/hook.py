@@ -31,6 +31,8 @@ class HookPoint(str, Enum):
     ON_SESSION_START = "on_session_start"
     ON_SESSION_END = "on_session_end"
     ON_ERROR = "on_error"
+    PRE_SUBAGENT_SPAWN = "pre_subagent_spawn"      # 子Agent 孵化前
+    POST_SUBAGENT_SPAWN = "post_subagent_spawn"    # 子Agent 孵化后
 
 
 # ========================= 2. 钩子决策动作 =========================

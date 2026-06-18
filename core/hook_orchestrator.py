@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ShellCommand:
-    """Claude Code 风格的外部钩子：通过 stdin/stdout JSON 协议通信。
+    """外部钩子：通过 stdin/stdout JSON 协议通信。
 
     command 在子进程中执行，stdin 接收 HookContext JSON，stdout 期望输出 HookResult JSON。
     """
@@ -79,8 +79,9 @@ class HookOrchestrator:
     TODO(阶段5):    内置钩子实现（security_check / cost_check / compression_hook / path_sanitizer）
     """
 
-    def __init__(self):
+    def __init__(self, telemetry: Optional[Any] = None):
         self._hooks: List[RegisteredHook] = []
+        self._telemetry = telemetry
 
     # ====== 注册 ======
 
@@ -196,6 +197,12 @@ class HookOrchestrator:
                     result = HookResult.continue_(message=f"hook {hook.name} failed: {e}")
                 else:
                     return HookResult.block(message=f"安全钩子 {hook.name} 异常，默认拒绝: {e}")
+
+            # 遥测
+            if self._telemetry:
+                self._telemetry.agent.record_hook(
+                    hook.name, 0, str(result.action),
+                )
 
             # 累积 additional_context
             if result.additional_context:

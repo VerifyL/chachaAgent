@@ -64,6 +64,7 @@ class ContextConfig(BaseModel):
     max_tokens: int = Field(128000, ge=1, description="上下文窗口总 token 上限")
     compression_trigger_ratio: float = Field(0.8, ge=0.5, le=1.0, description="触发压缩的 token 使用比例")
     memory_max_lines: int = Field(200, ge=1, description="MEMORY.md 最大行数，超出自动剪枝")
+    enable_memory_injection: bool = Field(True, description="是否在上下文组装时注入 MEMORY.md 索引（UI 可开关）")
     keep_system_prompt_first: bool = Field(True, description="系统提示是否始终位于消息列表最前")
     enable_summarization: bool = Field(True, description="是否启用 LLM 摘要压缩")
     # 多模态压缩策略预留（当前透传）

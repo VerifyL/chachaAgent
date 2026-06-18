@@ -195,24 +195,149 @@ LLM stream chunk
   └─ 其他 → TextBlock → _filter_content() → 透传
 ```
 
+### 4.4 安全策略引擎（✅ 已实现）
+
+> 详细文档见 `docs/policy_engine.md`
+
+`core/policy_engine.py` 负责工具调用的安全管控，融合了 Claude Code 权限模式与 Harness 加权风险评估：
+
+| 职责 | 说明 |
+|------|------|
+| **白名单** | 显式放行指定工具，覆盖后续所有检查 |
+| **黑名单** | 命令子串匹配，命中即拦截（`rm -rf`、`sudo`、`mkfs` 等） |
+| **风险评估** | Harness 加权因子模型：数据敏感度×0.3 + 财务影响×0.25 + 不可逆性×0.2 + 置信度×0.15 + 授权×0.1 |
+| **三级权限** | FREE（读文件/cat/grep）→ ASK_FIRST（写文件/patch/chmod）→ APPROVE_ONCE（shell/docker/kubectl） |
+| **审批缓存** | SHA256(cache_key) → TTL 秒 → 命中跳过审批，减少重复询问 |
+| **成本熔断** | `CostCircuitBreaker` 三态：closed→open→half-open，超限后禁止 LLM 调用 |
+
+**评估流程**：
+```
+evaluate_tool(tool_name, command, session_id, risk_factors)
+  ├─ 1. 白名单检查 → 命中的直接放行
+  ├─ 2. 黑名单检查 → 命中的直接拦截（CRITICAL）
+  ├─ 3. 权限级别 → FREE→放行 / APPROVE_ONCE→检查任务授权
+  ├─ 4. 风险评估 → 加权分数 → RiskLevel(LOW/MEDIUM/HIGH/CRITICAL)
+  ├─ 5. 审批缓存 → 命中→跳过 / 未命中→needs_approval=True
+  └─ 返回 PolicyDecision(allowed, needs_approval, risk_level, risk_score, cache_key)
+```
+
+### 4.5 统一可观测性（✅ 已实现）
+
+> 详细文档见 `docs/telemetry.md`
+
+`core/telemetry.py` 提供结构化日志、指标收集、Span 追踪和 Prometheus 导出，采用"被调用者"模式——其他模块在完成任务后主动记录：
+
+| 组件 | 职责 |
+|------|------|
+| `StructuredLogger` | 双轨 JSONL：debug.jsonl（5 级过滤）+ audit.jsonl（`AuditRecord`） |
+| `MetricsCollector` | counter / gauge / histogram + P50/P99 / Prometheus 文本导出 |
+| `AgentMetrics` | 领域记录：LLM 调用 / 工具调用 / 钩子耗时 / 会话统计 / 成本 / 上下文 |
+| `Tracer` | 单进程 Span（trace_id 关联 LLM→工具→响应全链路） |
+
+**设计原则**：Telemetry 不主动调用任何其他模块，只被调用。`Gateway.on_event()` 可注册全局监听者实现被动推送。
+
+### 4.6 工具执行器（✅ 已实现）
+
+> 详细文档见 `docs/tool_executor.md`
+
+`core/tool_executor.py` 是薄胶水层，编排已有模块：
+
+```
+execute(tool_name, args, session_id)
+  ├─ Find → Policy.evaluate → Pre-hooks → Execute(Semaphore+timeout+retry)
+  ├─ Truncate → Post-hooks → Telemetry.record_tool_call()
+  └─ → ToolResult(status, output, error, duration_ms, truncated)
+```
+
+| 特性 | 说明 |
+|------|------|
+| 并发 | `execute_batch()` + Semaphore 上限 |
+| 超时+重试 | 60s 超时，指数退避 2 次 |
+| 错误即观察 | 异常包装为 ToolResult，不抛给 LLM |
+
+### 4.7 主控制器（✅ 已实现）
+
+> 详细文档见 `docs/orchestrator.md`
+
+`core/orchestrator.py` 是 Think-Act-Observe 循环的薄胶水层，协调所有子系统：
+
+```
+Orchestrator.run(user_input, session_id)
+  └─ while iteration < 50:
+       ├─ 1. ContextManager.assemble()       → 上下文组装
+       ├─ 2. Dispatcher.dispatch()           → LLM + 工具调度循环
+       │    ├─ LLMInvoker.invoke(messages, tools=schemas)
+       │    ├─ ToolExecutor.execute_batch()
+       │    └─ 结果注入 → 继续调用 LLM
+       └─ 3. finish_reason=stop → 结束
+```
+
+| 终止条件 | 说明 |
+|----------|------|
+| `finish_reason=stop` 且无 tool_calls | LLM 任务完成 |
+| `max_iterations=50` 耗尽 | 强制终止 |
+| LLM 认证错误/熔断 | 不可恢复，立即终止 |
+
+### 4.8 待实现模块
+
+| 模块 | 文件 | 阶段 |
+|------|------|------|
+| ErrorReporter（已跳过） | `core/error_reporter.py` | — |
+| **TokenCounter** | `context/token_counter.py` | 📋 阶段 4 |
+| **Summarizer** | `context/summarizer.py` | 📋 阶段 4 |
+| **Anthropic 适配器** | `model/anthropic_client.py` | 📋 阶段 3 |
+
 ---
 
-## 5. 模型管理层（预留）
 
-> **占位** — 阶段 3 实现 LLM 客户端适配后补充。
+## 5. 模型管理层
 
-**设计方向**：
-- 抽象基类 `BaseLLMClient` + 各厂商适配（OpenAI / Anthropic / Ollama）
-- `ModelFactory` + `ModelRouter`（优先级/成本/随机策略）
-- `UsageTracker`（Token 计数 + 成本熔断）+ `RetryHandler`（指数退避）
-- 详细文档见 `docs/model.md`（尚未创建）
+> 详细文档见 `docs/model.md`
+
+### 5.1 LLM 调用器（✅ 已实现）
+
+`core/llm_invoker.py` 位于 Orchestrator 与模型适配器之间，通过最小接口（`AsyncIterator[StreamChunk]`）与适配器解耦：
+
+```
+invoke(messages, tools, session_id)
+  ├─ PolicyEngine.evaluate_cost()      → 熔断检查
+  ├─ model_client.stream()             → StreamChunk 流
+  ├─ Gateway.publish(TokenChunkEvent)  → 前端实时推送
+  ├─ OutputGovernor.validate_tool_call() → JSON 修复
+  ├─ Telemetry.agent.record_llm_call()
+  └─ → LLMResponse(text, tool_calls, usage, finish_reason, duration_ms)
+```
+
+### 5.2 模型适配器
+
+> 详细文档见 `docs/openai_client.md`、`docs/factory.md`
+
+| 适配器 | 文件 | 支持 API | 状态 |
+|--------|------|----------|------|
+| **OpenAI 客户端** | `core/llm_clients/openai_client.py` | OpenAI / DeepSeek / Ollama / Qwen | ✅ |
+| **工厂** | `core/llm_clients/factory.py` | `ModelProviderConfig` → 客户端 | ✅ |
+| **路由器** | `core/llm_clients/router.py` | priority/cost/random + 故障转移 | ✅ |
+| **用量追踪器** | `core/llm_clients/usage_tracker.py` | Token/成本累加（调用后精确统计） | ✅ |
+| **重试处理器** | `core/llm_clients/retry_handler.py` | 指数退避 + 429 感知 + 认证不重试 | ✅ |
+| **Anthropic 客户端** | `core/llm_clients/anthropic_client.py` | Claude | 📋 |
+
+通过 `base_url` 参数，`OpenAIClient` 可兼容任何 OpenAI-compatible API。
+
+```python
+# OpenAI
+OpenAIClient(api_key="sk-...", model="gpt-4")
+# DeepSeek
+OpenAIClient(api_key="sk-...", model="deepseek-chat", base_url="https://api.deepseek.com/v1")
+# Ollama
+OpenAIClient(model="llama3", base_url="http://localhost:11434/v1", api_key="ollama")
+```
 
 ### 4.1 🔮 多模态扩展预留点
 
 | 扩展点 | 位置 | 说明 | 计划版本 |
 |--------|------|------|----------|
 | `supports_vision` 属性 | `ModelProviderConfig`（config.py） | 标记模型是否支持视觉输入，`ModelRouter` 按此筛选 | v1.5+ |
-| `VisionClient` | `core/model/vision_client.py` | 视觉模型专用适配器，处理图片编码/多消息结构 | v1.5+ |
+| `VisionClient` | `core/llm_clients/vision_client.py` | 视觉模型专用适配器，处理图片编码/多消息结构 | v1.5+ |
 | 图片 token 折算 | `UsageTracker`（阶段 3） | 多模态内容按像素/尺寸折合 token，加入成本计算 | v1.5+ |
 
 <!-- TODO: 补充模型管理层架构说明 + VisionClient 接口定义 -->
@@ -244,18 +369,65 @@ LLM stream chunk
 
 ## 7. 能力与插件层
 
-> **占位** — 阶段 5 实现 `UnifiedTool` / `sandbox.py` / `mcp_client.py` / Code-RAG / 内置技能后补充。
+### 工具开发
+
+所有工具继承 `capabilities/base.py` 的 `BaseTool`，定义 name/description/parameters + 实现 execute()。
+
+```python
+from capabilities.base import BaseTool
+
+class MyTool(BaseTool):
+    name = "my_tool"
+    description = "工具描述"
+    parameters = {
+        "type": "object",
+        "properties": {"arg1": {"type": "string"}},
+        "required": ["arg1"],
+    }
+    risk = "low"
+    requires_approval = False
+
+    async def execute(self, arg1: str) -> str:
+        return f"result: {arg1}"
+```
+
+注册到 `ToolExecutor`，自动生成 function calling schema：
+
+```python
+executor = ToolExecutor(tools=[MyTool(), ReadFileTool()])
+schemas = executor.get_schemas()  # → LLM 可用工具列表
+result = await executor.execute("my_tool", {"arg1": "test"}, session_id)
+```
+
+---
+
+> 内置工具已实现，详见 `docs/builtin_tools.md`。
+> 子Agent 系统详见下方 §5.7。
 
 **设计方向**：
 - `UnifiedTool` 统一工具基类契约
 - 三轨工具总线：内置技能 + OpenClaw 技能 + MCP 协议工具
 - Code-RAG 引擎：LanceDB 语义检索 + Tree-sitter 符号图
 - `capabilities/multimodal/` 目录已创建，预留给 v1.5+ 的截图识别、语音转文字等工具
-- 详细文档见 `docs/architecture.md`（后续补充）
 
-<!-- TODO: 补充能力与插件层架构说明 -->
+### 5.7 子Agent 系统
 
----
+> 详细文档见 `docs/subagent.md`
+
+`core/subagent/spawner.py` 派生子Agent 执行独立任务，参考 Claude Code sub-agent：
+
+| 类型 | 用途 | 工具 | LLM 自决 |
+|------|------|------|---------|
+| `explore` | 代码库搜索 | read_file, grep | ✅ |
+| `plan` | 规划设计 | read_file, grep, load_memory | ✅ |
+| `worker` | 执行修改 | read_file, grep, edit_file | ✅ |
+
+注册为 `subagent` 内置工具，LLM 根据任务复杂度自动判断是否委托。子Agent 独立上下文、工具白名单限制、超时控制。
+
+```python
+spawner = SubAgentSpawner(llm, parent_tools)
+result = await spawner.spawn("explore", "梳理项目架构")
+```
 
 ## 8. 表现层
 
