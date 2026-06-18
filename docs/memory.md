@@ -1,11 +1,12 @@
-# 记忆管理系统
+# 记忆管理系统 (v2.0)
 
-三层设计（参考 Claude Code）：
+四层设计（双向记忆管理）：
 
 ```
-write:  LLM 调用 remember 工具 → 按日期写入 *.md 文件
+write:  LLM 调用 remember 工具 → 按日期 + session 隔离写入 *.md 文件
 read:   LLM 调用 load_memory 工具 → 搜索所有文件
-dream:  会话结束后异步运行 → 整合为 MEMORY.md 索引
+dream:  每 10 次会话或 24h 异步运行 → 同时更新 MEMORY.md + CHACHA_MEMORY.md
+context: ContextManager 自动注入 MEMORY.md(动态区) + CHACHA_MEMORY.md(保护区)
 ```
 
 | 模块 | 文件 |
@@ -13,77 +14,148 @@ dream:  会话结束后异步运行 → 整合为 MEMORY.md 索引
 | 记忆读写 | `core/context/memory_manager.py` |
 | 整合管道 | `core/context/dream.py` |
 | 上下文注入 | `core/context_manager.py` |
+| 永久记忆 | `CHACHA_MEMORY.md`（项目根，≤100条，保护区） |
 
 ---
 
-## 1. 每日文件（raw 层）
-
-LLM 通过 `remember` 工具写入。按日期分散存储：
+## 1. 文件存储结构
 
 ```
-.chacha_agent/memory/projects/p1/memory/
-  2026-06-15.md    ← "偏好 Python 3.11", "项目使用 ruff"
-  2026-06-18.md    ← "部署使用 Docker"
+.chacha_agent/memory/projects/{project_id}/
+├── CHACHA_MEMORY.md           ← 永久记忆（保护区，永不删除，≤100条）
+├── memory/
+│   ├── MEMORY.md               ← autoDream 轻量索引（摘要+路径+时间）
+│   └── {YYYY-MM-DD}.md         ← 项目级每日记忆（无 session 回退）
+└── sessions/{session_id}/
+    ├── {YYYY-MM-DD}.md         ← 会话每日记忆（user+assistant，无工具调用）
+    └── tool_cache/             ← 工具结果缓存（会话结束时删除）
 ```
 
-`search(query)` 跨所有日期文件搜索相关条目。
+### 各类文件生命周期
 
-## 2. MEMORY.md 索引（autoDream）
+| 文件 | 生命周期 | 清理策略 |
+|------|---------|---------|
+| `CHACHA_MEMORY.md` | 永存 | autoDream 可更新覆盖，**永不删除** |
+| `MEMORY.md` | 永存 | autoDream 周期性覆盖更新，**永不删除** |
+| `{date}.md` (每日) | 7天 | autoDream 删除超过 7 天的 |
+| `tool_cache/` | 单次会话 | 会话结束时删除整个目录 |
 
-`DreamPipeline` 会话结束后异步运行，1 次 LLM 调用整合所有每日文件：
+---
+
+## 2. 每日文件（raw 层）
+
+LLM 通过 `remember` 工具写入。按 session 隔离存储：
 
 ```
-Gather: 读取所有 *.md → Consolidate: LLM 总结为 200 条精华 → Write: MEMORY.md
+sessions/{session_id}/2026-06-18.md
+  → Q: 如何配置 ruff
+  → A: 在 pyproject.toml 中添加 [tool.ruff] 配置
 ```
 
-`ContextManager.assemble(memory_manager=mgr)` 自动加载 MEMORY.md 注入上下文。
+- 每次对话结束才异步保存
+- 只包含 user + assistant 内容，**不含工具调用**
+- 按 `## ISO时间戳` 分割条目
 
-**触发条件**：距上次整合 > 24 小时。
+---
 
-## 3. 使用
+## 3. 工具结果缓存（两阶段）
+
+### Stage 1: Dispatcher 层（宽松，10个）
+
+```
+触发：工具执行后，累积结果数 > 10
+操作：第 1 ~ (N-10) 个结果 → JSON 占位符
+     最近 10 个结果 → 保持完整
+占位格式：
+  {"toolname": "read_file", "result_summary": "读取了 main.py...", "cache_path": "tool_cache/t3.json"}
+```
+
+### Stage 2: ContextCompressor FROZEN 层（激进）
+
+```
+触发：utilization > trigger_ratio，进入 FROZEN 压缩
+操作：
+  - JSON 占位符 → key 最小化 {"t":"x","s":"x","p":"x"}
+  - 完整结果 → 截断到 150 字符摘要 + 缓存文件
+```
+
+---
+
+## 4. CHACHA_MEMORY.md 永久记忆（保护区）
+
+项目级永久记忆文件，LLM 在 autoDream 时判断哪些记忆应升级为永久：
+
+- **最大条目**：100 条
+- **上下文位置**：protected zone，在 CHACHA.md 之后、SKILL 之前
+- **更新方式**：autoDream 全文重新生成（基于旧版本增量更新）
+- **清理策略**：永不删除，只覆盖更新
+
+格式示例：
+```markdown
+## Critical Preferences
+- 项目使用 Python 3.11+ + ruff 格式化
+- 部署使用 Docker Compose
+
+## Key Decisions
+- 2026-06-15: 选择 LanceDB 作为向量存储方案
+```
+
+---
+
+## 5. MEMORY.md 索引（autoDream）
+
+`DreamPipeline` 每 10 次会话或 24 小时后异步运行，1 次 LLM 调用同时生成：
+
+```
+输入：
+  - 旧 MEMORY.md（保留有价值条目）
+  - 旧 CHACHA_MEMORY.md（永久记忆基准）
+  - 最近 7 天所有 session 的每日记忆文件
+
+LLM 输出：
+  - ===MEMORY_MD=== 更新后的轻量索引（摘要 + 源文件路径 + 时间）
+  - ===CHACHA_MEMORY_MD=== 更新后的永久记忆（≤100条）
+```
+
+---
+
+## 6. 使用示例
 
 ```python
 mgr = MemoryManager(project_id="p1")
+# 读写
 mgr.remember("偏好 Python 3.11")      # LLM 工具
 mgr.search("Python")                  # LLM 工具
-mgr.read()                            # ContextManager 自动
 
+# 永久记忆
+mgr.read_permanent_memory()           # ContextManager 自动
+mgr.write_permanent_memory(content)   # autoDream 写入
+
+# Session 隔离
+mgr = MemoryManager(project_id="p1", session_id="s1")
+mgr.remember("Q: xxx\nA: yyy")        # 写入 sessions/s1/2026-06-18.md
+
+# 工具缓存
+mgr.cache_tool_result("c1", "read_file", result)
+mgr.cleanup_tool_cache()              # 会话结束
+
+# DreamPipeline
 dream = DreamPipeline(llm_invoker)
-await dream.run(mgr)                  # 会话结束后
-
-# 自动摘要
-from core.context.summarizer import Summarizer
-summarizer = Summarizer(llm_invoker)
-summary = await summarizer.summarize(old_messages, style="brief")
-summary = await summarizer.summarize(raw_memory, style="detailed")  # autoDream 用
-```
-
-`Summarizer` 被 `ContextCompressor`（SUMMARIZED 阶段）和 `DreamPipeline`（CONSOLIDATED 阶段）共用，避免 prompt 模板重复。
+dream.record_session()                # 每次会话结束
+if dream.should_run():                # 10 次或 24h
+    memory_md, permanent_md = await dream.run(mgr)
 ```
 
 ---
 
-## 4. 压缩机制
-
-> 详见 `docs/context_compressor.md`、`core/context/context_compressor.py`
-
-上下文超限时，渐进式压缩（参考 Claude Code）：
-
-| Level | 触发条件 | 操作 |
-|-------|---------|------|
-| FROZEN | `needs_compression=True` | 工具结果 → 占位符 + 缓存文件（LLM 可通过 read_file 查看完整） |
-| TRIMMED | FROZEN 后仍超限 | 历史消息 → 首尾裁剪（动态比例 = 1 - pressure） |
-| SUMMARIZED | TRIMMED 后仍超限 | 最旧消息 → LLM 摘要 |
-
-**永不动**：system_prompt / CHACHA.md / skills / 最近 5 轮。
-
-## 5. 配置
+## 7. 配置
 
 ```toml
 [memory]
-prune_days = 30           # 每日文件保留天数
-max_memory_lines = 200    # MEMORY.md 最大条目数
+prune_days = 7             # 每日文件保留天数
+max_memory_lines = 200     # MEMORY.md 最大条目数
 
 [context]
 enable_memory_injection = true  # 是否注入 MEMORY.md 索引
+enable_permanent_memory = true  # 是否注入 CHACHA_MEMORY.md
 ```

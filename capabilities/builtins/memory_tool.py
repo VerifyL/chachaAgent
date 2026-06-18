@@ -31,9 +31,12 @@ class LoadMemoryTool(BaseTool):
     requires_approval = False
 
     def __init__(self, memory_manager: Optional[MemoryManager] = None):
-        self._mgr = memory_manager or MemoryManager()
+        self._mgr = memory_manager
+        #self._mgr = memory_manager or MemoryManager()
 
     async def execute(self, query: str = "") -> str:
+        if self._mgr is None:
+            return "记忆系统未初始化"
         if not query.strip():
             days = self._mgr.list_days(limit=20)
             if not days:
@@ -60,8 +63,11 @@ class RememberTool(BaseTool):
     requires_approval = False
 
     def __init__(self, memory_manager: Optional[MemoryManager] = None):
-        self._mgr = memory_manager or MemoryManager()
+        self._mgr = memory_manager
+        #self._mgr = memory_manager or MemoryManager()
 
     async def execute(self, content: str) -> str:
+        if self._mgr is None:
+            return "记忆系统未初始化"
         path = self._mgr.remember(content.strip())
         return f"已记录到 {path.name}"

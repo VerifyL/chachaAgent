@@ -2,11 +2,11 @@
 interface/cli/session_manager.py
 SessionManager — CLI 会话生命周期 + 审计追踪。
 
-职责:
-  - 会话 id / token / 轮次 / 耗时 追踪
-  - 记忆整合触发（DreamPipeline）
-  - 上下文压缩（ContextCompressor）
-  - 审计报告（/audit /trace）
+v2.0 新增:
+  - tool_cache 清理
+  - 每轮记忆保存（_save_round_memory）
+  - DreamPipeline 10 次会话或 24h 触发
+  - should_dream() 使用 session_count
 """
 
 import time
@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional
 
 
 class SessionManager:
-    """CLI 会话管理器"""
+    """CLI 会话管理器（v2.0）"""
 
     def __init__(self, project_root: Path, bridge: Optional[Any] = None):
         self._project = project_root
@@ -24,22 +24,38 @@ class SessionManager:
         self._session_id = self._gen_id()
         self.total_tokens = 0
         self.rounds = 0
-        self._history: List[Dict[str, Any]] = []  # 审计追踪
+        self._history: List[Dict[str, Any]] = []
         self._last_dream_at: Optional[float] = None
         self._dream_hints = 0
+        self._last_user_input = ""
+        self._last_assistant_text = ""
 
     # ====== 会话 ======
 
     def new(self) -> str:
+        """开始新会话：生成 ID，清理 tool_cache。"""
+        # 先清理旧会话的 tool_cache
+        self.cleanup_tool_cache()
+
         self._session_id = self._gen_id()
         self.total_tokens = 0
         self.rounds = 0
         self._history.clear()
         self._dream_hints = 0
+        self._last_user_input = ""
+        self._last_assistant_text = ""
         return self._session_id
 
     def save(self) -> str:
-        """保存会话（TODO: 持久化 ConversationState + 触发 DreamPipeline）"""
+        """保存会话：触发 DreamPipeline 检查。"""
+        if self._bridge and hasattr(self._bridge, 'run_dream'):
+            import asyncio
+            try:
+                # 检查是否应触发 dream
+                if self.should_dream():
+                    asyncio.create_task(self._bridge.run_dream())
+            except Exception:
+                pass
         return self._session_id
 
     def add_round(
@@ -48,9 +64,11 @@ class SessionManager:
         user_input: str = "",
         assistant_text: str = "",
     ) -> None:
-        """记录一轮对话（审计用）。记忆在最终回答后由 remember_final_answer 单独写入。"""
+        """记录一轮对话（审计用）。"""
         self.total_tokens += tokens
         self.rounds += 1
+        self._last_user_input = user_input
+        self._last_assistant_text = assistant_text
         self._history.append({
             "round": self.rounds,
             "tokens": tokens,
@@ -58,6 +76,8 @@ class SessionManager:
             "errors": errors or [],
             "time": datetime.now(tz=timezone.utc).isoformat(),
         })
+        # 每轮结束后自动保存记忆
+        #self._save_round_memory(user_input, assistant_text)
 
     @property
     def current_id(self) -> str:
@@ -66,31 +86,25 @@ class SessionManager:
     # ====== 压缩 ======
 
     async def compact(self) -> str:
-        """手动触发上下文压缩"""
         if self._bridge and hasattr(self._bridge, '_messages'):
             n_before = len(self._bridge._messages)
-            msg_count = n_before
-
-            # 简化压缩：保留系统提示 + 最后 10 条
-            if msg_count > 11:
+            if n_before > 11:
                 self._bridge._messages = (
                     self._bridge._messages[:1] +
                     self._bridge._messages[-10:]
                 )
-
-            return f"压缩: {msg_count} → {len(self._bridge._messages)} 条 ({msg_count - len(self._bridge._messages)} 已移除)"
+            return f"压缩: {n_before} → {len(self._bridge._messages)} 条"
         return "压缩失败: 桥接未就绪"
 
     # ====== 审计 ======
 
     def audit_report(self) -> str:
-        """完整审计报告"""
         lines = [
             f"会话: {self.current_id}",
             f"总 Token: {self.total_tokens}",
             f"总轮次: {self.rounds}",
             f"记录条目: {len(self._history)}",
-            f"记忆提示: {self._dream_hints}",
+            f"Dream计数: {self._dream_hints}",
         ]
         if self._history:
             avg_tokens = self.total_tokens // max(self.rounds, 1)
@@ -104,7 +118,6 @@ class SessionManager:
         return "\n".join(lines)
 
     def trace_last(self) -> str:
-        """最近一轮的追踪信息"""
         if not self._history:
             return "暂无追踪记录"
         last = self._history[-1]
@@ -117,28 +130,41 @@ class SessionManager:
         )
 
     def status_report(self) -> str:
-        """状态摘要"""
         return (
             f"会话: {self.current_id}\n"
             f"Token: {self.total_tokens}  |  轮次: {self.rounds}\n"
             f"记忆: {len(self.list_memory_days())} 日\n"
             f"压缩: {'建议' if self.total_tokens > 80000 else '正常'}\n"
-            f"Dream记录: {self._dream_hints} 次提示"
+            f"Dream计数: {self._dream_hints}/10"
         )
 
     # ====== 记忆 ======
 
     def should_dream(self) -> bool:
-        """是否触发 DreamPipeline"""
-        return self._dream_hints >= 3 or (
-            self._last_dream_at and time.time() - self._last_dream_at > 86400
+        """是否触发 DreamPipeline（10 次提示或 24h）。"""
+        count_triggered = self._dream_hints >= 10
+        time_triggered = (
+            self._last_dream_at is not None
+            and time.time() - self._last_dream_at > 86400
         )
+        return count_triggered or time_triggered
 
     def record_dream_hint(self) -> None:
         self._dream_hints += 1
 
+    def mark_dream_run(self) -> None:
+        """标记 DreamPipeline 已运行。"""
+        self._dream_hints = 0
+        self._last_dream_at = time.time()
+
     def remember_final_answer(self, user_input: str, assistant_text: str) -> None:
-        """最终回答后写入记忆（只在一轮完整对话结束时调用）"""
+        """保存最终回答到记忆（app.py 调用）。"""
+        self._save_round_memory(user_input, assistant_text)
+
+    def _save_round_memory(self, user_input: str, assistant_text: str) -> None:
+        """每轮对话自动追加到当前 session 的当日记忆文件。
+        只保存 user + assistant，不含工具调用。
+        """
         if not user_input and not assistant_text:
             return
         try:
@@ -147,31 +173,22 @@ class SessionManager:
                 project_id=self._project.name,
                 session_id=self._session_id,
             )
-            user_short = user_input[:80].replace("\n", " ")
-            asst_short = assistant_text[:120].replace("\n", " ") if assistant_text else "..."
+            user_short = user_input.replace("\n", " ")
+            asst_short = assistant_text.replace("\n", " ")
             entry = f"Q: {user_short}\nA: {asst_short}"
             mgr.remember(entry)
         except Exception:
             pass
 
-    # ====== 每轮记忆 ======
-
-    def _auto_remember(self, user_input: str, assistant_text: str) -> None:
-        """每轮对话自动追加到当前 session 的当日记忆文件"""
-        if not user_input and not assistant_text:
-            return
+    def cleanup_tool_cache(self) -> None:
+        """清理当前会话的 tool_cache 目录。"""
         try:
             from core.context.memory_manager import MemoryManager
             mgr = MemoryManager(
                 project_id=self._project.name,
                 session_id=self._session_id,
             )
-
-            user_short = user_input[:80].replace("\n", " ")
-            asst_short = assistant_text[:120].replace("\n", " ") if assistant_text else "..."
-
-            entry = f"Q: {user_short}\nA: {asst_short}"
-            mgr.remember(entry)
+            mgr.cleanup_tool_cache()
         except Exception:
             pass
 

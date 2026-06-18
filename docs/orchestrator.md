@@ -1,15 +1,13 @@
-# 主控制器 (`core/orchestrator.py`)
+# 主控制器 (`core/orchestrator.py`) (v2.0)
 
-本文档说明 `Orchestrator` 的 Think-Act-Observe 循环、子系统协调和终止条件。Orchestrator 是薄胶水层，所有重活已在下游模块完成。
+本文档说明 `Orchestrator` 的 Think-Act-Observe 循环、子系统协调和终止条件。
 
-## 概述
+## v2.0 新增
 
-设计融合了 **Claude Code 异步生成器模式**（事件驱动 + 流式输出）和 **Harness 线性流水线**（清晰的阶段划分）：
-
-- **薄胶水层**：不重复实现任何业务逻辑，只编排调用顺序
-- **Think-Act-Observe**：每轮迭代 = LLM 推理 → 工具执行 → 观察结果 → 下一轮
-- **事件发布**：通过 Gateway 发布 `SessionLifecycleEvent`（started/ended）
-- **终止条件**：LLM 返回 stop 且无工具调用 / 达到最大迭代次数 / 不可恢复错误
+- **每轮记忆保存**：assistant 最终回答后异步保存 `session/{date}.md`（只含 user+assistant）
+- **tool_cache 清理**：会话结束时自动清理 `tool_cache/` 目录
+- **DreamPipeline 触发**：每次会话记录计数，10 次或 24h 触发记忆整合
+- **永久记忆联动**：支持 CHACHA_MEMORY.md 的异步更新
 
 ### 主循环状态机
 
@@ -31,40 +29,24 @@
                              ▼
               ┌─────────────────────────────┐
               │  1. ContextManager.assemble │
-              │     ConversationState       │
-              │     → AssembledContext      │
               │     → messages[]            │
               └──────────────┬──────────────┘
                              │
                              ▼
               ┌─────────────────────────────┐
-              │  2. LLMInvoker.invoke       │
+              │  2. LLM 流式调用             │
               │     → 流式 token 推送       │
               │     → LLMResponse            │
               └──────────────┬──────────────┘
                              │
                     ┌────────┴────────┐
-                    │   response.error?  │
+                    │  有 tool_calls?   │
                     └────────┬────────┘
-                  是          │  否
-                    ▼          │
-        ┌──────────────┐      │
-        │ 认证/熔断 → 终止  │      │
-        │ 其他 → 注入 state │      │
-        │ 继续下一轮        │      │
-        └──────────────┘      │
-                              │
-                              ▼
-                    ┌─────────────────────┐
-                    │  3. 有 tool_calls?   │
-                    └──────────┬──────────┘
                          是     │     否
                           ▼     │      │
               ┌──────────────────┐ │      │
               │ ToolExecutor     │ │      │
               │ .execute_batch() │ │      │
-              │ → ToolResult[]   │ │      │
-              │ → state.add_event│ │      │
               └────────┬─────────┘ │      │
                        │           │      │
                        ▼           │      │
@@ -75,78 +57,57 @@
                                    │      │
                                    ▼      ▼
                           ┌──────────────────┐
-                          │  4. 终止条件       │
-                          │  finish=stop 或无  │
-                          │  tool_calls → 结束 │
+                          │  3. 最终回答       │
+                          │  → _save_round    │
+                          │    _memory()      │
                           └────────┬─────────┘
                                    │
                                    ▼
                           ┌──────────────────┐
-                          │  Gateway.publish  │
-                          │  session:ended    │
-                          │  Telemetry 记录   │
+                          │  4. 会话结束       │
+                          │  cleanup_tool_cache│
+                          │  dream.record_    │
+                          │  session()        │
                           │  → OrchResponse   │
                           └──────────────────┘
 ```
 
 ---
 
-## 1. Orchestrator 初始化
+## 1. 初始化
 
 ```python
 Orchestrator(
     context_manager,    # ContextManager（组装上下文）
     llm_invoker,        # LLMInvoker（调用模型）
     tool_executor,      # ToolExecutor（执行工具）
-    gateway,            # ChaChaAsyncGateway（事件推送）
-    telemetry,          # Telemetry（记录指标）
-    hook_orchestrator,  # HookOrchestrator（钩子）
-    policy_engine,      # PolicyEngine（安全策略）
-    max_iterations=50,  # 最大迭代次数
+    dispatcher,         # Dispatcher（v2.0: 含 Stage 1 工具缓存）
+    memory_manager,     # MemoryManager（v2.0: 记忆保存 + 清理）
+    dream_pipeline,     # DreamPipeline（v2.0: 记忆整合触发）
+    gateway,            # ChaChaAsyncGateway
+    telemetry,          # Telemetry
+    hook_orchestrator,  # HookOrchestrator
+    policy_engine,      # PolicyEngine
+    max_iterations=50,
 )
 ```
-
-**所有参数均为可选**，支持渐进构建和测试。
 
 ---
 
-## 2. 主循环执行流程
-
-### 2.1 完整示例
-
-```python
-from core.orchestrator import Orchestrator
-
-orch = Orchestrator(
-    context_manager=context_mgr,
-    llm_invoker=llm_invoker,
-    tool_executor=tool_executor,
-    gateway=gateway,
-    telemetry=telemetry,
-)
-
-resp = await orch.run(
-    user_input="帮我读一下 main.py",
-    session_id="session-abc",
-    tools=[{"type": "function", "function": {"name": "read_file", ...}}],
-)
-# → OrchResponse(text="文件内容是 print('hello')", iterations=2)
-```
-
-### 2.2 每轮迭代的细节
+## 2. 会话生命周期
 
 ```
-Iteration 1:
-  1. ContextManager → [system_prompt, user:"帮我读一下 main.py"]
-  2. LLMInvoker   → 流式 "正在读取..." + tool_call(read_file, path="main.py")
-  3. ToolExecutor → PolicyEngine(FREE) → execute → "print('hello')"
-  4. has tool_calls → append ObservationEvent → continue
-
-Iteration 2:
-  1. ContextManager → [system_prompt, user, assistant, tool_result:"print('hello')"]
-  2. LLMInvoker   → 流式 "文件内容是 print('hello')" + finish_reason=stop
-  3. no tool_calls + finish=stop → break
-  → return OrchResponse(text="文件内容是 print('hello')")
+用户输入 "hello"
+  │
+  ├─ Gateway → SessionLifecycleEvent(event="started")
+  ├─ iteration 1 ... N
+  ├─ 最终回答 → _save_round_memory(user_input, assistant_text)
+  ├─ _end_session_cleanup()
+  │   ├─ cleanup_tool_cache()
+  │   ├─ dream_pipeline.record_session()
+  │   └─ if dream_pipeline.should_run() → asyncio.create_task(dream.run())
+  ├─ Gateway → SessionLifecycleEvent(event="ended")
+  └─ → OrchResponse(text, iterations, total_tokens, duration_ms)
 ```
 
 ---
@@ -160,41 +121,31 @@ Iteration 2:
 | 工具执行错误 | ToolResult(error=True) → 正常注入 ObservationEvent |
 | 最大迭代耗尽 | 强制终止，记录警告日志 |
 
+---
+
+## 4. 使用示例
+
 ```python
-if resp.error:
-    if "authentication" in resp.error.lower() or "circuit" in resp.error.lower():
-        return OrchResponse(error=resp.error)  # 终止
-    state.add_event(MessageEvent(role="system", content=f"[Error] {resp.error}"))
-    continue  # 继续下一轮
-```
+from core.orchestrator import Orchestrator
+from core.context_manager import ContextManager
+from core.context.memory_manager import MemoryManager
+from core.context.dream import DreamPipeline
 
----
+mem_mgr = MemoryManager(project_id="p1", session_id="s1")
+dream = DreamPipeline(llm_invoker)
 
-## 4. 会话生命周期
+orch = Orchestrator(
+    context_manager=ContextManager(),
+    llm_invoker=llm_invoker,
+    tool_executor=tool_executor,
+    memory_manager=mem_mgr,
+    dream_pipeline=dream,
+)
 
-```
-用户输入 "hello"
-  │
-  ├─ Gateway → SessionLifecycleEvent(event="started")
-  │
-  ├─ iteration 1 ... N
-  │
-  ├─ Gateway → SessionLifecycleEvent(event="ended", total_tokens=X)
-  ├─ Telemetry.agent.record_session(...)
-  │
-  └─ → OrchResponse(text, iterations, total_tokens, duration_ms)
-```
-
----
-
-## 5. 子系统联动图
-
-```
-Orchestrator.run()
-  │
-  ├─ ContextManager      → state → 每条事件转为 ContextBlock
-  ├─ LLMInvoker          → messages → StreamChunk 流 → TokenChunkEvent → Gateway
-  ├─ ToolExecutor        → tool_calls → PolicyEngine → HookOrch → execute → Telemetry
-  ├─ Gateway             → SessionLifecycleEvent(started/ended)
-  └─ Telemetry           → record_session(total_tokens, duration_ms)
+resp = await orch.run(
+    "帮我读一下 main.py",
+    session_id="s1",
+    project_id="p1",
+)
+# → OrchResponse(text="文件内容是 print('hello')", iterations=2)
 ```

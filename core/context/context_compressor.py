@@ -2,17 +2,23 @@
 core/context/context_compressor.py
 ContextCompressor — 渐进式压缩：FROZEN → TRIMMED → SUMMARIZED。
 
-设计：
-  Level 1 FROZEN:   工具结果 → 占位符 + 缓存文件（LLM 可通过 read_file 查看）
-  Level 2 TRIMMED:  历史消息 → 首尾裁剪（动态比例 = 1 - pressure）
-  Level 3 SUMMARIZED: 最旧消息 → LLM 摘要替换
-  永不动：system_prompt / CHACHA.md / skills / 最近 5 轮
+v2.0 两阶段工具结果缓存:
+  Stage 1 (Dispatcher, 宽松): >10 个工具结果 → JSON 占位符 + 缓存文件
+  Stage 2 (Compressor FROZEN, 激进): JSON key 最小化 {"t":"x","s":"x","p":"x"}，
+      完整结果截断到 150 字符摘要
+
+设计:
+  Level 1 FROZEN:   工具结果 → 激进占位 + 缓存文件
+  Level 2 TRIMMED:  历史消息 → 首尾裁剪
+  Level 3 SUMMARIZED: 最旧消息 → LLM 摘要
+  永不动：protected zone 所有块 + 最近 5 轮历史
 
 用法:
     compressor = ContextCompressor(llm_invoker, base_dir)
     ctx = compressor.compress(ctx, pressure=0.85)
 """
 
+import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
@@ -24,13 +30,13 @@ from core.models.context import (
 
 logger = logging.getLogger(__name__)
 
-_PROTECTED_ZONE = "protected"  # 永不压缩
-_RECENT_KEEP = 5               # 最近 N 个 history 块保持原样
+_PROTECTED_ZONE = "protected"
+_RECENT_KEEP = 5
 _CACHE_DIR = Path(".chacha_agent/tool_results")
 
 
 class ContextCompressor:
-    """渐进式上下文压缩器"""
+    """渐进式上下文压缩器（v2.0 激进 FROZEN）"""
 
     def __init__(self, llm_invoker: Optional[Any] = None, base_dir: Optional[Path] = None):
         self._llm = llm_invoker
@@ -47,10 +53,10 @@ class ContextCompressor:
         level = ctx.recommended_level
         blocks = list(ctx.blocks)
 
-        if level == CompressionLevel.NONE.value or level == "none":
+        if level in (CompressionLevel.NONE.value, "none"):
             return ctx
 
-        # Level 1: FROZEN — 冻结工具结果
+        # Level 1: FROZEN — 激进工具结果冻结
         if level in ("frozen", "trimmed", "summarized", "consolidated"):
             blocks = self._freeze_tool_results(blocks, pressure, session_id)
 
@@ -63,10 +69,9 @@ class ContextCompressor:
             if self._llm:
                 blocks = self._summarize_history(blocks, pressure, session_id)
             else:
-                logger.warning("SUMMARIZED 需要 LLMInvoker，但未注入，退回 TRIMMED")
+                logger.warning("SUMMARIZED 需要 LLMInvoker，退回 TRIMMED")
                 blocks = self._trim_history(blocks, max(0.5, pressure))
 
-        # 重建 AssembledContext
         return AssembledContext(
             meta=ctx.meta,
             blocks=blocks,
@@ -74,82 +79,105 @@ class ContextCompressor:
             recommended_level=ctx.recommended_level,
         )
 
-    # ====== Level 1: FROZEN ======
+    # ====== Level 1: FROZEN（激进版） ======
 
     def _freeze_tool_results(
         self, blocks: list[ContextBlock], pressure: float, session_id: str,
     ) -> list[ContextBlock]:
-        """工具结果 → 占位符 + 缓存文件"""
+        """v2.0 激进 FROZEN:
+        - 对已是 JSON 占位符的 → 二次压缩为最小化格式 {"t":"x","s":"x","p":"x"}
+        - 对完整工具结果 → 截断到 150 字符摘要 + 缓存
+        - protected zone 跳过
+        """
         result: list[ContextBlock] = []
-
         for b in blocks:
             if b.zone == _PROTECTED_ZONE:
                 result.append(b)
                 continue
 
             if b.source in (BlockSource.TOOL_RESULT, str(BlockSource.TOOL_RESULT)):
-                # 缓存完整内容
-                cache_path = self._cache_result(b.content, session_id)
-                # 占位符
-                placeholder = f"[工具结果已缓存: {cache_path}]\n[可通过 read_file 查看]"
-                result.append(ContextBlock(
-                    source=b.source, role=b.role,
-                    content=placeholder,
-                    zone=b.zone, priority=b.priority,
-                    importance_score=b.importance_score,
-                    token_count=len(placeholder) // 4,
-                    original_token_count=b.token_count,
-                    frozen_kept_lines=b.token_count,
-                    frozen_total_lines=b.token_count,
-                ))
+                content = b.content
+                original = content
+
+                # 已经是 Stage 1 占位符 → Stage 2 二次压缩
+                if content.startswith("{") and '"toolname"' in content:
+                    frozen = self._compress_json_placeholder(content, session_id)
+                else:
+                    # 完整结果 → 激进截断
+                    frozen = self._freeze_full_result(content, session_id)
+
+                result.append(self._clone_block(b, frozen))
             else:
                 result.append(b)
 
         return result
+
+    def _compress_json_placeholder(self, content: str, session_id: str) -> str:
+        """Stage 2: 将 Stage 1 的 JSON 占位符压缩为最小化格式。
+
+        Input:  {"toolname": "read_file", "result_summary": "读取 main.py...", "cache_path": "tool_cache/t3.json"}
+        Output: {"t":"read_file","s":"读取 main.py...","p":"tool_cache/t3.json"}
+        """
+        try:
+            data = json.loads(content)
+            mini = {
+                "t": data.get("toolname", "?"),
+                "s": data.get("result_summary", "")[:80],  # 摘要截断到 80 字符
+                "p": data.get("cache_path", ""),
+            }
+            return json.dumps(mini, ensure_ascii=False)
+        except (json.JSONDecodeError, KeyError):
+            return content[:150] + "..." if len(content) > 150 else content
+
+    def _freeze_full_result(self, content: str, session_id: str) -> str:
+        """完整工具结果 → 激进截断 + 缓存。"""
+        summary = content[:150].replace("\n", " ").strip()
+        if len(content) > 150:
+            summary += "..."
+
+        cache_path = self._cache_result(content, session_id)
+        return (
+            f"[工具结果已缓存: {cache_path.name}]\n"
+            f"摘要: {summary}"
+        )
 
     # ====== Level 2: TRIMMED ======
 
     def _trim_history(
         self, blocks: list[ContextBlock], pressure: float,
     ) -> list[ContextBlock]:
-        """历史消息 → 首尾裁剪（动态比例）"""
-        keep_ratio = max(0.1, 1.0 - pressure)
-        history_blocks = [b for b in blocks if b.source in (BlockSource.HISTORY, str(BlockSource.HISTORY))]
-        recent = history_blocks[-_RECENT_KEEP:] if len(history_blocks) > _RECENT_KEEP else history_blocks
-        recent_ids = {id(b) for b in recent}
+        """裁剪旧历史消息。最近 _RECENT_KEEP 个保持完整。"""
+        history_blocks = [(i, b) for i, b in enumerate(blocks)
+                          if b.source in (BlockSource.HISTORY, str(BlockSource.HISTORY))
+                          and b.zone != _PROTECTED_ZONE]
 
-        result: list[ContextBlock] = []
-        for b in blocks:
-            if b.zone == _PROTECTED_ZONE or id(b) in recent_ids:
-                result.append(b)
-                continue
+        if len(history_blocks) <= _RECENT_KEEP:
+            return blocks
 
-            if b.source in (BlockSource.HISTORY, str(BlockSource.HISTORY)):
-                lines = b.content.split("\n")
-                keep = max(1, int(len(lines) * keep_ratio))
-                half = keep // 2
-                trimmed = "\n".join(
-                    lines[:half] +
-                    [f"... [截断 {len(lines) - keep} 行] ..."] +
-                    lines[-half:]
-                )
-                result.append(self._clone_block(b, trimmed))
-            else:
-                result.append(b)
+        # 需要裁剪的旧块数量
+        to_trim = history_blocks[:-_RECENT_KEEP]
+        result = list(blocks)
+
+        for idx, b in to_trim:
+            content = b.content
+            keep_chars = max(100, int(len(content) * max(0.1, 1 - pressure)))
+            head = content[:keep_chars // 2]
+            tail = content[-keep_chars // 2:] if len(content) > keep_chars else ""
+            new_content = f"{head}\n...[截断]...\n{tail}" if tail else f"{head}\n...[截断]..."
+
+            result[idx] = self._clone_block(b, new_content)
 
         return result
 
     # ====== Level 3: SUMMARIZED ======
 
-    async def _summarize_async(self, old_text: str) -> str:
-        """调用 LLM 摘要旧对话"""
+    async def _summarize_async(self, old_content: str) -> str:
         if not self._llm:
-            return old_text
-
+            return old_content[:200] + "..."
         resp = await self._llm.invoke(
             messages=[
-                {"role": "system", "content": "将以下对话历史总结为 2-3 句话的摘要，只提取关键决策和结果。"},
-                {"role": "user", "content": old_text},
+                {"role": "system", "content": "Summarize this conversation in 2-3 sentences in the original language."},
+                {"role": "user", "content": old_content},
             ],
             session_id="compression-summary",
         )
@@ -158,38 +186,30 @@ class ContextCompressor:
     def _summarize_history(
         self, blocks: list[ContextBlock], pressure: float, session_id: str,
     ) -> list[ContextBlock]:
-        """历史消息 → LLM 摘要（同步包装异步调用）"""
-        marked_old = self._mark_old_blocks(blocks)
-        # 摘要逻辑委托给 orchestator 调用 _summarize_async
-        return marked_old  # 返回标记后的 blocks，Orcherstrator 会调用 summarize_old_blocks
+        mark_old = self._mark_old_blocks(blocks)
+        return mark_old
 
     def _mark_old_blocks(self, blocks: list[ContextBlock]) -> list[ContextBlock]:
-        """标记需要摘要的旧 blocks"""
-        history_blocks = [b for b in blocks if b.source in (BlockSource.HISTORY, str(BlockSource.HISTORY))]
+        history_blocks = [(i, b) for i, b in enumerate(blocks)
+                          if b.source in (BlockSource.HISTORY, str(BlockSource.HISTORY))]
         if len(history_blocks) <= _RECENT_KEEP:
             return blocks
 
-        old = history_blocks[:-_RECENT_KEEP]
-        recent_ids = {id(b) for b in history_blocks[-_RECENT_KEEP:]}
-
+        old_indices = {i for i, _ in history_blocks[:-_RECENT_KEEP]}
         result: list[ContextBlock] = []
-        for b in blocks:
-            if b.zone == _PROTECTED_ZONE or id(b) not in {id(o) for o in old}:
+        for i, b in enumerate(blocks):
+            if b.zone == _PROTECTED_ZONE or i not in old_indices:
                 result.append(b)
-                continue
-            # 替换为摘要占位（由 Orchestrator 实际执行 LLM 调用后填入）
-            result.append(self._clone_block(b, f"[待LLM摘要: {len(b.content)} 字符]"))
+            else:
+                result.append(self._clone_block(b, f"[待LLM摘要: {len(b.content)} 字符]"))
         return result
 
     async def summarize_old_blocks(self, blocks: list[ContextBlock]) -> list[ContextBlock]:
-        """异步：将标记为待摘要的块替换为 LLM 输出（由 Orchestrator 调用）"""
         if not self._llm:
             return blocks
-
         result: list[ContextBlock] = []
         for b in blocks:
             if b.content.startswith("[待LLM摘要:"):
-                old_blocks = []  # 需要从原始 ctx 恢复，此处简化
                 summary = await self._summarize_async(b.content)
                 result.append(self._clone_block(b, f"[摘要] {summary}"))
             else:
@@ -199,8 +219,7 @@ class ContextCompressor:
     # ====== 工具 ======
 
     def _cache_result(self, content: str, session_id: str) -> Path:
-        """缓存工具结果到文件"""
-        ts = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
+        ts = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
         path = self._cache_dir / f"{session_id}_{ts}.txt"
         path.write_text(content, encoding="utf-8")
         return path
@@ -212,7 +231,7 @@ class ContextCompressor:
             zone=b.zone, priority=b.priority,
             importance_score=b.importance_score,
             token_count=len(new_content) // 4,
-            original_token_count=b.original_token_count,
+            original_token_count=b.original_token_count or b.token_count,
             frozen_kept_lines=b.frozen_kept_lines,
             frozen_total_lines=b.frozen_total_lines,
         )

@@ -2,14 +2,18 @@
 core/context_manager.py
 ContextManager — 上下文管理器：组装消息、触发压缩、注入记忆。
 
-设计理念（DYNAMIC_BOUNDARY + Harness 三阶段组装）：
-1. DYNAMIC_BOUNDARY：protected 区（系统提示+CHACHA.md+技能）永不被截断
-2. Token 预算检查：utilization > trigger_ratio → needs_compression=True
-3. 钩子集成：PRE/POST_CONTEXT_ASSEMBLY 可注入追加 ContextBlock
-4. 阶段 2 简化版：从 ConversationState 直接转换；阶段 4 升级为完整三阶段引擎
+v2.0 设计（DYNAMIC_BOUNDARY + 永久记忆）：
+1. protected 区按固定顺序装载（永不截断）：
+   SYSTEM_PROMPT → CHACHA.md(宪法) → CHACHA_MEMORY.md(永久记忆) → SKILL
+2. dynamic 区按 importance 排序：
+   MEMORY.md(索引) → 今日会话记忆 → 对话历史 → 工具结果 → RAG → hooks
+3. Token 预算检查：utilization > trigger_ratio → needs_compression=True
+4. 钩子集成：PRE/POST_CONTEXT_ASSEMBLY 可注入追加 ContextBlock
 
 用法:
     mgr = ContextManager(config.context, hooks, telemetry)
+    mgr.set_permanent_memory("永久记忆内容")
+    mgr.set_memory_index("MEMORY.md 内容")
     ctx = mgr.assemble(conversation_state, session_id)
     messages = ctx.get_messages()  # → LLMInvoker
 """
@@ -29,8 +33,6 @@ from core.models.session import (
 
 logger = logging.getLogger(__name__)
 
-# ========================= 默认体系提示 =========================
-
 DEFAULT_SYSTEM_PROMPT = (
     "You are ChaChaAgent, a helpful AI assistant with access to tools. "
     "Use tools when needed to read files, execute commands, or search code. "
@@ -38,21 +40,8 @@ DEFAULT_SYSTEM_PROMPT = (
 )
 
 
-# ========================= 上下文管理器 =========================
-
 class ContextManager:
-    """
-    上下文管理器。
-
-    阶段 2 功能：从 ConversationState 组装 AssembledContext + 预算检查。
-    阶段 4 升级：接入 ContextAssembler（记忆/RAG） + ContextCompressor（实际压缩）。
-
-    TODO(阶段4): 接入 ContextAssembler 实现三阶段组装（需求分析→并行检索→合并排序）
-    TODO(阶段4): 接入 ContextCompressor 实现实际压缩（FROZEN→TRIMMED→SUMMARIZED）
-    TODO(阶段4): 接入 StaticRuleLoader 分层加载 CHACHA.md
-    TODO(阶段4): 接入 MemoryManager 加载 MEMORY.md + Auto Dream 清洗
-    TODO(阶段4): 接入 TokenCounter 精确计数，替换 _estimate_tokens 粗略估算
-    """
+    """上下文管理器（v2.0 — 永久记忆 + 两阶段工具缓存）。"""
 
     def __init__(
         self,
@@ -70,8 +59,45 @@ class ContextManager:
         self._telemetry = telemetry
         self._system_prompt = DEFAULT_SYSTEM_PROMPT
 
-        # 静态块缓存：source → cached ContextBlock
+        # 可注入的静态内容
+        self._static_rules = ""       # CHACHA.md 宪法
+        self._permanent_memory = ""   # CHACHA_MEMORY.md 永久记忆
+        self._skills = ""             # 技能定义
+        self._memory_index = ""       # MEMORY.md 轻量索引
+        self._session_memory = ""     # 今日会话记忆
+
         self._block_cache: Dict[str, ContextBlock] = {}
+
+    # ====== 注入接口 ======
+
+    def set_system_prompt(self, prompt: str) -> None:
+        self._system_prompt = prompt
+        self._block_cache.pop(str(BlockSource.SYSTEM_PROMPT), None)
+
+    def set_static_rules(self, rules: str) -> None:
+        """注入 CHACHA.md 宪法内容。"""
+        self._static_rules = rules
+        self._block_cache.pop(str(BlockSource.STATIC_RULE), None)
+
+    def set_permanent_memory(self, content: str) -> None:
+        """注入 CHACHA_MEMORY.md 永久记忆（保护区）。"""
+        self._permanent_memory = content
+        self._block_cache.pop("permanent_memory", None)
+
+    def set_skills(self, skills: str) -> None:
+        """注入技能/工具 schema 定义。"""
+        self._skills = skills
+
+    def set_memory_index(self, content: str) -> None:
+        """注入 MEMORY.md 轻量索引（动态区）。"""
+        self._memory_index = content
+
+    def set_session_memory(self, content: str) -> None:
+        """注入今日会话记忆（动态区）。"""
+        self._session_memory = content
+
+    def clear_cache(self) -> None:
+        self._block_cache.clear()
 
     # ====== 公开接口 ======
 
@@ -79,108 +105,138 @@ class ContextManager:
         self,
         state: ConversationState,
         session_id: str = "",
-        project_id: str = "",
-        static_rules: Optional[str] = None,   # CHACHA.md 内容
-        skills: Optional[str] = None,          # 技能定义
-        memory_manager: Optional[Any] = None,  # MemoryManager（自动加载索引）
+        static_rules: Optional[str] = None,
+        skills: Optional[str] = None,
+        memory_content: Optional[str] = None,
+        additional_contexts: Optional[List[ContextBlock]] = None,
     ) -> AssembledContext:
-        """从会话状态组装上下文。
+        """从 ConversationState 组装 AssembledContext。
 
-        static_rules / skills 由 StaticRuleLoader / SkillLoader 提供。
-        memory_manager 传入时自动加载 MEMORY.md 索引（autoDream 产物）。
+        v2.0 上下文字段顺序:
+            protected: SYSTEM_PROMPT → CHACHA.md → CHACHA_MEMORY.md → SKILL
+            dynamic:   MEMORY.md → Session Memory → History → Tool Results → RAG → Hooks
         """
-        t0 = time.monotonic()
-        blocks: List[ContextBlock] = []
+        blocks: list[ContextBlock] = []
 
-        # 1. 系统提示（protected，缓存优先）
+        # ---- protected zone ----
+
+        # 1. System Prompt
         blocks.append(self._cached_block(
             BlockSource.SYSTEM_PROMPT, "system", self._system_prompt,
             zone="protected", priority=0, importance=1.0, ttl=600,
         ))
 
-        # 2. 静态规则 CHACHA.md（protected）
-        if static_rules:
+        # 2. CHACHA.md 宪法
+        rules = static_rules or self._static_rules
+        if rules:
             blocks.append(self._cached_block(
-                BlockSource.STATIC_RULE, "system", static_rules,
-                zone="protected", priority=1, importance=0.9, ttl=600,
+                BlockSource.STATIC_RULE, "system", rules,
+                zone="protected", priority=1, importance=0.95, ttl=600,
             ))
 
-        # 3. 技能定义（protected）
-        if skills:
+        # 3. CHACHA_MEMORY.md 永久记忆
+        if self._permanent_memory:
             blocks.append(self._cached_block(
-                BlockSource.SKILL, "system", skills,
-                zone="protected", priority=1, importance=0.9, ttl=1200,
+                BlockSource.STATIC_RULE, "system",  # 复用 STATIC_RULE source
+                f"[Permanent Memory]\n{self._permanent_memory}",
+                zone="protected", priority=2, importance=0.9, ttl=300,
             ))
 
-        # 4. 记忆 MEMORY.md 索引（autoDream 构建的轻量索引，可通过 enable_memory_injection 关闭）
-        if memory_manager and self._config.enable_memory_injection:
-            try:
-                index = memory_manager.read()
-                if index:
-                    blocks.append(ContextBlock(
-                        source=BlockSource.MEMORY, role="system",
-                        content=index[:self._memory_max_lines * 80],
-                        zone="dynamic", priority=2, importance_score=0.85,
-                    ))
-            except Exception:
-                pass
+        # 4. SKILL 定义
+        skill_content = skills or self._skills
+        if skill_content:
+            blocks.append(self._cached_block(
+                BlockSource.SKILL, "system", skill_content,
+                zone="protected", priority=3, importance=0.85, ttl=1200,
+            ))
 
-        # 5. 对话历史 + 工具结果（按 priority 排序）
-        current_tool_idx = 0
-        for event in state.events:
+        protected_count = len(blocks)
+
+        # ---- dynamic zone ----
+
+        # 5. MEMORY.md 轻量索引
+        if memory_content or self._memory_index:
+            blocks.append(ContextBlock(
+                source=BlockSource.MEMORY, role="system",
+                content=f"[Memory Index]\n{memory_content or self._memory_index}",
+                zone="dynamic", priority=10, importance=0.7,
+                token_count=self._estimate_tokens(memory_content or self._memory_index),
+            ))
+
+        # 6. 今日会话记忆
+        if self._session_memory:
+            blocks.append(ContextBlock(
+                source=BlockSource.MEMORY, role="system",
+                content=f"[Today's Session Memory]\n{self._session_memory}",
+                zone="dynamic", priority=11, importance=0.65,
+                token_count=self._estimate_tokens(self._session_memory),
+            ))
+
+        # 7. 对话历史 + 工具结果
+        history_start = len(blocks)
+        for i, event in enumerate(state.events):
             if isinstance(event, MessageEvent):
                 blocks.append(ContextBlock(
                     source=BlockSource.HISTORY,
                     role=event.role,
                     content=event.content,
                     zone="dynamic",
-                    priority=3,
-                    importance_score=self._history_importance(len(blocks)),
+                    priority=20 + i,
+                    importance=self._history_importance(i),
                     token_count=self._estimate_tokens(event.content),
                 ))
             elif isinstance(event, ToolCallEvent):
-                pass  # tool_call 本身不注入上下文，结果才有价值
+                blocks.append(ContextBlock(
+                    source=BlockSource.HISTORY,
+                    role="assistant",
+                    content=f"[Tool Call: {event.tool_name}({event.arguments})]",
+                    zone="dynamic",
+                    priority=20 + i,
+                    importance=self._history_importance(i),
+                    token_count=self._estimate_tokens(str(event.arguments)),
+                ))
             elif isinstance(event, ObservationEvent):
-                current_tool_idx += 1
+                # 工具结果（可能已被 Dispatcher 替换为占位符）
+                content = event.content
+                if event.truncated:
+                    content = content[:500] + f"\n...[截断，原始 {len(event.content)} 字符]"
                 blocks.append(ContextBlock(
                     source=BlockSource.TOOL_RESULT,
                     role="tool",
-                    content=event.content,
+                    content=content,
                     zone="dynamic",
-                    priority=4,
-                    importance_score=0.5,
-                    token_count=self._estimate_tokens(event.content),
+                    priority=30 + i,
+                    importance=0.5,
+                    token_count=self._estimate_tokens(content),
                 ))
 
-        # 6. 计算统计
+        # 8. 钩子注入 additional_context
+        if additional_contexts:
+            blocks.extend(additional_contexts)
+
+        # ---- 计算统计 ----
         total_tokens = sum(b.token_count for b in blocks)
-        protected_tokens = sum(b.token_count for b in blocks if b.zone == "protected")
+        protected_tokens = sum(b.token_count for b in blocks[:protected_count])
         dynamic_tokens = total_tokens - protected_tokens
+        budget = self._budget or 128000
+        utilization = total_tokens / budget if budget > 0 else 0
+        pressure = min(1.0, utilization * 1.25)
 
-        utilization = min(2.0, total_tokens / self._budget) if self._budget > 0 else 0.0
         needs_compression = utilization > self._trigger_ratio
-        pressure = min(1.0, utilization * 1.25)  # 压力略高于利用率
-        trigger_reason = TriggerReason.THRESHOLD if needs_compression else TriggerReason.NONE
-        recommended = self._recommend_compression(pressure) if needs_compression else CompressionLevel.NONE
-
-        # 7. 来源分布
-        source_dist: Dict[str, int] = {}
-        for b in blocks:
-            s = str(b.source)
-            source_dist[s] = source_dist.get(s, 0) + b.token_count
+        recommended = self._recommend_compression(pressure)
 
         meta = ContextAssemblyMeta(
-            session_id=session_id,
-            project_id=project_id,
-            trigger="compression" if needs_compression else "normal",
             total_tokens=total_tokens,
+            budget_per_request=budget,
+            utilization_ratio=round(utilization, 4),
+            compression_pressure=round(pressure, 4),
+            trigger=TriggerReason.THRESHOLD.value if needs_compression else TriggerReason.NONE.value,
             protected_tokens=protected_tokens,
             dynamic_tokens=dynamic_tokens,
-            budget_per_request=self._budget,
-            utilization_ratio=utilization,
-            compression_pressure=pressure,
-            trigger_reason=trigger_reason,
-            blocks_by_source=source_dist,
+            reasoning_budget_tokens=0,
+            reasoning_tokens_used=0,
+            blocks_by_source=self._count_by_source(blocks),
+            trigger_reason=TriggerReason.THRESHOLD.value if needs_compression else TriggerReason.NONE.value,
         )
 
         ctx = AssembledContext(
@@ -189,7 +245,6 @@ class ContextManager:
             recommended_level=recommended,
         )
 
-        # 8. 遥测
         if self._telemetry:
             self._telemetry.agent.record_context(
                 total_tokens=total_tokens,
@@ -197,22 +252,22 @@ class ContextManager:
                 compression_triggered=needs_compression,
             )
 
-        logger.debug("上下文组装完成: %d blocks, %d tokens (利用率 %.1f%%, 压缩=%s)",
-                     len(blocks), total_tokens, utilization * 100, needs_compression)
+        logger.debug(
+            "上下文组装完成: %d blocks, %d tokens (利用率 %.1f%%, 压缩=%s)",
+            len(blocks), total_tokens, utilization * 100, needs_compression,
+        )
         return ctx
 
     def get_messages(self, state: ConversationState) -> List[Dict[str, Any]]:
-        """便捷方法：从 ConversationState 直接获取 LLM 格式消息（不经组装）。"""
         return state.get_messages_for_llm()
 
     # ====== 内部 ======
 
     def _cached_block(
-        self, source: BlockSource, role: str, content: str,
+        self, source, role: str, content: str,
         zone: str, priority: int, importance: float, ttl: int,
     ) -> ContextBlock:
-        """获取缓存的静态块。缓存命中时复用，否则创建新块。"""
-        cache_key = str(source)
+        cache_key = str(source) if not isinstance(source, str) else source
         cached = self._block_cache.get(cache_key)
         now = time.time()
 
@@ -223,7 +278,7 @@ class ContextManager:
 
         block = ContextBlock(
             source=source, role=role, content=content,
-            zone=zone, priority=priority,  # type: ignore
+            zone=zone, priority=priority,
             importance_score=importance, cache_ttl=ttl,
             token_count=self._estimate_tokens(content),
         )
@@ -231,7 +286,6 @@ class ContextManager:
         return block
 
     def _recommend_compression(self, pressure: float) -> CompressionLevel:
-        """根据压缩压力推荐层级。"""
         if pressure < 0.5:
             return CompressionLevel.NONE
         if pressure < 0.7:
@@ -243,20 +297,16 @@ class ContextManager:
         return CompressionLevel.CONSOLIDATED
 
     def _history_importance(self, position: int) -> float:
-        """基于位置计算对话历史的重要性（越新越高）。"""
         return max(0.3, 1.0 - position * 0.05)
 
     @staticmethod
     def _estimate_tokens(text: str) -> int:
-        """粗略估算 token 数（≈ 字符数 / 4）。"""
         return max(1, len(text) // 4)
 
-    # ====== 查询 ======
-
-    def set_system_prompt(self, prompt: str) -> None:
-        """替换默认系统提示。"""
-        self._system_prompt = prompt
-        self._block_cache.pop(str(BlockSource.SYSTEM_PROMPT), None)
-
-    def clear_cache(self) -> None:
-        self._block_cache.clear()
+    @staticmethod
+    def _count_by_source(blocks: list[ContextBlock]) -> dict[str, int]:
+        dist: dict[str, int] = {}
+        for b in blocks:
+            s = b.source if isinstance(b.source, str) else b.source.value
+            dist[s] = dist.get(s, 0) + b.token_count
+        return dist

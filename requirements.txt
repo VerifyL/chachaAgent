@@ -1,4 +1,4 @@
-# 核心依赖
+
 pydantic>=2.0,<3.0
 textual>=0.34
 tomli>=2.0
@@ -10,11 +10,14 @@ tree-sitter>=0.20
 fastapi>=0.100
 uvicorn>=0.23
 websockets>=12.0
-pyinstaller>=5.0
+pyyaml>=6.0
+openai>=1.0
+tiktoken>=0.5
+textual>=1.0
 
-# 开发依赖
 pytest>=7.0
 pytest-asyncio>=0.21
 black>=23.0
 ruff>=0.1
 watchdog>=4.0.0
+pyinstaller>=5.0

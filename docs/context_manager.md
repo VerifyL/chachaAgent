@@ -1,19 +1,31 @@
-# 上下文组装策略 (`core/context_manager.py`)
+# 上下文组装策略 (`core/context_manager.py`) (v2.0)
 
-本文档说明 `ContextManager` 的上下文组装流程、DYNAMIC_BOUNDARY 策略、Token 预算控制和压缩触发。ContextManager 位于 Orchestrator 与 LLMInvoker 之间，将 `ConversationState` 转换为 `AssembledContext`。
+本文档说明 `ContextManager` 的上下文组装流程、DYNAMIC_BOUNDARY 策略、Token 预算控制和压缩触发。
 
-> **当前版本**：阶段 2 实现从 `ConversationState` 的基本组装。阶段 4 将接入 `ContextAssembler`（记忆/RAG 搜索）和 `ContextCompressor`（实际压缩）。
+## v2.0 上下文字段顺序
 
-## 概述
+```
+┌─────────────────────────────────────────┐
+│  protected zone（永不压缩，固定顺序）      │
+├─────────────────────────────────────────┤
+│  1. SYSTEM_PROMPT                       │
+│  2. CHACHA.md（宪法，分层加载）           │
+│  3. CHACHA_MEMORY.md（永久记忆，≤100条）  │
+│  4. SKILLS / tool schemas               │
+├─────────────────────────────────────────┤
+│  dynamic zone（按 importance 排序，可压缩）│
+├─────────────────────────────────────────┤
+│  5. MEMORY.md（autoDream 轻量索引）       │
+│  6. 今日会话记忆（session/{date}.md）      │
+│  7. 对话历史（最近 N 轮完整）              │
+│  8. 最近 K 个工具结果（完整）              │
+│  9. 老旧工具结果（占位符格式）              │
+│ 10. RAG / SubAgent 结果                  │
+│ 11. 钩子注入 additional_context           │
+└─────────────────────────────────────────┘
+```
 
-设计融合了 **Claude Code DYNAMIC_BOUNDARY**（保护区永不被截断）和 **Harness 三阶段组装**（需求分析→检索→排序）：
-
-- **DYNAMIC_BOUNDARY**：protected 区（系统提示 + CHACHA.md + 技能定义）约占 7% 窗口，永不被压缩
-- **Token 预算检查**：`total / max_tokens > trigger_ratio` → `needs_compression=True`
-- **缓存**：静态块（system_prompt / static_rule / skill）带 TTL 缓存，不必每轮重建
-- **来源分布**：`blocks_by_source` 统计各来源 token 占比，优化决策依据
-
-### 数据流
+## 数据流
 
 ```
 ConversationState  ──→  ContextManager.assemble()  ──→  AssembledContext  ──→  LLMInvoker
@@ -33,17 +45,27 @@ ConversationState  ──→  ContextManager.assemble()  ──→  AssembledCon
 |------|----------|------|------|
 | `system_prompt` | 0 | protected | 核心指令，缓存 600s |
 | `static_rule` | 1 | protected | CHACHA.md 规范，缓存 600s |
-| `skill` | 1 | protected | 技能定义，缓存 1200s |
-| `memory` | 2 | dynamic | MEMORY.md 记忆内容 |
-| `history` | 3 | dynamic | 用户消息 + 助手回复 |
-| `tool_result` | 4 | dynamic | 工具执行输出 |
+| `permanent_memory` | 2 | protected | CHACHA_MEMORY.md，缓存 300s |
+| `skill` | 3 | protected | 技能定义，缓存 1200s |
+| `memory_index` | 10 | dynamic | MEMORY.md 记忆索引 |
+| `session_memory` | 11 | dynamic | 今日会话记忆 |
+| `history` | 20+ | dynamic | 用户消息 + 助手回复 |
+| `tool_result` | 30+ | dynamic | 工具执行输出 |
 
-**排序规则**：按 `priority` 升序，同 priority 按 `importance_score` 降序。
-
-### 1.2 静态块缓存
+### 1.2 注入接口
 
 ```python
 mgr = ContextManager()
+mgr.set_system_prompt("你是助手")
+mgr.set_static_rules("CHACHA.md 内容")       # 宪法
+mgr.set_permanent_memory("永久记忆内容")      # 保护区
+mgr.set_memory_index("MEMORY.md 索引")       # 动态区
+mgr.set_session_memory("今日会话记忆")        # 动态区
+```
+
+### 1.3 静态块缓存
+
+```python
 # 第一次 → 计算 token_count，存入缓存
 ctx1 = mgr.assemble(state, static_rules="规范A")
 
@@ -62,6 +84,7 @@ ctx3 = mgr.assemble(state, static_rules="规范B")
 
 ```
 total_tokens = sum(block.token_count for all blocks)
+protected_tokens = sum(protected zone blocks)
 utilization_ratio = total_tokens / budget_per_request
 needs_compression = utilization_ratio > compression_trigger_ratio
 compression_pressure = min(1.0, utilization_ratio * 1.25)
@@ -72,34 +95,36 @@ compression_pressure = min(1.0, utilization_ratio * 1.25)
 | pressure | 推荐层级 | 说明 |
 |----------|---------|------|
 | < 0.5 | NONE | 无需压缩 |
-| 0.5~0.7 | FROZEN | 冻结工具输出（保留关键行） |
-| 0.7~0.85 | TRIMMED | 规则修剪（去空行、格式符） |
+| 0.5~0.7 | FROZEN | Stage 2 激进冻结（JSON key 最小化） |
+| 0.7~0.85 | TRIMMED | 历史消息首尾裁剪 |
 | 0.85~0.95 | SUMMARIZED | LLM 摘要 |
 | > 0.95 | CONSOLIDATED | 记忆整合 |
 
-### 2.3 示例
+---
 
-```python
-from core.models.config import ContextConfig
+## 3. 两阶段工具结果缓存
 
-cfg = ContextConfig(max_tokens=128000, compression_trigger_ratio=0.8)
-mgr = ContextManager(cfg)
+### Stage 1: Dispatcher（宽松）
 
-ctx = mgr.assemble(state, session_id="s1")
-print(f"tokens: {ctx.meta.total_tokens}/{cfg.max_tokens}")
-print(f"utilization: {ctx.meta.utilization_ratio:.1%}")
-print(f"needs_compression: {ctx.needs_compression}")
-print(f"recommended: {ctx.recommended_level.value}")
-```
+- 保留最近 10 个完整工具结果
+- 更早的结果 → `{"toolname":"x","result_summary":"x","cache_path":"x"}`
+- 缓存到 `session/{session_id}/tool_cache/`
+
+### Stage 2: ContextCompressor FROZEN（激进）
+
+- JSON 占位符 → `{"t":"x","s":"x","p":"x"}`
+- 完整结果 → 150 字符摘要 + 缓存
+- protected zone 跳过
 
 ---
 
-## 3. 消息格式输出
+## 4. 消息格式输出
 
 ```python
 ctx = mgr.assemble(state, session_id="s1")
 messages = ctx.get_messages()
 # [{"role": "system", "content": "You are ChaChaAgent..."},
+#  {"role": "system", "content": "[Permanent Memory]\n..."},
 #  {"role": "user", "content": "读一下 main.py"},
 #  {"role": "assistant", "content": "正在读取..."},
 #  {"role": "tool", "content": "print('hello')"}]
@@ -107,15 +132,15 @@ messages = ctx.get_messages()
 
 ---
 
-## 4. 阶段 4 升级路径
+## 5. 阶段 4 升级路径
 
 > TODO(阶段4): 以下功能在阶段 4 接入完整上下文子系统后实现。
 
-| 当前（阶段 2） | 阶段 4 |
+| 当前（v2.0） | 阶段 4 |
 |---------------|--------|
 | `_estimate_tokens()` 粗略估算 | `TokenCounter` 精确 tiktoken |
 | 直接从 `ConversationState` 转换 | `ContextAssembler` 三阶段组装 |
 | `needs_compression` 仅标记 | `ContextCompressor` 实际压缩执行 |
 | `static_rules` 外部传入 | `StaticRuleLoader` 自动分层加载 |
-| `memory_content` 外部传入 | `MemoryManager` 自动加载 + Auto Dream |
+| MemoryManager 注入 | 自动加载 + Auto Dream |
 | 缓存仅内存 TTL | 缓存写入 pkl 文件 |
