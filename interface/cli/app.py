@@ -57,22 +57,16 @@ class ChachaApp(App):
     # ====== 挂载 ======
 
     async def on_mount(self) -> None:
-        from core.context.static_rule_loader import StaticRuleLoader
         from capabilities.builtins.chunk_streamer import ReadFileTool, GrepTool
         from capabilities.builtins.code_patcher import EditFileTool
-        from capabilities.builtins.memory_tool import LoadMemoryTool, RememberTool
+        from capabilities.builtins.memory_tool import LoadMemoryTool, RememberTool, WriteTopicTool, ReadTopicTool
 
-        # 1. CHACHA.md 宪法
-        rule_loader = StaticRuleLoader(self._project)
-        rules = rule_loader.load()
 
         # 2. 系统提示词（不硬编码工具名）
         system_prompt = (
             "你是 ChachaAgent。当前项目: " + self._project.name + "。\n"
             "使用提供的工具操作文件和记忆。回复简洁直接，中文优先。"
         )
-        if rules:
-            system_prompt += f"\n\n--- 项目宪法 (CHACHA.md) ---\n{rules}"
 
         # 3. 工具列表（由 function calling 传入，不写在提示词）
         tools = [
@@ -81,7 +75,10 @@ class ChachaApp(App):
             EditFileTool(root=self._project),
             LoadMemoryTool(),
             RememberTool(),
+            WriteTopicTool(),
+            ReadTopicTool(),
         ]
+
 
         # 4. 桥接 + 会话
         self._bridge = AgentBridge(
@@ -93,11 +90,7 @@ class ChachaApp(App):
         # 5. 欢迎
         self._log_system("[bold white]ChachaAgent v0.1[/] — 项目: " + self._project.name)
         self._log_system(f"[dim]{init_msg}[/]")
-        if rules:
-            self._log_system(
-                f"[cyan]📜 CHACHA.md 已加载[/] "
-                f"({len(rules.split(chr(10)))} 行规则)"
-            )
+       
         self._log_system(
             "[dim]Ctrl+N 新会话 | Ctrl+S 保存 | Ctrl+D 调试 | "
             "Ctrl+X 压缩 | /help 命令[/]"
@@ -207,8 +200,12 @@ class ChachaApp(App):
         chat.write(audit)
 
         # 自动触发记忆检查
+        self._session.record_dream_hint()
         if self._session.should_dream():
-            self._session.record_dream_hint()
+            import asyncio
+            asyncio.create_task(self._bridge.run_dream())
+            self._session.mark_dream_run()
+
 
         self._update_status()
 

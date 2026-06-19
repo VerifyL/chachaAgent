@@ -54,7 +54,7 @@ build = [
 ]
 
 [project.scripts]
-chacha = "main:main"
+chacha = "interface.cli.app:main"
 
 [project.urls]
 Homepage = "https://github.com/your-org/chachaAgent"

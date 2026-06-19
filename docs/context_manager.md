@@ -1,8 +1,8 @@
-# 上下文组装策略 (`core/context_manager.py`) (v2.0)
+# 上下文组装策略 (`core/context_manager.py`) (v2.1)
 
 本文档说明 `ContextManager` 的上下文组装流程、DYNAMIC_BOUNDARY 策略、Token 预算控制和压缩触发。
 
-## v2.0 上下文字段顺序
+## v2.1 上下文字段顺序
 
 ```
 ┌─────────────────────────────────────────┐
@@ -10,18 +10,19 @@
 ├─────────────────────────────────────────┤
 │  1. SYSTEM_PROMPT                       │
 │  2. CHACHA.md（宪法，分层加载）           │
-│  3. CHACHA_MEMORY.md（永久记忆，≤100条）  │
-│  4. SKILLS / tool schemas               │
+│  3. USER_MEMORY.md（用户级永久记忆）       │
+│  4. CHACHA_MEMORY.md（项目永久记忆）       │
+│  5. SKILLS / tool schemas               │
 ├─────────────────────────────────────────┤
 │  dynamic zone（按 importance 排序，可压缩）│
 ├─────────────────────────────────────────┤
-│  5. MEMORY.md（autoDream 轻量索引）       │
-│  6. 今日会话记忆（session/{date}.md）      │
-│  7. 对话历史（最近 N 轮完整）              │
-│  8. 最近 K 个工具结果（完整）              │
-│  9. 老旧工具结果（占位符格式）              │
-│ 10. RAG / SubAgent 结果                  │
-│ 11. 钩子注入 additional_context           │
+│  6. MEMORY.md（DreamPipeline 轻量索引）    │
+│  7. 今日会话记忆（session/{date}.md）      │
+│  8. 对话历史（最近 N 轮完整）              │
+│  9. 最近 K 个工具结果（完整）              │
+│ 10. 老旧工具结果（占位符格式）              │
+│ 11. RAG / SubAgent 结果                  │
+│ 12. 钩子注入 additional_context           │
 └─────────────────────────────────────────┘
 ```
 
@@ -45,8 +46,9 @@ ConversationState  ──→  ContextManager.assemble()  ──→  AssembledCon
 |------|----------|------|------|
 | `system_prompt` | 0 | protected | 核心指令，缓存 600s |
 | `static_rule` | 1 | protected | CHACHA.md 规范，缓存 600s |
-| `permanent_memory` | 2 | protected | CHACHA_MEMORY.md，缓存 300s |
-| `skill` | 3 | protected | 技能定义，缓存 1200s |
+| `global_permanent_memory` | 2 | protected | USER_MEMORY.md 用户级记忆，缓存 300s |
+| `permanent_memory` | 3 | protected | CHACHA_MEMORY.md 项目记忆，缓存 300s |
+| `skill` | 4 | protected | 技能定义，缓存 1200s |
 | `memory_index` | 10 | dynamic | MEMORY.md 记忆索引 |
 | `session_memory` | 11 | dynamic | 今日会话记忆 |
 | `history` | 20+ | dynamic | 用户消息 + 助手回复 |
@@ -57,10 +59,11 @@ ConversationState  ──→  ContextManager.assemble()  ──→  AssembledCon
 ```python
 mgr = ContextManager()
 mgr.set_system_prompt("你是助手")
-mgr.set_static_rules("CHACHA.md 内容")       # 宪法
-mgr.set_permanent_memory("永久记忆内容")      # 保护区
-mgr.set_memory_index("MEMORY.md 索引")       # 动态区
-mgr.set_session_memory("今日会话记忆")        # 动态区
+mgr.set_static_rules("CHACHA.md 内容")              # 宪法
+mgr.set_global_permanent_memory("USER_MEMORY.md")   # 用户级永久记忆（跨项目）
+mgr.set_permanent_memory("永久记忆内容")             # 项目永久记忆
+mgr.set_memory_index("MEMORY.md 索引")              # 动态区
+mgr.set_session_memory("今日会话记忆")               # 动态区
 ```
 
 ### 1.3 静态块缓存

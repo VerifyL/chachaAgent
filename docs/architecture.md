@@ -23,7 +23,12 @@
   OpenAI / Anthropic / Ollama 适配  →  ModelRouter  →  UsageTracker
 
 记忆与上下文子系统
-  StaticRuleLoader  →  MemoryManager  →  ContextAssembler  →  ContextCompressor
+  ├─ StaticRuleLoader           分层加载CHACHA.md（支持@import）
+  ├─ MemoryManager              读写MEMORY.md / CHACHA_MEMORY.md / Topics
+  ├─ DreamPipeline              项目级记忆整合（每N轮或定时）
+  ├─ GlobalDream                用户级跨项目永久记忆整合
+  ├─ ContextAssembler           优先级排序组装
+  └─ ContextCompressor          混合压缩（修剪 + LLM摘要）
 
 能力与插件层
   内置技能  |  OpenClaw  |  MCP 客户端  |  Code-RAG  |  沙箱执行器
@@ -350,10 +355,12 @@ OpenAIClient(model="llama3", base_url="http://localhost:11434/v1", api_key="olla
 
 **设计方向**：
 - 分层加载 `CHACHA.md`（用户 ~/.chacha/ → 项目/ → 子目录/，支持 @import）
-- `MemoryManager`：读写 MEMORY.md + autoDream 后台清洗
+- `MemoryManager`：读写 MEMORY.md + CHACHA_MEMORY.md + Topics，支持 remember/load_memory/write_topic/read_topic
+- `DreamPipeline`：项目级后台整合，每 N 轮或定时触发 → 同时输出 MEMORY.md + CHACHA_MEMORY.md
+- `GlobalDream`：用户级跨项目整合，DreamPipeline 触发后检查 → 合并为 ~/.chacha/USER_MEMORY.md
 - `ContextAssembler`：9 种 BlockSource 并行收集 + priority 排序 + Token 预算硬约束
 - `ContextCompressor`：渐进式压缩（FROZEN→TRIMMED→SUMMARIZED→CONSOLIDATED）
-- 详细文档见 `docs/context.md`
+- 详细文档见 `docs/memory.md`、`docs/context.md`、`docs/context_manager.md`
 
 ### 5.1 🔮 多模态压缩预留点
 

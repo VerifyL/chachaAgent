@@ -24,57 +24,152 @@ import logging
 import time
 from datetime import datetime, timezone
 from typing import Optional
-
+import asyncio
 logger = logging.getLogger(__name__)
 
 # 触发配置
-_DREAM_SESSION_COUNT = 10    # 每 N 次会话触发
+_DREAM_SESSION_COUNT = 1    # 每 N 次会话触发
 _DREAM_HOURS = 24            # 距上次运行超 N 小时触发
 
-DREAM_SYSTEM_PROMPT = """You are a memory consolidation assistant. Your task is to read raw conversation memories from multiple daily files and produce TWO outputs:
-1. An updated MEMORY.md (lightweight index with summaries, source paths, and timestamps)
-2. An updated CHACHA_MEMORY.md (permanent project memory, maximum 100 entries, only the most critical/persistent info)
+DREAM_SYSTEM_PROMPT = """You are a memory consolidation assistant. Your task is to read raw conversation memories and produce TWO outputs:
+1. An updated MEMORY.md (lightweight index — fully rebuilt each time)
+2. An updated CHACHA_MEMORY.md (incrementally merged permanent memory)
+
 
 ## Rules for MEMORY.md:
-1. Read ALL provided daily memory entries and the OLD MEMORY.md
+1. Read ALL provided daily memories, topics, and the OLD MEMORY.md
 2. Extract important information, deduplicate, and categorize
-3. Each entry should include: summary + source file path + summary timestamp
-4. Categories: User Preferences, Project Decisions, Lessons Learned, Errors Fixed, Project Progress
-5. Keep entries concise, sort by importance
-6. Format as Markdown with ## category headings
+3. Each entry must include: a one-line summary + source file path + timestamp
+4. Categories:
+   - User Preferences (tools, style, workflow habits)
+   - Project Decisions (architecture, tech stack, conventions)
+   - Lessons Learned (mistakes, pitfalls, best practices discovered)
+   - Errors Fixed (bugs resolved, root causes, solutions)
+   - Project Progress (milestones, completed features, current status)
+5. Keep entries concise — one to two lines per entry maximum
+6. Sort by importance within each category
+7. Format as Markdown with ## category headings
 
-## Rules for CHACHA_MEMORY.md:
-1. This is PERMANENT project memory — only upgrade truly persistent information here
-2. Judge which memories deserve permanent status (user preferences, critical project decisions, key learnings)
-3. Maximum 100 entries total
-4. Update/overwrite old entries when they become stale
-5. Format as Markdown with ## category headings
+
+## Rules for CHACHA_MEMORY.md (Incremental Merge):
+
+### Step 1 — Review old entries
+Each entry in OLD CHACHA_MEMORY.md has a stable [id:xxx] tag.
+For EACH old entry, you MUST explicitly decide one of:
+
+  [KEEP]   — Still valid and accurate → include EXACTLY as-is, keep its id
+  [UPDATE] — Info is stale or needs revision → rewrite the entry content, KEEP its id
+  [DELETE] — No longer applicable, was a mistake, or superseded → remove entirely
+
+Important: do NOT silently drop old entries. If you are unsure, default to [KEEP].
+
+### Step 2 — Extract new entries
+From NEW DAILY MEMORIES and topics, identify information that deserves permanent status.
+Only upgrade information that is:
+  - A long-term user preference or habit
+  - A critical or irreversible project decision
+  - A hard-won lesson or reusable insight
+  - An error pattern likely to recur
+  - A meaningful project milestone
+
+Assign a unique id for each NEW entry following the pattern:
+  pref-XXX   for user preferences
+  dec-XXX    for project decisions
+  learn-XXX  for lessons learned
+  err-XXX    for errors fixed
+  prog-XXX   for project progress
+
+Start numbering from 001 within each prefix. If old entries use these same prefixes,
+continue from the highest existing number + 1.
+
+### Step 3 — Output the merged result
+Output the COMPLETE merged CHACHA_MEMORY.md containing ALL [KEEP] + [UPDATE] + [NEW] entries.
+Remove only [DELETE] entries.
+NO entry limit — keep all truly persistent information.
+Sort entries by importance within each category.
+
+### Entry format for CHACHA_MEMORY.md:
+```
+### Critical Preferences
+- [id:pref-001] User prefers dark theme CLI with green accents
+  Source: sessions/2026-06-10.md
+  Updated: 2026-06-10T09:15:00Z
+
+- [id:pref-002] Uses pytest with pytest-asyncio for all tests
+  Source: sessions/2026-06-15.md
+  Updated: 2026-06-15T14:20:00Z
+
+### Key Decisions
+- [id:dec-001] Database: SQLite chosen for lightweight local deployment
+  Source: sessions/2026-06-05.md
+  Updated: 2026-06-05T10:30:00Z
+
+### Lessons Learned
+- [id:learn-001] Always add index before querying large tables — missed it caused 30s query
+  Source: sessions/2026-06-08.md
+  Updated: 2026-06-08T16:45:00Z
+
+### Errors Fixed
+- [id:err-001] ImportError on missing libffi-dev — install system package first
+  Source: sessions/2026-06-03.md
+  Updated: 2026-06-03T11:20:00Z
+
+### Project Progress
+- [id:prog-001] Auth module: login/logout/session completed (2026-06-12)
+  Source: sessions/2026-06-12.md
+  Updated: 2026-06-12T17:00:00Z
+```
+
 
 ## Output Format:
-Output exactly in this format with these exact separators:
+Output exactly in this format with these exact separators.
+The {timestamp} placeholder will be replaced with the current UTC time.
 
 ===MEMORY_MD===
 ## Memory Index (autoDream generated at {timestamp})
 
 ### User Preferences
 - Summary line here
-  Source: sessions/{session_id}/{date}.md
+  Source: sessions/{date}.md
   Updated: {timestamp}
 
 ### Project Decisions
+- Summary line here
+  Source: sessions/{date}.md
+  Updated: {timestamp}
+
+### Lessons Learned
+...
+
+### Errors Fixed
+...
+
+### Project Progress
 ...
 
 ===CHACHA_MEMORY_MD===
 ## Permanent Project Memory (autoDream updated at {timestamp})
 
 ### Critical Preferences
-- Entry summary here
-...
+- [id:pref-001] Entry content here
+  Source: sessions/{date}.md
+  Updated: {timestamp}
 
 ### Key Decisions
 ...
 
-Output ONLY the content between the markers, no additional explanations."""
+### Lessons Learned
+...
+
+### Errors Fixed
+...
+
+### Project Progress
+...
+
+Output ONLY the content between the markers. No additional explanations, no commentary."""
+
+
 
 
 class DreamPipeline:
@@ -130,6 +225,19 @@ class DreamPipeline:
             "DreamPipeline 完成 (%.1fs, MEMORY.md=%d chars, CHACHA_MEMORY.md=%d chars)",
             elapsed, len(memory_md), len(permanent_md),
         )
+
+        
+        # 5. 通知 GlobalDream
+        try:
+            from core.context.global_dream import get_global_dream
+            gd = get_global_dream()
+            gd.record_project_dream()
+            if gd.should_run():
+                logger.info("触发 GlobalDream 用户级记忆整合...")
+                asyncio.create_task(gd.run())
+        except Exception as e:
+            logger.warning("GlobalDream 钩子异常: %s", e)
+
         return memory_md, permanent_md
 
     # ====== 触发判断 ======
@@ -165,22 +273,20 @@ class DreamPipeline:
         """收集所有可用的记忆内容。"""
         parts: list[str] = []
 
-        # 项目级每日文件
-        project_days = memory_manager.list_days(limit=self._prune_days)
-        for day in project_days:
-            text = memory_manager.read_day(day)
+        # memory/session/ 下的每日文件
+        days = memory_manager.list_all_session_days(limit_days=self._prune_days)
+        for f in days:
+            text = self._read(f)
             if text.strip():
-                parts.append(f"## project/{day}.md\n{text}")
+                parts.append(f"## session/{f.name}\n{text}")
 
-        # 所有 session 的每日文件
-        session_days = memory_manager.list_all_session_days(limit_days=self._prune_days)
-        for sid, files in session_days.items():
-            for f in files:
-                text = self._read(f)
-                if text.strip():
-                    parts.append(f"## sessions/{sid}/{f.name}\n{text}")
+        # memory/topics/ 下的主题内容
+        topics_text = memory_manager.all_topics_content()
+        if topics_text:
+            parts.append(f"## topics\n{topics_text}")
 
         return "\n\n".join(parts)
+
 
     async def _consolidate(
         self, raw_text: str, old_memory: str, old_permanent: str,

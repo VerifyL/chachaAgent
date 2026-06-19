@@ -48,12 +48,14 @@ class SessionManager:
 
     def save(self) -> str:
         """保存会话：触发 DreamPipeline 检查。"""
+        self.record_dream_hint()
         if self._bridge and hasattr(self._bridge, 'run_dream'):
             import asyncio
             try:
                 # 检查是否应触发 dream
                 if self.should_dream():
                     asyncio.create_task(self._bridge.run_dream())
+                    self.mark_dream_run()
             except Exception:
                 pass
         return self._session_id
@@ -142,10 +144,11 @@ class SessionManager:
 
     def should_dream(self) -> bool:
         """是否触发 DreamPipeline（10 次提示或 24h）。"""
-        count_triggered = self._dream_hints >= 10
+        from core.context.dream import _DREAM_SESSION_COUNT, _DREAM_HOURS
+        count_triggered = self._dream_hints >= _DREAM_SESSION_COUNT
         time_triggered = (
             self._last_dream_at is not None
-            and time.time() - self._last_dream_at > 86400
+            and time.time() - self._last_dream_at > _DREAM_HOURS * 3600
         )
         return count_triggered or time_triggered
 
@@ -162,46 +165,36 @@ class SessionManager:
         self._save_round_memory(user_input, assistant_text)
 
     def _save_round_memory(self, user_input: str, assistant_text: str) -> None:
-        """每轮对话自动追加到当前 session 的当日记忆文件。
-        只保存 user + assistant，不含工具调用。
-        """
+        """每轮对话自动追加到 memory/session/ 当日记忆文件。"""
         if not user_input and not assistant_text:
             return
         try:
             from core.context.memory_manager import MemoryManager
-            mgr = MemoryManager(
-                project_id=self._project.name,
-                session_id=self._session_id,
-            )
-            user_short = user_input.replace("\n", " ")
-            asst_short = assistant_text.replace("\n", " ")
-            entry = f"Q: {user_short}\nA: {asst_short}"
+            mgr = MemoryManager(project_root=self._project)
+            entry = f"Q: {user_input.strip()}\nA: {assistant_text.strip()}"
             mgr.remember(entry)
         except Exception:
             pass
 
+
     def cleanup_tool_cache(self) -> None:
-        """清理当前会话的 tool_cache 目录。"""
+        """清理 memory/tool_cache/ 目录。"""
         try:
             from core.context.memory_manager import MemoryManager
-            mgr = MemoryManager(
-                project_id=self._project.name,
-                session_id=self._session_id,
-            )
+            mgr = MemoryManager(project_root=self._project)
             mgr.cleanup_tool_cache()
         except Exception:
             pass
 
+
     def list_memory_days(self, limit: int = 10) -> list:
         try:
             from core.context.memory_manager import MemoryManager
-            mgr = MemoryManager(
-                project_id=self._project.name,
-                session_id=self._session_id,
-            )
+            mgr = MemoryManager(project_root=self._project)
             return mgr.list_days(limit=limit)
         except Exception:
             return []
+
 
     # ====== 内部 ======
 

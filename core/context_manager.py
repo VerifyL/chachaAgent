@@ -65,6 +65,7 @@ class ContextManager:
         self._skills = ""             # 技能定义
         self._memory_index = ""       # MEMORY.md 轻量索引
         self._session_memory = ""     # 今日会话记忆
+        self._global_permanent_memory = ""  # ~/.chacha/USER_MEMORY.md 用户级永久记忆
 
         self._block_cache: Dict[str, ContextBlock] = {}
 
@@ -78,6 +79,10 @@ class ContextManager:
         """注入 CHACHA.md 宪法内容。"""
         self._static_rules = rules
         self._block_cache.pop(str(BlockSource.STATIC_RULE), None)
+
+    def set_global_permanent_memory(self, content: str) -> None:
+        """注入 ~/.chacha/USER_MEMORY.md 用户级永久记忆（保护区）。"""
+        self._global_permanent_memory = content
 
     def set_permanent_memory(self, content: str) -> None:
         """注入 CHACHA_MEMORY.md 永久记忆（保护区）。"""
@@ -95,6 +100,45 @@ class ContextManager:
     def set_session_memory(self, content: str) -> None:
         """注入今日会话记忆（动态区）。"""
         self._session_memory = content
+        
+    @staticmethod
+    def build_system_prompt(project_root, base_prompt: str = "") -> str:
+        """从所有来源加载上下文，返回组装好的完整系统提示词。
+
+        来源（按顺序拼接）：
+        1. base_prompt — 调用方传入的基础提示词
+        2. ~/.chacha/CHACHA.md — 用户级全局宪法（跨项目）
+        3. {cwd}/CHACHA.md — 项目级宪法
+        4. CHACHA_MEMORY.md — 永久记忆
+        5. MEMORY.md — 轻量索引
+        """
+        from pathlib import Path
+        from core.context.memory_manager import MemoryManager
+
+        sections = [base_prompt] if base_prompt else []
+
+        # 1. CHACHA.md 宪法（全局 + 项目，两层拼接）
+        chacha_parts = []
+        global_chacha = Path.home() / ".chacha" / "CHACHA.md"
+        if global_chacha.exists():
+            chacha_parts.append(global_chacha.read_text(encoding="utf-8"))
+        project_chacha = Path(project_root) / "CHACHA.md"
+        if project_chacha.exists():
+            chacha_parts.append(project_chacha.read_text(encoding="utf-8"))
+        rules_text = "\n\n".join(chacha_parts)
+        if rules_text:
+            sections.append(f"--- 项目宪法 (CHACHA.md) ---\n{rules_text}")
+
+        # 2. CHACHA_MEMORY.md + MEMORY.md
+        mgr = MemoryManager(project_root=project_root)
+        permanent = mgr.read_permanent_memory()
+        if permanent:
+            sections.append(f"--- 项目永久记忆 ---\n{permanent}")
+        memory_index = mgr.read()
+        if memory_index:
+            sections.append(f"--- 记忆索引 ---\n{memory_index}")
+
+        return "\n\n".join(sections)
 
     def clear_cache(self) -> None:
         self._block_cache.clear()
@@ -133,21 +177,31 @@ class ContextManager:
                 BlockSource.STATIC_RULE, "system", rules,
                 zone="protected", priority=1, importance=0.95, ttl=600,
             ))
+        
+        
+        # 3 ~/.chacha/USER_MEMORY.md 用户级永久记忆（跨项目）
+        if self._global_permanent_memory:
+            blocks.append(self._cached_block(
+                BlockSource.STATIC_RULE, "system",
+                f"[Global Permanent Memory]\n{self._global_permanent_memory}",
+                zone="protected", priority=2, importance=0.92, ttl=300,
+            ))
 
-        # 3. CHACHA_MEMORY.md 永久记忆
+
+        # 4. CHACHA_MEMORY.md 永久记忆
         if self._permanent_memory:
             blocks.append(self._cached_block(
                 BlockSource.STATIC_RULE, "system",  # 复用 STATIC_RULE source
                 f"[Permanent Memory]\n{self._permanent_memory}",
-                zone="protected", priority=2, importance=0.9, ttl=300,
+                zone="protected", priority=3, importance=0.9, ttl=300,
             ))
 
-        # 4. SKILL 定义
+        # 5. SKILL 定义
         skill_content = skills or self._skills
         if skill_content:
             blocks.append(self._cached_block(
                 BlockSource.SKILL, "system", skill_content,
-                zone="protected", priority=3, importance=0.85, ttl=1200,
+                zone="protected", priority=4, importance=0.85, ttl=1200,
             ))
 
         protected_count = len(blocks)

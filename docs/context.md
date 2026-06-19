@@ -12,11 +12,9 @@
 
 ## 设计理念
 
-融合 Claude Code + Harness 工程指南的上下文管理最佳实践：
-
-- **Claude Code 压缩骨架**：7 层渐进式压缩（FROZEN → TRIMMED → SUMMARIZED → CONSOLIDATED）
-- **DYNAMIC_BOUNDARY**：保护区（system_prompt + CHACHA.md + CHACHA_MEMORY.md + skills）永不被截断
-- **v2.0 永久记忆**：CHACHA_MEMORY.md 在保护区，永不压缩、永不删除
+- **压缩骨架**：7 层渐进式压缩（FROZEN → TRIMMED → SUMMARIZED → CONSOLIDATED）
+- **DYNAMIC_BOUNDARY**：保护区（system_prompt + CHACHA.md + USER_MEMORY.md + CHACHA_MEMORY.md + skills）永不被截断
+- **v2.1 双层永久记忆**：USER_MEMORY.md（用户级跨项目）+ CHACHA_MEMORY.md（项目级），均在保护区，永不压缩、永不删除
 - **v2.0 两阶段工具缓存**：Stage 1 Dispatcher → Stage 2 Compressor
 
 ---
@@ -38,7 +36,8 @@ class BlockSource(str, Enum):
 |------|----------|------------|--------|
 | `SYSTEM_PROMPT` | 系统级指令 | `protected` | ✅ TTL 600s |
 | `STATIC_RULE` | 分层 CHACHA.md | `protected` | ✅ TTL 600s |
-| `MEMORY` (permanent) | CHACHA_MEMORY.md 永久记忆（≤100条） | `protected` | ✅ TTL 300s |
+| `MEMORY` (global) | USER_MEMORY.md 用户级永久记忆（跨项目） | `protected` | ✅ TTL 300s |
+| `MEMORY` (permanent) | CHACHA_MEMORY.md 项目永久记忆 | `protected` | ✅ TTL 300s |
 | `SKILL` | 技能定义、工具 schema | `protected` | ✅ TTL 1200s |
 | `MEMORY` (index) | MEMORY.md 轻量索引 | `dynamic` | ❌ |
 | `MEMORY` (session) | 今日会话记忆 | `dynamic` | ❌ |
@@ -62,14 +61,15 @@ class BlockSource(str, Enum):
 
 ---
 
-## 3. v2.0 上下文字段顺序
+## 3. v2.1 上下文字段顺序
 
 ```
 protected zone:
   0. SYSTEM_PROMPT
   1. CHACHA.md (STATIC_RULE)
-  2. CHACHA_MEMORY.md (MEMORY, 永久记忆)
-  3. SKILL
+  2. USER_MEMORY.md（用户级永久记忆，跨项目）
+  3. CHACHA_MEMORY.md (MEMORY, 项目永久记忆)
+  4. SKILL
 
 dynamic zone:
   10. MEMORY.md 索引

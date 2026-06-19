@@ -28,7 +28,7 @@ from core.llm_invoker import LLMResponse
 
 logger = logging.getLogger(__name__)
 
-MAX_TOOL_ROUNDS = 50          # 防止无限工具循环
+MAX_TOOL_ROUNDS = 200          # 防止无限工具循环
 KEEP_TOOL_RESULTS = 10        # Stage 1 宽松：保留最近 10 个完整工具结果
 
 

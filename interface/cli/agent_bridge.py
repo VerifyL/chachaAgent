@@ -15,7 +15,9 @@ v2.0 新增:
 import os
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, List, Optional
-
+import asyncio
+import logging
+logger = logging.getLogger(__name__)
 
 class AgentBridge:
     """CLI ↔ 核心模块桥接（v2.0）"""
@@ -70,10 +72,11 @@ class AgentBridge:
     # ====== 初始化 ======
 
     async def initialize(self) -> str:
+        await self._load_static_contexts()
+
         if not self._api_key:
             return "⚠️  未设置 API Key。使用 /key sk-xxx 设置。"
         await self._rebuild()
-        await self._load_static_contexts()
         self._initialized = True
         return f"✅ 就绪 — 模型: {self._model} | 项目: {self._root.name}"
 
@@ -92,37 +95,65 @@ class AgentBridge:
         self._invoker = LLMInvoker(model_client=client)
         self._context_manager = ContextManager()
 
-        mgr = MemoryManager(project_id=self._root.name)
+        mgr = MemoryManager(project_root=self._root)
+
         for tool in self._custom_tools:
             if hasattr(tool, '_mgr'):
                 tool._mgr = mgr
 
         tools = ToolExecutor(tools=self._custom_tools)
         self._dispatcher = Dispatcher(self._invoker, tools)
+        
+        # 设置 GlobalDream 的 LLM invoker
+        from core.context.global_dream import get_global_dream
+        get_global_dream().set_llm(self._invoker)
 
         self._messages = [{"role": "system", "content": self._system_prompt}]
 
     async def _load_static_contexts(self) -> None:
-        """加载 CHACHA.md / CHACHA_MEMORY.md / MEMORY.md 并注入 ContextManager。"""
-        if not self._context_manager:
-            return
+       """委托 core 层加载所有上下文。"""
+       from core.context_manager import ContextManager
+        # 1. 更新 system_prompt 字符串
+       self._system_prompt = ContextManager.build_system_prompt(
+            project_root=self._root,
+            base_prompt=self._system_prompt,
+        )
 
-        # 1. CHACHA.md 宪法
-        chacha_path = self._root / "CHACHA.md"
-        if chacha_path.exists():
-            self._context_manager.set_static_rules(chacha_path.read_text(encoding="utf-8"))
-
-        # 2. CHACHA_MEMORY.md 永久记忆（保护区）
+        # 2. 如果 context_manager 已存在，同步注入结构化内容
+       if self._context_manager:
+            self._load_into_context_manager()
+    
+    def _load_into_context_manager(self) -> None:
+        """将 CHACHA.md / CHACHA_MEMORY.md / MEMORY.md 注入已有的 context_manager。"""
         from core.context.memory_manager import MemoryManager
-        mgr = MemoryManager(project_id=self._root.name)
+        from pathlib import Path
+
+        chacha_parts = []
+        global_chacha = Path.home() / ".chacha" / "CHACHA.md"
+        if global_chacha.exists():
+            chacha_parts.append(global_chacha.read_text(encoding="utf-8"))
+        project_chacha = self._root / "CHACHA.md"
+        if project_chacha.exists():
+            chacha_parts.append(project_chacha.read_text(encoding="utf-8"))
+        rules_text = "\n\n".join(chacha_parts)
+        if rules_text:
+            self._context_manager.set_static_rules(rules_text)
+
+        # 加载全局用户级永久记忆 ~/.chacha/USER_MEMORY.md
+        global_permanent = Path.home() / ".chacha" / "USER_MEMORY.md"
+        if global_permanent.exists():
+            global_content = global_permanent.read_text(encoding="utf-8").strip()
+            if global_content:
+                self._context_manager.set_global_permanent_memory(global_content)
+
+        mgr = MemoryManager(project_root=self._root)
         permanent = mgr.read_permanent_memory()
         if permanent:
             self._context_manager.set_permanent_memory(permanent)
-
-        # 3. MEMORY.md 轻量索引（动态区）
         memory_index = mgr.read()
         if memory_index:
             self._context_manager.set_memory_index(memory_index)
+
 
     # ====== 命令 ======
 
@@ -192,7 +223,7 @@ class AgentBridge:
         """显示记忆摘要。"""
         try:
             from core.context.memory_manager import MemoryManager
-            mgr = MemoryManager(project_id=self._root.name)
+            mgr = MemoryManager(project_root=self._root)
             permanent = mgr.read_permanent_memory()
             index = mgr.read()
             days = mgr.list_days(limit=7)
@@ -216,7 +247,7 @@ class AgentBridge:
             from core.context.memory_manager import MemoryManager
             from core.context.dream import DreamPipeline
 
-            mgr = MemoryManager(project_id=self._root.name)
+            mgr = MemoryManager(project_root=self._root)
             pipeline = DreamPipeline(self._invoker)
             memory_md, permanent_md = await pipeline.run(mgr)
 
@@ -275,9 +306,21 @@ class AgentBridge:
         try:
             from core.context.memory_manager import MemoryManager
             from core.context.dream import DreamPipeline
-            mgr = MemoryManager(project_id=self._root.name)
+            mgr = MemoryManager(project_root=self._root)
             pipeline = DreamPipeline(self._invoker)
             memory_md, permanent_md = await pipeline.run(mgr)
+            
+            # 通知 GlobalDream
+            try:
+                from core.context.global_dream import get_global_dream
+                gd = get_global_dream()
+                gd.record_project_dream()
+                if gd.should_run():
+                    logger.info("触发 GlobalDream 用户级记忆整合...")
+                    asyncio.create_task(gd.run())
+            except Exception as e:
+                logger.warning("GlobalDream 钩子异常: %s", e)
+
             return (
                 f"完成: MEMORY.md={len(memory_md)}字符, CHACHA_MEMORY.md={len(permanent_md)}字符"
                 if memory_md else "无需整合"

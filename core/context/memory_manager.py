@@ -10,7 +10,7 @@ MemoryManager — 纯文件 I/O，LLM 通过工具自主驱动。
 MEMORY.md 由 autoDream 管道定期构建（v1.0），作为轻量索引注入上下文。
 
 v2.0 新增:
-  - CHACHA_MEMORY.md 永久记忆（≤100条，保护区，永不删除）
+  - CHACHA_MEMORY.md 永久记忆（无条目上限，保护区，永不删除）
   - session 隔离的每日记忆 + tool_cache 缓存
   - 老化时间缩短为 7 天
 """
@@ -20,51 +20,72 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+import hashlib
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_BASE = Path(".chacha_agent/memory")
+_DEFAULT_BASE = Path.home() / ".chacha" 
 _PERMANENT_MEMORY_FILENAME = "CHACHA_MEMORY.md"
-_MAX_PERMANENT_ENTRIES = 100
 _PRUNE_DAYS = 7
 
+# 主题名常量
+_TOPICS = [
+    "user-preferences",
+    "project-decisions",
+    "lessons-learned",
+    "errors-fixed",
+    "project-progress",
+]
 
 class MemoryManager:
-    """按日期+会话分散存储，支持搜索/去重/修剪。
-
-    session_id 为空时 → projects/{project_id}/memory/
-    session_id 提供时 → projects/{project_id}/sessions/{session_id}/
+    """按日期分散存储，支持搜索/去重/修剪。
 
     文件结构:
         projects/{project_id}/
             CHACHA_MEMORY.md           ← 永久记忆（保护区）
             memory/
                 MEMORY.md               ← autoDream 轻量索引
-                {YYYY-MM-DD}.md         ← 项目级每日记忆（无 session 回退）
-            sessions/{session_id}/
-                {YYYY-MM-DD}.md         ← 会话每日记忆（user+assistant）
-                tool_cache/             ← 工具结果缓存（会话结束删除）
+                session/
+                    {YYYY-MM-DD}.md     ← 每日对话记忆（user+assistant）
+                topics/
+                    user-preferences.md  ← 主题记忆
+                    ...
+                tool_cache/             ← 工具结果缓存
     """
 
     def __init__(
         self,
-        project_id: str = "default",
+        project_root: Optional[Path] = None,
+        project_id: str = "",
         base_dir: Optional[Path] = None,
-        session_id: str = "",
     ):
-        self._project_id = project_id
-        root = base_dir or _DEFAULT_BASE
-        self._project_dir = root / "projects" / project_id
-
-        if session_id:
-            self._base = self._project_dir / "sessions" / session_id
+        if project_id:
+            self._project_id = project_id
+        elif project_root:
+            self._project_id = hashlib.sha256(
+                str(project_root.resolve()).encode()
+            ).hexdigest()[:12]
         else:
-            self._base = self._project_dir / "memory"
+            self._project_id = "default"
+        
+        root = base_dir or _DEFAULT_BASE
+        self._project_dir = root / "projects" / self._project_id
+
+        # memory/ 为统一记忆根目录
+        self._base = self._project_dir / "memory"
         self._base.mkdir(parents=True, exist_ok=True)
 
-        # tool_cache 目录
+        # memory/session/ — 每日对话记忆
+        self._session_dir = self._base / "session"
+        self._session_dir.mkdir(parents=True, exist_ok=True)
+
+        # memory/tool_cache/ — 工具结果缓存
         self._tool_cache_dir = self._base / "tool_cache"
         self._tool_cache_dir.mkdir(parents=True, exist_ok=True)
+
+        # memory/topics/ — 主题记忆
+        self._topics_dir = self._base / "topics"
+        self._topics_dir.mkdir(parents=True, exist_ok=True)
 
     # ====== 永久记忆 (CHACHA_MEMORY.md) ======
 
@@ -84,9 +105,39 @@ class MemoryManager:
         """返回 CHACHA_MEMORY.md 路径。"""
         return self._project_dir / _PERMANENT_MEMORY_FILENAME
 
-    @property
-    def max_permanent_entries(self) -> int:
-        return _MAX_PERMANENT_ENTRIES
+    # ====== 主题记忆（Agent 自主写入） ======
+
+    def read_topic(self, topic_name: str) -> str:
+        """读取指定主题的完整内容。"""
+        path = self._topics_dir / f"{topic_name}.md"
+        return self._read(path)
+
+    def write_topic(self, topic_name: str, content: str) -> Path:
+        """追加内容到指定主题文件。"""
+        path = self._topics_dir / f"{topic_name}.md"
+        ts = datetime.now(tz=timezone.utc).isoformat()
+        entry = f"\n## {ts}\n{content.strip()}\n"
+        existing = self._read(path)
+        path.write_text((existing + entry).strip() + "\n", encoding="utf-8")
+        logger.info("主题记忆已写入: %s -> %s", topic_name, path)
+        return path
+
+    def list_topics(self) -> list[str]:
+        """列出所有已存在的主题名称。"""
+        if not self._topics_dir.exists():
+            return []
+        return sorted([
+            f.stem for f in self._topics_dir.glob("*.md")
+        ])
+
+    def all_topics_content(self) -> str:
+        """收集所有主题文件内容（供 DreamPipeline 使用）。"""
+        parts = []
+        for name in self.list_topics():
+            text = self.read_topic(name)
+            if text.strip():
+                parts.append(f"## topics/{name}.md\n{text}")
+        return "\n\n".join(parts)
 
     # ====== 读（轻量索引，ContextManager 用） ======
 
@@ -108,72 +159,69 @@ class MemoryManager:
     def list_days(self, limit: int = 30) -> list[str]:
         """列出最近 N 天（按日期降序）。"""
         files = sorted(
-            [f.stem for f in self._base.glob("????-??-??.md")],
+            [f.stem for f in self._session_dir.glob("????-??-??.md")],
             reverse=True,
         )
         return files[:limit]
 
     # ====== 跨 session 收集（autoDream 用） ======
 
-    def list_all_session_days(self, limit_days: int = 7) -> dict[str, list[Path]]:
-        """收集所有 session 目录下最近 N 天的每日文件。
+    def list_all_session_days(self, limit_days: int = 7) -> list[Path]:
+        """收集 memory/session/ 下最近 N 天的每日文件。
         
         Returns:
-            {session_id: [Path, ...]} 每个 session 的每日文件列表
+            每日文件路径列表
         """
-        sessions_dir = self._project_dir / "sessions"
-        if not sessions_dir.exists():
-            return {}
+        if not self._session_dir.exists():
+            return []
 
         cutoff = datetime.now(tz=timezone.utc)
-        result: dict[str, list[Path]] = {}
-
-        for session_dir in sorted(sessions_dir.iterdir()):
-            if not session_dir.is_dir():
+        day_files = sorted(self._session_dir.glob("????-??-??.md"))
+        recent = []
+        for f in day_files:
+            try:
+                dt = datetime.strptime(f.stem, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                if (cutoff - dt).days <= limit_days:
+                    recent.append(f)
+            except ValueError:
                 continue
-            day_files = sorted(session_dir.glob("????-??-??.md"))
-            recent = []
-            for f in day_files:
-                try:
-                    dt = datetime.strptime(f.stem, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-                    if (cutoff - dt).days <= limit_days:
-                        recent.append(f)
-                except ValueError:
-                    continue
-            if recent:
-                result[session_dir.name] = recent
+        return recent
 
-        return result
 
     # ====== 搜索（LLM 工具 load_memory 调用） ======
 
     def search(
         self, query: str, limit: int = 10,
-        max_chars: int = 6000, across_sessions: bool = False,
+        max_chars: int = 6000,
     ) -> str:
         """搜索记忆文件，返回匹配 query 的条目。"""
         keywords = query.lower().split()
         scored: list[tuple[str, float]] = []
 
-        search_dirs = [self._base]
-        if across_sessions:
-            sessions_dir = self._project_dir / "sessions"
-            if sessions_dir.exists():
-                search_dirs.extend(
-                    d for d in sessions_dir.iterdir() if d.is_dir()
-                )
+        # 搜索 memory/session/ 下的日文件
+        for day_file in sorted(self._session_dir.glob("????-??-??.md"), reverse=True):
+            text = self._read(day_file)
+            entries = self._split_entries(text)
+            for entry in entries:
+                entry_lower = entry.lower()
+                score = sum(1 for kw in keywords if kw in entry_lower)
+                if score > 0:
+                    source = f"session/{day_file.stem}"
+                    scored.append((
+                        f"[{source}] {entry.strip()}",
+                        score / len(keywords),
+                    ))
 
-        for sd in search_dirs:
-            if not sd.is_dir():
-                continue
-            for day_file in sorted(sd.glob("????-??-??.md"), reverse=True):
-                text = self._read(day_file)
+        # 搜索 memory/topics/ 下的主题文件
+        if self._topics_dir.exists():
+            for topic_file in sorted(self._topics_dir.glob("*.md")):
+                text = self._read(topic_file)
                 entries = self._split_entries(text)
                 for entry in entries:
                     entry_lower = entry.lower()
                     score = sum(1 for kw in keywords if kw in entry_lower)
                     if score > 0:
-                        source = f"{sd.parent.name}/{sd.name}/{day_file.stem}" if sd != self._base else day_file.stem
+                        source = f"topics/{topic_file.stem}"
                         scored.append((
                             f"[{source}] {entry.strip()}",
                             score / len(keywords),
@@ -184,6 +232,7 @@ class MemoryManager:
         if len(result) > max_chars:
             result = result[:max_chars] + "\n... [截断]"
         return result
+
 
     # ====== 写 ======
 
@@ -308,25 +357,20 @@ class MemoryManager:
         cutoff = datetime.now(tz=timezone.utc)
         deleted = 0
 
-        # 扫描所有可能包含日文件的目录
-        dirs_to_scan = [self._base]
-        sessions_dir = self._project_dir / "sessions"
-        if sessions_dir.exists():
-            dirs_to_scan.extend(d for d in sessions_dir.iterdir() if d.is_dir())
-
-        for scan_dir in dirs_to_scan:
-            for f in scan_dir.glob("????-??-??.md"):
-                try:
-                    dt = datetime.strptime(f.stem, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-                    if (cutoff - dt).days > _PRUNE_DAYS:
-                        f.unlink()
-                        deleted += 1
-                except ValueError:
-                    continue
+        # 只扫描 memory/session/ 下的日文件
+        for f in self._session_dir.glob("????-??-??.md"):
+            try:
+                dt = datetime.strptime(f.stem, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                if (cutoff - dt).days > _PRUNE_DAYS:
+                    f.unlink()
+                    deleted += 1
+            except ValueError:
+                continue
 
         if deleted:
             logger.info("Prune: 删除 %d 个旧记忆文件 (>%d 天)", deleted, _PRUNE_DAYS)
         return deleted
+
 
     # ====== 内部 ======
 
@@ -343,11 +387,18 @@ class MemoryManager:
         return path.read_text(encoding="utf-8").strip() if path.exists() else ""
 
     def _day_path(self, date_str: str) -> Path:
-        return self._base / f"{date_str}.md"
+        return self._session_dir / f"{date_str}.md"
 
     def _index_path(self) -> Path:
         return self._base / "MEMORY.md"
 
+
     @staticmethod
     def _date_str() -> str:
         return datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
+
+    @staticmethod
+    def project_hash(project_root: Path) -> str:
+        return hashlib.sha256(
+            str(project_root.resolve()).encode()
+        ).hexdigest()[:12]

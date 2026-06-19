@@ -165,7 +165,8 @@ class Orchestrator:
             else:
                 # 5. 无工具调用 → 最终回答 → 异步保存记忆
                 if final_text and self._memory:
-                    self._save_round_memory(user_input, final_text, sid, project_id)
+                    self._save_round_memory(user_input, final_text, project_id)
+
                 break
 
         # 强制终止警告
@@ -209,18 +210,17 @@ class Orchestrator:
 
     # ====== 会话记忆 & 清理 ======
 
-    def _save_round_memory(self, user_input: str, assistant_text: str, session_id: str, project_id: str) -> None:
-        """异步保存本轮对话到 session/{date}.md（只含 user + assistant，无工具调用）。"""
+    def _save_round_memory(self, user_input: str, assistant_text: str) -> None:
+        """异步保存本轮对话到 memory/session/{date}.md（只含 user + assistant，无工具调用）。"""
         try:
-            from core.context.memory_manager import MemoryManager
-            mgr = MemoryManager(project_id=project_id, session_id=session_id)
-            user_short = user_input[:200].replace("\n", " ")
-            asst_short = assistant_text[:200].replace("\n", " ")
-            entry = f"Q: {user_short}\nA: {asst_short}"
-            mgr.remember(entry)
-            logger.debug("会话记忆已保存: session=%s", session_id[:16])
+            if self._memory:
+                entry = f"Q: {user_input.strip()}\nA: {assistant_text.strip()}"
+                self._memory.remember(entry)
+                logger.debug("会话记忆已保存")
         except Exception as e:
             logger.warning("保存会话记忆失败: %s", e)
+
+
 
     async def _end_session_cleanup(self, session_id: str) -> None:
         """会话结束时清理 tool_cache 目录 + 记录 DreamPipeline。"""
