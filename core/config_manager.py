@@ -229,7 +229,9 @@ provider = "openai"
 api_key = ""
 # 自定义 API 端点
 base_url = "https://api.deepseek.com"
-default_model = "deepseek-chat"
+default_model = "deepseek-v4-pro"
+# 最大输出 token（默认 16384，亦可设置环境变量 MAX_TOKENS）
+# max_tokens = 131072
 
 # [dream]
 # Session Dream 触发阈值

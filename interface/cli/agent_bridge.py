@@ -49,7 +49,7 @@ class AgentBridge:
                           (default_provider.base_url if default_provider else "https://api.deepseek.com"))
         self._model = (os.environ.get("DEEPSEEK_MODEL") or
                        os.environ.get("OPENAI_MODEL") or
-                       (default_provider.default_model if default_provider else "deepseek-chat"))
+                       (default_provider.default_model if default_provider else "deepseek-v4-pro"))
 
         self._dispatcher = None
         self._invoker = None
@@ -284,7 +284,6 @@ class AgentBridge:
 
         self._messages.append({"role": "user", "content": user_input})
         t0 = __import__("time").monotonic()
-        #full_response: list[str] = []  
 
         try:
             async for chunk in self._dispatcher.dispatch_stream(
@@ -292,15 +291,9 @@ class AgentBridge:
                 session_id=f"cli-{int(t0)}",
                 max_rounds=10,
             ):
-                #if chunk.get("type") == "text":
-                #    full_response.append(chunk["content"])
                 yield chunk
         except Exception as e:
             yield {"type": "error", "message": str(e)}
-        #else:
-        #    text = "".join(full_response)
-        #    if text.strip():
-        #        self._messages.append({"role": "assistant", "content": text})
 
     async def get_result(self) -> str:
         return ""

@@ -18,6 +18,7 @@ OpenAIClient — OpenAI 及兼容 API（DeepSeek / Ollama / Qwen）的流式适�
 """
 
 import logging
+import os
 from typing import Any, AsyncIterator, Dict, List, Optional
 
 from openai import AsyncOpenAI
@@ -39,12 +40,14 @@ class OpenAIClient:
         model: str = "gpt-4",
         base_url: Optional[str] = None,
         temperature: float = 0.7,
-        max_tokens: int = 4096,
+        max_tokens: int = 16384,
         timeout: float = 120.0,
     ):
         self._model = model
         self._temperature = temperature
-        self._max_tokens = max_tokens
+        # 优先级: 环境变量 → 构造参数 → 默认 4096
+        env_max = os.environ.get("MAX_TOKENS")
+        self._max_tokens = int(env_max) if env_max else max_tokens
 
         kwargs: Dict[str, Any] = {"api_key": api_key or "sk-placeholder"}
         if base_url:
@@ -60,9 +63,17 @@ class OpenAIClient:
         tools: Optional[List[Dict[str, Any]]] = None,
     ) -> AsyncIterator[StreamChunk]:
         """流式调用 LLM，逐个返回 StreamChunk。"""
+        # DeepSeek thinking mode: 需保留 reasoning_content（但不要传 null）
+        _messages = []
+        for m in messages:
+            entry = dict(m)
+            if entry.get("role") == "assistant" and "reasoning_content" in entry and entry["reasoning_content"] is None:
+                del entry["reasoning_content"]
+            _messages.append(entry)
+
         kwargs: Dict[str, Any] = {
             "model": self._model,
-            "messages": messages,
+            "messages": _messages,
             "temperature": self._temperature,
             "max_tokens": self._max_tokens,
             "stream": True,
@@ -85,10 +96,13 @@ class OpenAIClient:
             if delta is None:
                 continue
 
-            # 1. 文本内容
+            # 1. 文本内容 + DeepSeek reasoning
             content = getattr(delta, "content", None)
             if content:
                 yield StreamChunk(type="text", content=content)
+            reasoning = getattr(delta, "reasoning_content", None)
+            if reasoning:
+                yield StreamChunk(type="reasoning", content=reasoning)
 
             # 2. 工具调用
             tool_calls = getattr(delta, "tool_calls", None)

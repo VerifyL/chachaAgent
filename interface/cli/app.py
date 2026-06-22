@@ -47,14 +47,12 @@ class ChachaCLI:
 
     async def initialize(self) -> str:
         self._ensure_default_constitution()
-        init = ProjectInit(self._project)
         self._session = SessionService(self._project)
-        self._session._init = init
-        self._session._memory = init.memory_manager
+        si = self._session.project_init
 
         self._bridge = AgentBridge(
-            system_prompt=init.build_system_prompt(),
-            tools=init.build_tools(),
+            system_prompt=si.build_system_prompt(),
+            tools=si.build_tools(),
             project_root=self._project,
         )
         msg = await self._bridge.initialize()
@@ -70,7 +68,7 @@ class ChachaCLI:
         root_md = Path.home() / ".chacha" / "CHACHA.md"
         if root_md.exists():
             return
-        builtin = Path(__file__).resolve().parent.parent / "core" / "CHACHA.md.template"
+        builtin = Path(__file__).resolve().parents[2] / "core" / "CHACHA.md.template"
         if builtin.exists():
             root_md.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy(builtin, root_md)

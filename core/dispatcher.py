@@ -54,6 +54,7 @@ class Dispatcher:
             rounds += 1
 
             text_parts: list[str] = []
+            reasoning_parts: list[str] = []
             tool_calls_building: Dict[int, Dict[str, Any]] = {}
             has_tool_calls = False
 
@@ -66,6 +67,9 @@ class Dispatcher:
                     if chunk.type == "text":
                         text_parts.append(chunk.content)
                         yield {"type": "text", "content": chunk.content}
+                    elif chunk.type == "reasoning":
+                        reasoning_parts.append(chunk.content)
+                        yield {"type": "reasoning", "content": chunk.content}
                     elif chunk.type == "tool_call_start":
                         has_tool_calls = True
                         tool_calls_building[chunk.tool_index] = {
@@ -101,34 +105,41 @@ class Dispatcher:
                 return
 
             # 执行工具
+            # 先构造 1 个 assistant 消息（含所有 tool_calls + reasoning）
+            safe_tool_calls = []
             for idx, tc_info in sorted(tool_calls_building.items()):
                 try:
                     args = json.loads(tc_info["args"]) if tc_info["args"] else {}
                 except json.JSONDecodeError:
                     args = {}
+                safe_args = {k: str(v)[:100] for k, v in args.items()}
+                safe_tool_calls.append({
+                    "id": tc_info["id"],
+                    "type": "function",
+                    "function": {
+                        "name": tc_info["name"],
+                        "arguments": json.dumps(safe_args, ensure_ascii=False),
+                    },
+                })
 
+            assistant_msg = {"role": "assistant", "content": "".join(text_parts) or None}
+            if reasoning_parts:
+                assistant_msg["reasoning_content"] = "".join(reasoning_parts)
+            assistant_msg["tool_calls"] = safe_tool_calls
+            messages.append(assistant_msg)
+
+            # 执行并追加工具结果
+            for idx, tc_info in sorted(tool_calls_building.items()):
+                try:
+                    args = json.loads(tc_info["args"]) if tc_info["args"] else {}
+                except json.JSONDecodeError:
+                    args = {}
                 result = await self._tools.execute(
                     tool_name=tc_info["name"],
                     arguments=args,
                     session_id=session_id,
                     tool_use_id=tc_info["id"],
                 )
-
-                safe_args = {k: str(v)[:100] for k, v in args.items()}
-                assistant_msg = {
-                    "role": "assistant",
-                    "content": None,
-                    "tool_calls": [{
-                        "id": tc_info["id"],
-                        "type": "function",
-                        "function": {
-                            "name": tc_info["name"],
-                            "arguments": json.dumps(safe_args, ensure_ascii=False),
-                        },
-                    }],
-                }
-                messages.append(assistant_msg)
-
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc_info["id"],
