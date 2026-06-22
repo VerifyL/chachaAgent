@@ -102,7 +102,7 @@ class ContextManager:
         self._session_memory = content
         
     @staticmethod
-    def build_system_prompt(project_root, base_prompt: str = "") -> str:
+    def build_system_prompt(project_root, base_prompt: str = "", memory_manager=None) -> str:
         """从所有来源加载上下文，返回组装好的完整系统提示词。
 
         来源（按顺序拼接）：
@@ -129,14 +129,15 @@ class ContextManager:
         if rules_text:
             sections.append(f"--- 项目宪法 (CHACHA.md) ---\n{rules_text}")
 
-        # 2. CHACHA_MEMORY.md + MEMORY.md
-        mgr = MemoryManager(project_root=project_root)
+        # 2. CHACHA_MEMORY.md + MEMORY.md（从传入的 MemoryManager 或新建项目级）
+        mgr = memory_manager or MemoryManager(project_root=project_root)
         permanent = mgr.read_permanent_memory()
         if permanent:
             sections.append(f"--- 项目永久记忆 ---\n{permanent}")
-        memory_index = mgr.read()
-        if memory_index:
-            sections.append(f"--- 记忆索引 ---\n{memory_index}")
+        if mgr._session_dir:
+            memory_index = mgr.read()
+            if memory_index:
+                sections.append(f"--- 记忆索引 ---\n{memory_index}")
 
         return "\n\n".join(sections)
 

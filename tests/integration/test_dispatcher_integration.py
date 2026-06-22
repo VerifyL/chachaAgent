@@ -126,9 +126,11 @@ def test_freeze_with_many_tools_creates_placeholders(memory):
 
     dispatcher._freeze_old_tool_results(messages, "s-int")
 
-    # 前 10 个（20-10）变占位符
+    # KEEP_TOOL_RESULTS=8 → 前 12 个（20-8）变占位符
+    keep = 8
+    frozen_count = 20 - keep
     frozen = 0
-    for i in range(10):
+    for i in range(frozen_count):
         content = messages[i * 2 + 2]["content"]
         if content.startswith("{"):
             data = json.loads(content)
@@ -137,8 +139,8 @@ def test_freeze_with_many_tools_creates_placeholders(memory):
             assert "cache_path" in data
             frozen += 1
 
-    assert frozen == 10
+    assert frozen == frozen_count
 
-    # 后 10 个保持完整
-    for i in range(10, 20):
+    # 后 8 个保持完整
+    for i in range(frozen_count, 20):
         assert messages[i * 2 + 2]["content"].startswith("file content")

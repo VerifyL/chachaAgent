@@ -21,7 +21,7 @@ from core.context.memory_manager import MemoryManager
 @pytest.fixture
 def mgr():
     d = Path(tempfile.mkdtemp())
-    return MemoryManager(project_id="test", base_dir=d)
+    return MemoryManager(project_id="test", base_dir=d, session_id="test-session")
 
 
 @pytest.fixture
@@ -159,7 +159,7 @@ def test_permanent_memory_session_independent(mgr):
     from core.context.memory_manager import MemoryManager
     mgr2 = MemoryManager(
         project_id="test",
-        base_dir=mgr._project_dir.parents[2],  # 取 root
+        base_dir=mgr._project_dir.parents[1],  # 取 root（父目录的项目ID目录）
         session_id="session-999",
     )
     # session_mgr 的 permanent 路径应该是项目级的

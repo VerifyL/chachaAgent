@@ -40,17 +40,16 @@ _TOPICS = [
 class MemoryManager:
     """按日期分散存储，支持搜索/去重/修剪。
 
-    文件结构:
+    文件结构 (v2.1):
         projects/{project_id}/
-            CHACHA_MEMORY.md           ← 永久记忆（保护区）
+            CHACHA_MEMORY.md           ← 永久记忆（保护区，跨 session 共享）
             memory/
-                MEMORY.md               ← autoDream 轻量索引
-                session/
-                    {YYYY-MM-DD}.md     ← 每日对话记忆（user+assistant）
-                topics/
-                    user-preferences.md  ← 主题记忆
-                    ...
-                tool_cache/             ← 工具结果缓存
+                sessions/
+                    {session_id}/
+                        MEMORY.md       ← 该 session 的 autoDream 产物
+                        {YYYY-MM-DD}.md ← 每日对话记忆
+                        topics/         ← 主题记忆
+                        tool_cache/     ← 工具结果缓存
     """
 
     def __init__(
@@ -58,6 +57,7 @@ class MemoryManager:
         project_root: Optional[Path] = None,
         project_id: str = "",
         base_dir: Optional[Path] = None,
+        session_id: str = "",
     ):
         if project_id:
             self._project_id = project_id
@@ -67,7 +67,8 @@ class MemoryManager:
             ).hexdigest()[:12]
         else:
             self._project_id = "default"
-        
+
+        self._session_id = session_id
         root = base_dir or _DEFAULT_BASE
         self._project_dir = root / "projects" / self._project_id
 
@@ -75,17 +76,22 @@ class MemoryManager:
         self._base = self._project_dir / "memory"
         self._base.mkdir(parents=True, exist_ok=True)
 
-        # memory/session/ — 每日对话记忆
-        self._session_dir = self._base / "session"
-        self._session_dir.mkdir(parents=True, exist_ok=True)
+        # session 隔离: sessions/{sid}/。无 session_id → 不创建目录（仅用于读/project级操作）
+        if session_id:
+            self._session_dir = self._base / "sessions" / session_id
+            self._session_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            self._session_dir = None
 
-        # memory/tool_cache/ — 工具结果缓存
-        self._tool_cache_dir = self._base / "tool_cache"
-        self._tool_cache_dir.mkdir(parents=True, exist_ok=True)
+        # memory/tool_cache/ — 工具结果缓存（session 级别）
+        self._tool_cache_dir = self._session_dir / "tool_cache" if self._session_dir else None
+        if self._tool_cache_dir:
+            self._tool_cache_dir.mkdir(parents=True, exist_ok=True)
 
-        # memory/topics/ — 主题记忆
-        self._topics_dir = self._base / "topics"
-        self._topics_dir.mkdir(parents=True, exist_ok=True)
+        # memory/topics/ — 主题记忆（session 级别）
+        self._topics_dir = self._session_dir / "topics" if self._session_dir else None
+        if self._topics_dir:
+            self._topics_dir.mkdir(parents=True, exist_ok=True)
 
     # ====== 永久记忆 (CHACHA_MEMORY.md) ======
 
@@ -164,7 +170,47 @@ class MemoryManager:
         )
         return files[:limit]
 
-    # ====== 跨 session 收集（autoDream 用） ======
+    # ====== Session 管理 ======
+
+    def list_all_sessions(self) -> list[str]:
+        """列出所有 session ID（排除 _default）。"""
+        sessions_dir = self._base / "sessions"
+        if not sessions_dir.exists():
+            return []
+        return sorted(
+            [d.name for d in sessions_dir.iterdir()
+             if d.is_dir() and d.name != "_default"],
+            reverse=True,
+        )
+
+    def delete_session(self, session_id: str) -> bool:
+        """删除指定 session 目录。"""
+        import shutil
+        session_path = self._base / "sessions" / session_id
+        if session_path.exists():
+            shutil.rmtree(session_path)
+            logger.info("已删除 session: %s", session_id)
+            return True
+        return False
+
+    def read_session_memory(self, session_id: str) -> str:
+        """读取指定 session 的 MEMORY.md（供 GlobalDream 收集）。"""
+        path = self._base / "sessions" / session_id / "MEMORY.md"
+        return path.read_text(encoding="utf-8").strip() if path.exists() else ""
+
+    def list_all_session_dirs(self) -> list[Path]:
+        """收集所有 session 的 MEMORY.md（排除 _default）。"""
+        sessions_dir = self._base / "sessions"
+        if not sessions_dir.exists():
+            return []
+        result = []
+        for sd in sorted(sessions_dir.iterdir(), reverse=True):
+            if not sd.is_dir() or sd.name == "_default":
+                continue
+            mem = sd / "MEMORY.md"
+            if mem.exists():
+                result.append(mem)
+        return result
 
     def list_all_session_days(self, limit_days: int = 7) -> list[Path]:
         """收集 memory/session/ 下最近 N 天的每日文件。
@@ -387,10 +433,13 @@ class MemoryManager:
         return path.read_text(encoding="utf-8").strip() if path.exists() else ""
 
     def _day_path(self, date_str: str) -> Path:
+        if not self._session_dir:
+            raise RuntimeError("MemoryManager 需要 session_id")
         return self._session_dir / f"{date_str}.md"
 
     def _index_path(self) -> Path:
-        return self._base / "MEMORY.md"
+        """MEMORY.md 现在是 session 级的。"""
+        return self._session_dir / "MEMORY.md"
 
 
     @staticmethod

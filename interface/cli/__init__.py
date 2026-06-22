@@ -1,1 +1,1 @@
-"""interface/cli/ — ChachaAgent Textual CLI"""
+"""interface/cli/ — ChachaAgent CLI (prompt_toolkit + Rich)"""

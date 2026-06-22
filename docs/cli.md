@@ -1,87 +1,168 @@
 # ChachaAgent CLI
 
-基于 Textual 的 Claude Code 风格终端界面。
+基于 prompt_toolkit + Rich 的命令行界面。Enter 发送，Shift+Enter 换行，支持多行粘贴。
 
 ## 运行
 
 ```bash
-DEEPSEEK_API_KEY=sk-... .venv/bin/python -m interface.cli.app /path/to/project
+# 安装
+pip install -e .
+
+# 配置（可选，三选一）
+# 方式 1: 环境变量
+export DEEPSEEK_API_KEY=sk-...
+
+# 方式 2: 全局配置
+cat > ~/.chacha/config.toml << 'EOF'
+[model.providers.default]
+api_key = "sk-..."
+base_url = "https://api.deepseek.com"
+default_model = "deepseek-v4-pro"
+EOF
+
+# 方式 3: 项目配置
+# {project}/chachaConfig.toml
+
+# 启动
+chacha /path/to/project
 ```
 
-## 布局
+## 配置体系
 
 ```
-┌──────────────────────────────────────────┐
-│ ChachaAgent v0.1               🔒 ChaCha│ ← Header
-├──────────────────────────────────────────┤
-│                                          │
-│  [You] 读取 main.py                      │ ← RichLog
-│                                          │
-│  [Chacha]                                │
-│  文件内容: print('hello')...              │ ← 流式输出
-│                                          │
-│  🔧 Calling: read_file                   │ ← 工具调用横幅
-│  ✅ read_file done                       │
-│                                          │
-│  ⏱ 1245ms  |  💬 352 tokens  |  🔄 第3轮  │ ← 审计行
-│                                          │
-├──────────────────────────────────────────┤
-│ deepseek-chat  |  💬 1526  |  🔄 3轮     │ ← 状态栏
-├──────────────────────────────────────────┤
-│ > _                                      │ ← 输入
-└──────────────────────────────────────────┘
+~/.chacha/
+  config.toml         ← 全局配置（API Key、模型、dream 阈值）
+  clirc.toml          ← CLI 主题配色（首次自动生成，可自定义）
+  CHACHA.md           ← 全局宪法（首次自动生成默认模板）
+  cli_history         ← 命令历史
+
+{project}/
+  chachaConfig.toml   ← 项目级配置（覆盖全局）
+  CHACHA.md           ← 项目级宪法（覆盖全局）
 ```
+
+优先级: 项目级 → 用户级 → 环境变量 → 默认值
+
+## 主题配色
+
+`~/.chacha/clirc.toml`（删除后自动重新生成默认模板）：
+
+```toml
+[theme]
+user_border = "bold yellow"
+user_text = "bold yellow"
+user_title = "bold reverse yellow"
+agent_header = "bold cyan"
+tool_thinking = "bold cyan"
+tool_done = "bold bright_white"
+tool_error = "bold red"
+help_title = "bold reverse bright_white"
+help_cmd = "bold yellow"
+help_desc = "yellow"
+separator = "dim"
+audit = "dim"
+system = "dim"
+prompt = "bold"
+```
+
+可用样式: `bold`, `italic`, `underline`, `reverse`
+可用颜色: `black`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white` + `bright_` 前缀
 
 ## 快捷键
 
 | 快捷键 | 功能 |
 |--------|------|
-| `Ctrl+N` | 新会话 |
-| `Ctrl+S` | 保存会话 |
-| `Ctrl+D` | 调试面板（显示 Token/压缩状态） |
+| `Enter` | 发送消息 |
+| `Shift+Enter` | 换行（多行输入） |
+| `Ctrl+C` | 清空当前输入，重来 |
+| `Ctrl+D` | 退出 |
+| `Ctrl+N` | 新 Session |
+| `Ctrl+S` | 保存 checkpoint |
+| `Ctrl+D` | 切换调试模式 |
+| `Ctrl+B` | 会话列表 |
 | `Ctrl+X` | 压缩上下文 |
 | `Ctrl+L` | 清屏 |
 | `Ctrl+C` | 退出 |
 
 ## 命令
 
+### 配置
 | 命令 | 功能 |
 |------|------|
 | `/model <name>` | 切换模型 |
 | `/url <url>` | 切换 API URL |
 | `/key <sk->` | 设置 API Key |
-| `/new` | 新会话 |
-| `/save` | 保存会话 |
-| `/memory` | 查看记忆文件列表 |
-| `/dream` | 运行 DreamPipeline 记忆整合 |
-| `/compact` | 手动压缩上下文 |
-| `/audit` | 完整审计报告 |
-| `/trace` | 最近一轮追踪 |
 | `/status` | 系统状态 |
-| `/help` | 帮助信息 |
+| `/exit` | 退出（状态已自动保存，无需额外操作） |
+
+### Session
+| 命令 | 功能 |
+|------|------|
+| `/session` | 列出所有 session |
+| `/session <id>` | 切换到指定 session |
+| `/session del <id>` | 删除 session（含记忆） |
+| `/session new` | 新建 session |
+| `/new` | 新建 session |
+| `/save` | 保存 checkpoint |
+
+### 记忆
+| 命令 | 功能 |
+|------|------|
+| `/memory` | 查看记忆文件 |
+| `/dream` | 运行 Session Dream |
+| `/dream global` | 运行 GlobalDream |
+
+### 调试
+| 命令 | 功能 |
+|------|------|
+| `/debug` | 切换调试（开启后显示工具链） |
+| `/audit` | 完整审计报告 |
+| `/compact` | 压缩上下文（冻结旧工具结果） |
 
 ## 自动行为
 
 | 时机 | 动作 |
 |------|------|
-| 启动 | 加载 CHACHA.md 为"宪法" |
-| 每轮结束 | 审计行（耗时/Token/轮次） |
-| 3 次对话 | 提示运行 DreamPipeline |
-| 24h 未 Dream | 自动提示 |
-| Tool 调用中 | 状态栏显示 "⏳ tool_name..." |
+| 启动 | 加载 CHACHA.md + 配置 + 主题 |
+| 每轮结束 | 审计行 + 自动 save checkpoint |
+| 切 session | 保存旧 checkpoint + Dream 旧 session |
+| Session Dream | 10 轮 / 24h / 切 session 前 |
+| Global Dream | 50 轮 / 72h / 手动 |
+
+## 视觉布局
+
+```
+╭─ ❯ You ───────────────────────────╮
+│ 读取 main.py                       │  ← 用户输入（Panel，可配主题）
+╰────────────────────────────────────╯
+
+🤖 Chacha                             ← Agent 标签（可配主题）
+  🔧 read_file                        ← 工具调用（可配主题）
+  ✅ read_file — main.py: hello       ← 工具结果（可配主题）
+
+文件内容分析...                        ← 正文
+
+⏱ 1245ms | 💬 352T | 🔄 3轮          ← 审计（可配主题）
+──────────────────────────────────    ← 分隔线
+```
 
 ## 组件
 
 | 文件 | 说明 |
 |------|------|
-| `app.py` | Textual 主应用 |
+| `app.py` | prompt_toolkit + Rich 主 CLI |
 | `agent_bridge.py` | CLI ↔ 核心模块桥接 |
-| `session_manager.py` | 会话生命周期 + 审计 |
-| `widgets.py` | ChatMessage / ToolCallBanner / StatusBar |
+| `core/cli_theme.py` | 主题加载（~/.chacha/clirc.toml） |
+| `core/config_manager.py` | 配置加载（自动生成 ~/.chacha/config.toml） |
+| `core/session_service.py` | Session 编排 + Dream + 审计 |
+| `core/project_init.py` | CHACHA.md 加载 + 工具工厂 |
 
-## 开发
+## 首次运行
 
-```bash
-# 单元测试
-.venv/bin/python -m pytest tests/unit/test_cli_widgets.py -v
-```
+启动 `chacha` 自动创建三个默认文件（后续改完重启生效）：
+
+| 文件 | 内容 |
+|------|------|
+| `~/.chacha/config.toml` | API Key、模型、dream 阈值 |
+| `~/.chacha/CHACHA.md` | 默认宪法（安全规则、代码规范等） |
+| `~/.chacha/clirc.toml` | CLI 主题配色（每个区域均可配色） |

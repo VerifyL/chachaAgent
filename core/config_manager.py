@@ -127,11 +127,19 @@ class ConfigManager:
             return self._config_path
 
         cwd = Path.cwd()
-        candidates = [cwd / "chachaConfig.toml", cwd / "harness.toml"]
+        candidates = [
+            cwd / "chachaConfig.toml",
+            cwd / "harness.toml",
+            Path.home() / ".chacha" / "config.toml",
+        ]
         for p in candidates:
             if p.exists():
                 return p
-        return None
+
+        # 无配置文件 → 生成默认模板
+        default = Path.home() / ".chacha" / "config.toml"
+        write_default_config(default)
+        return default if default.exists() else None
 
     def _read_toml(self, path: Path) -> Dict[str, Any]:
         try:
@@ -204,6 +212,33 @@ def get_config_manager() -> ConfigManager:
 
 def load_config() -> ChaChaConfig:
     return get_config_manager().load()
+
+
+def write_default_config(path: Optional[Path] = None) -> None:
+    """首次运行时生成默认 ~/.chacha/config.toml 模板。"""
+    target = path or (Path.home() / ".chacha" / "config.toml")
+    if target.exists():
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("""# ChachaAgent 全局配置
+# 优先级: 项目 chachaConfig.toml > 此文件 > 环境变量
+
+[model.providers.default]
+provider = "openai"
+# API 密钥（亦可设置环境变量 DEEPSEEK_API_KEY）
+api_key = ""
+# 自定义 API 端点
+base_url = "https://api.deepseek.com"
+default_model = "deepseek-chat"
+
+# [dream]
+# Session Dream 触发阈值
+# dream_rounds = 10
+# dream_hours = 24
+# Global Dream 触发阈值
+# global_dream_rounds = 50
+# global_dream_hours = 72
+""", encoding="utf-8")
 
 def get_config() -> ChaChaConfig:
     return get_config_manager().get_config()

@@ -409,7 +409,9 @@ result = await executor.execute("my_tool", {"arg1": "test"}, session_id)
 ---
 
 > 内置工具已实现，详见 `docs/builtin_tools.md`。
-> 子Agent 系统详见下方 §5.7。
+> 记忆系统详见 `docs/memory.md`。
+> CLI 使用详见 `docs/cli.md`。
+> 子Agent 系统详见 `docs/subagent.md`。
 
 **设计方向**：
 - `UnifiedTool` 统一工具基类契约

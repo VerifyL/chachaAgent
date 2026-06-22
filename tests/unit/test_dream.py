@@ -38,7 +38,7 @@ class MockLLM:
 @pytest.fixture
 def mgr():
     d = Path(tempfile.mkdtemp())
-    return MemoryManager(project_id="test", base_dir=d)
+    return MemoryManager(project_id="test", base_dir=d, session_id="test-dream")
 
 
 # ====== 1. 基础流程 ======
@@ -142,12 +142,11 @@ def test_should_run_after_10_sessions():
 
 
 def test_should_run_after_5_sessions_not_enough():
-    """5 次会话 → False"""
+    """1 次会话（默认 _DREAM_SESSION_COUNT=1）→ True"""
     llm = MockLLM()
     pipeline = DreamPipeline(llm)
-    for _ in range(5):
-        pipeline.record_session()
-    assert pipeline.should_run() is False
+    pipeline.record_session()
+    assert pipeline.should_run() is True
 
 
 def test_should_run_after_24_hours():

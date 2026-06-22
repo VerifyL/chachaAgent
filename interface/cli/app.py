@@ -1,213 +1,170 @@
 """
 interface/cli/app.py
-ChachaAgent CLI — Claude Code 风格 Textual TUI。
-
-架构映射:
-  CHACHA.md:    启动加载为「宪法」  → StaticRuleLoader
-  会话:          /new /save          → SessionManager
-  记忆:          /memory /dream       → MemoryManager + DreamPipeline
-  压缩:          /compact             → ContextCompressor
-  审计:          /audit /trace        → 每轮后自动展示 Token/耗时
-  子Agent:       /agent type task     → SubAgentSpawner
-  Debug:         Ctrl+D               → token/压缩/规则 预览
+ChachaAgent CLI — prompt_toolkit + Rich。
+Enter 发送，Shift+Enter 换行，支持多行粘贴/编辑。
 """
 
+import asyncio
+import sys
 from pathlib import Path
+from typing import Optional
 
-from textual.app import App, ComposeResult
-from textual.containers import Container
-from textual.widgets import Footer, Header, Input, RichLog
-from textual.binding import Binding
+from prompt_toolkit import PromptSession
+from prompt_toolkit.history import FileHistory
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.formatted_text import HTML
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich import box
 
-from interface.cli.widgets import ChatMessage, ToolCallBanner, StatusBar
 from interface.cli.agent_bridge import AgentBridge
-from interface.cli.session_manager import SessionManager
+from core.project_init import ProjectInit
+from core.session_service import SessionService
+from core.cli_theme import load_theme, write_default_theme
 
-STYLE_CSS = """
-#chat-area { background: $surface; height: 1fr; }
-#chat-container { height: 1fr; }
-#input-container { height: auto; min-height: 3; padding: 1; border-top: solid $panel-darken-2; }
-#main-input { width: 100%; background: $surface; border: solid $primary; }
-#status-line { height: 1; dock: bottom; background: $boost; color: $text-muted; padding: 0 1; }
-"""
+RICH_CONSOLE = Console()
+
+# ====== 多行续写标记 ======
+CONTINUE_MARKER = "... "
 
 
-class ChachaApp(App):
-    """ChachaAgent CLI"""
-
-    CSS = STYLE_CSS
-    TITLE = "ChachaAgent"
-    BINDINGS = [
-        Binding("ctrl+c", "quit", "退出", show=False),
-        Binding("ctrl+l", "clear_screen", "清屏", show=True),
-        Binding("ctrl+s", "save", "保存会话", show=True),
-        Binding("ctrl+d", "toggle_debug", "调试面板", show=True),
-        Binding("ctrl+n", "new_session", "新会话", show=True),
-        Binding("ctrl+x", "compact", "压缩上下文", show=True),
-    ]
+class ChachaCLI:
+    """基于 prompt_toolkit + Rich 的 CLI"""
 
     def __init__(self, project_root: str = "."):
-        super().__init__()
         self._project = Path(project_root).resolve()
-        self._bridge: AgentBridge | None = None
-        self._session: SessionManager | None = None
+        self._bridge: Optional[AgentBridge] = None
+        self._session: Optional[SessionService] = None
         self._sending = False
         self._debug = False
 
-    # ====== 挂载 ======
+        # 主题
+        write_default_theme()
+        self._t = load_theme()
 
-    async def on_mount(self) -> None:
-        from capabilities.builtins.chunk_streamer import ReadFileTool, GrepTool
-        from capabilities.builtins.code_patcher import EditFileTool
-        from capabilities.builtins.memory_tool import LoadMemoryTool, RememberTool, WriteTopicTool, ReadTopicTool
+    # ====== 启动 ======
 
+    async def initialize(self) -> str:
+        init = ProjectInit(self._project)
+        self._session = SessionService(self._project)
+        self._session._init = init
+        self._session._memory = init.memory_manager
 
-        # 2. 系统提示词（不硬编码工具名）
-        system_prompt = (
-            "你是 ChachaAgent。当前项目: " + self._project.name + "。\n"
-            "使用提供的工具操作文件和记忆。回复简洁直接，中文优先。"
-        )
-
-        # 3. 工具列表（由 function calling 传入，不写在提示词）
-        tools = [
-            ReadFileTool(root=self._project),
-            GrepTool(root=self._project),
-            EditFileTool(root=self._project),
-            LoadMemoryTool(),
-            RememberTool(),
-            WriteTopicTool(),
-            ReadTopicTool(),
-        ]
-
-
-        # 4. 桥接 + 会话
         self._bridge = AgentBridge(
-            system_prompt=system_prompt, tools=tools, project_root=self._project,
+            system_prompt=init.build_system_prompt(),
+            tools=init.build_tools(),
+            project_root=self._project,
         )
-        init_msg = await self._bridge.initialize()
-        self._session = SessionManager(self._project, self._bridge)
+        msg = await self._bridge.initialize()
+        self._session.set_llm(self._bridge._invoker)
+        return msg
 
-        # 5. 欢迎
-        self._log_system("[bold white]ChachaAgent v0.1[/] — 项目: " + self._project.name)
-        self._log_system(f"[dim]{init_msg}[/]")
-       
-        self._log_system(
-            "[dim]Ctrl+N 新会话 | Ctrl+S 保存 | Ctrl+D 调试 | "
-            "Ctrl+X 压缩 | /help 命令[/]"
+    # ====== 主循环 ======
+
+    async def run(self) -> None:
+        init_msg = await self.initialize()
+
+        # 欢迎
+        self._print_system("ChachaAgent v0.2 — " + self._project.name)
+        self._print_system(init_msg)
+        if self._session.project_init._rules:
+            self._print_system("[cyan]📜 CHACHA.md 已加载[/]")
+        self._print_system("Ctrl+N 新会话  Ctrl+S 保存  Ctrl+D 调试  Ctrl+B 会话列表  /help 命令")
+        self._print_system("")
+
+        # 输入循环
+        session = PromptSession(
+            history=FileHistory(str(Path.home() / ".chacha" / "cli_history")),
+            key_bindings=self._make_bindings(),
+            multiline=False,  # 单行模式，Shift+Enter 自动续行
+            bottom_toolbar=self._status_text,
         )
-        self._update_status()
 
-    # ====== 布局 ======
+        while True:
+            try:
+                RICH_CONSOLE.print()  # 空行隔开
+                text = await session.prompt_async(
+                    HTML(f"<{self._t['prompt']}>❯ </{self._t['prompt']}>"),
+                )
+            except KeyboardInterrupt:
+                continue  # Ctrl+C 清空输入
+            except EOFError:
+                break  # Ctrl+D 退出
 
-    def compose(self) -> ComposeResult:
-        yield Header(show_clock=True)
-        yield Container(
-            RichLog(id="chat-area", highlight=True, markup=True, wrap=True, max_lines=5000),
-            id="chat-container",
-        )
-        yield Container(
-            Input(id="main-input", placeholder="输入消息... (/help /status /memory /compact)"),
-            id="input-container",
-        )
-        yield StatusBar(id="status-line")
+            text = text.strip()
+            if not text:
+                continue
+            if text == "/exit":
+                self._print_system("👋 再见")
+                break
 
-    # ====== 输入 ======
+            await self._handle_input(text)
 
-    async def on_input_submitted(self, event: Input.Submitted) -> None:
-        text = event.value.strip()
-        if not text or self._sending:
-            return
-        event.input.value = ""
-        self._sending = True
+    # ====== 输入处理 ======
 
+    async def _handle_input(self, text: str) -> None:
         if text.startswith("/"):
             result = await self._handle_command(text)
-            self._log_system(result)
-            self._update_status()
-            self._sending = False
-            return
-
-        self._log_user(text)
-        await self._run_dialog(text)
-        self._sending = False
+            self._print_system(result)
+        else:
+            await self._run_dialog(text)
 
     async def _run_dialog(self, text: str) -> None:
-        """一轮对话：思考 → 流式输出 → 审计 → 记忆"""
         import time
         t0 = time.monotonic()
-
-        chat = self.query_one("#chat-area", RichLog)
-        chat.write(ChatMessage.prefix("assistant"))
-
         tokens = 0
-        errors = []
-        response_parts = []
+        errors: list[str] = []
+        response_parts: list[str] = []
+        tool_trace: list[dict] = []
 
-        buffer = ""
+        self._print_user(text)
+        RICH_CONSOLE.print(f"[{self._t['agent_header']}]🤖 Chacha[/]")
+
         try:
             async for chunk in self._bridge.send_message(text):
                 if chunk["type"] == "text":
                     response_parts.append(chunk["content"])
-                    buffer += chunk["content"]
-                    # 遇到换行才刷新
-                    if "\n" in buffer:
-                        parts = buffer.split("\n")
-                        for line in parts[:-1]:
-                            chat.write(line, animate=False)
-                        buffer = parts[-1]
+                    RICH_CONSOLE.print(chunk["content"], end="")
                 elif chunk["type"] == "tool_call_start":
-                    if buffer:
-                        chat.write(buffer, animate=False)
-                        buffer = ""
-                    self._update_status(extra=f"⏳ {chunk['tool_name']}...")
-                    chat.write(ToolCallBanner.render(chunk["tool_name"], "start"))
+                    tool_trace.append({
+                        "tool": chunk["tool_name"], "t0": time.monotonic(),
+                    })
+                    self._print_tool(f"{chunk['tool_name']}", "thinking")
                 elif chunk["type"] == "tool_call_end":
-                    if buffer:
-                        chat.write(buffer, animate=False)
-                        buffer = ""
-                    self._update_status()
-                    chat.write(ToolCallBanner.render(
-                        chunk["tool_name"], "end", chunk.get("preview", "")))
+                    if tool_trace:
+                        t = tool_trace[-1]
+                        t["ms"] = int((time.monotonic() - t["t0"]) * 1000)
+                    preview = chunk.get("preview", "")[:80]
+                    self._print_tool(f"{chunk['tool_name']} — {preview}", "status")
                 elif chunk["type"] == "error":
-                    if buffer:
-                        chat.write(buffer, animate=False)
-                        buffer = ""
                     errors.append(chunk["message"])
-                    chat.write(f"[bold red]错误: {chunk['message']}[/]")
+                    RICH_CONSOLE.print(f"[red]错误: {chunk['message']}[/]")
                 elif chunk["type"] == "done":
                     tokens = chunk.get("tokens", 0)
-                    # 只在最终回答时保存记忆
-                    self._session.remember_final_answer(text, "".join(response_parts))
-            # 刷新剩余缓冲区
-            if buffer:
-                chat.write(buffer, animate=False)
-
         except Exception as e:
             errors.append(str(e))
-            chat.write(f"[bold red]异常: {e}[/]")
+            RICH_CONSOLE.print(f"[red]异常: {e}[/]")
 
-        # 审计：每轮后展示 + 自动记忆
+        # 审计
         elapsed_ms = int((time.monotonic() - t0) * 1000)
-        response_text = "".join(response_parts)
         self._session.add_round(
             tokens=tokens, duration_ms=elapsed_ms, errors=errors,
-            user_input=text, assistant_text=response_text,
+            user_input=text, assistant_text="".join(response_parts),
         )
 
-        audit = f"[dim]⏱ {elapsed_ms}ms  |  💬 {tokens} tokens  |  🔄 第{self._session.rounds}轮[/]"
+        audit = f"⏱ {elapsed_ms}ms  |  💬 {tokens}T  |  🔄 第{self._session.rounds}轮"
         if errors:
-            audit += f"  |  [red]⚠ {len(errors)}错误[/]"
-        chat.write(audit)
+            audit += f"  |  ⚠ {len(errors)}错"
+        if self._debug and tool_trace:
+            steps = "; ".join(f"{t['tool']}({t.get('ms','?')}ms)" for t in tool_trace)
+            audit += f"  |  🐛 {steps}"
+        RICH_CONSOLE.print()
+        RICH_CONSOLE.print(f"[{self._t['audit']}]{audit}[/]")
+        RICH_CONSOLE.print(f"[{self._t['separator']}]" + "─" * 40 + "[/]")
 
-        # 自动触发记忆检查
-        self._session.record_dream_hint()
-        if self._session.should_dream():
-            import asyncio
-            asyncio.create_task(self._bridge.run_dream())
-            self._session.mark_dream_run()
-
-
-        self._update_status()
+        # Auto save checkpoint
+        await self._auto_save_checkpoint()
 
     # ====== 命令 ======
 
@@ -216,113 +173,285 @@ class ChachaApp(App):
         cmd = parts[0].lower()
         arg = parts[1] if len(parts) > 1 else ""
 
-        # 模型
+        # 配置
         if cmd in ("model", "url", "key"):
             return await self._bridge.handle_command(text)
 
-        # 会话
+        # Session
+        if cmd == "session":
+            return await self._session_cmd(arg)
         if cmd == "new":
-            self._session.new()
+            sid = self._session.new()
             await self._bridge.reset()
-            return "🆕 新会话已开始"
+            return f"🆕 新会话: {sid}"
         if cmd == "save":
-            self._session.save()
-            return "💾 会话已保存"
-        if cmd == "load":
-            await self._bridge.reset()
-            return "✅ 对话历史已清除"
+            return await self._save_checkpoint()
 
         # 记忆
         if cmd == "memory":
-            days = self._session.list_memory_days()
-            return "📁 记忆文件:\n" + "\n".join(f"  {d}.md" for d in days) if days else "暂无记忆文件"
+            days = self._session.memory_manager.list_days()
+            return "📁 记忆:\n" + "\n".join(f"  {d}.md" for d in days) if days else "暂无"
         if cmd == "dream":
-            return f"🎯 {await self._bridge.run_dream()}"
+            return f"🎯 {await self._session.run_dream()}"
+        if cmd == "dreamglobal":
+            return f"🌍 {await self._session.run_global_dream()}"
 
-        # 压缩
-        if cmd == "compact":
-            return await self._session.compact()
-
-        # 审计
+        # 调试
+        if cmd == "debug":
+            self._debug = not self._debug
+            return f"🐛 Debug: {'开' if self._debug else '关'}"
         if cmd == "audit":
             return self._session.audit_report()
-        if cmd == "trace":
-            return self._session.trace_last()
-
-        # 状态
         if cmd == "status":
             return self._session.status_report()
+        if cmd == "compact":
+            return await self._do_compact()
 
-        # 子Agent
-        if cmd == "agent":
-            if not arg:
-                return "用法: /agent <type> <任务>  类型: explore/plan/worker"
-            return "📋 子Agent 待集成"
-
-        # 帮助
         if cmd == "help":
-            return (
-                "命令:  /model /url /key  配置\n"
-                "       /new /save /load   会话\n"
-                "       /memory /dream     记忆\n"
-                "       /compact           压缩\n"
-                "       /audit /trace      审计\n"
-                "       /status /help      信息\n"
-                "快捷键: Ctrl+N 新会话  Ctrl+S 保存  Ctrl+D 调试  Ctrl+X 压缩  Ctrl+L 清屏"
-            )
+            self._print_help()
+            return ""
 
         return await self._bridge.handle_command(text)
 
-    # ====== 快捷键 ======
+    async def _session_cmd(self, arg: str) -> str:
+        sessions = self._session.list_sessions()
+        if not arg:
+            return self._render_session_list(sessions)
 
-    async def action_clear_screen(self) -> None:
-        self.query_one("#chat-area", RichLog).clear()
+        sub, sub_arg = (arg.split(None, 1) + [""])[:2]
+        if sub == "del":
+            return await self._del_by_index(sub_arg, sessions)
+        if sub == "new":
+            sid = self._session.new()
+            await self._bridge.reset()
+            return f"🆕 新 session: {sid}"
 
-    async def action_save(self) -> None:
-        self._session.save()
-        self._log_system("💾 会话已保存")
+        # 按编号切换
+        return await self._switch_by_index(sub, sessions)
 
-    async def action_new_session(self) -> None:
-        self._session.new()
-        await self._bridge.reset()
-        self.query_one("#chat-area", RichLog).clear()
-        self._log_system("🆕 新会话")
-        self._update_status()
+    def _render_session_list(self, sessions: list) -> str:
+        if not sessions:
+            return "暂无 session"
+        lines = ["📂 Sessions:"]
+        for i, s in enumerate(sessions, 1):
+            marker = "●" if s["id"] == self._session.session_id else " "
+            lines.append(f"  {marker} [{i}] {s['time']}  {s['preview'][:40]}")
+        lines.append("  /session <#> 切换  /session del <#> 删除")
+        return "\n".join(lines)
 
-    async def action_toggle_debug(self) -> None:
-        self._debug = not self._debug
-        if self._debug:
-            self._log_system("[cyan]🐛 调试面板[/]")
-            self._log_system(f"[dim]{self._session.status_report()}[/]")
-        self._log_system(f"调试: {'开' if self._debug else '关'}")
+    def _session_by_index(self, idx_str: str, sessions: list) -> str:
+        try:
+            idx = int(idx_str)
+            if 1 <= idx <= len(sessions):
+                return sessions[idx - 1]["id"]
+        except ValueError:
+            pass
+        return idx_str  # 尝试按真实 ID
 
-    async def action_compact(self) -> None:
-        result = await self._session.compact()
-        self._log_system(f"📦 {result}")
+    async def _switch_by_index(self, idx_str: str, sessions: list) -> str:
+        sid = self._session_by_index(idx_str, sessions)
+        old_sid = self._session.session_id
+        result = await self._session.switch_to(sid)
+        if "不存在" not in result and "已经" not in result:
+            await self._reload_bridge(old_sid)
+        return result
 
-    # ====== 辅助 ======
+    async def _del_by_index(self, idx_str: str, sessions: list) -> str:
+        sid = self._session_by_index(idx_str, sessions)
+        return await self._session.delete_session(sid)
 
-    def _update_status(self, extra: str = "") -> None:
-        bar = self.query_one("#status-line", StatusBar)
-        bar.update(
-            model=self._bridge.model if self._bridge else "",
-            tokens=self._session.total_tokens,
-            rounds=self._session.rounds,
-            extra=extra,
-        )
+    # ====== 检查点 ======
 
-    def _log_user(self, text: str) -> None:
-        self.query_one("#chat-area", RichLog).write(ChatMessage.render("user", text))
+    async def _auto_save_checkpoint(self) -> None:
+        import json
+        try:
+            cp = self._session.memory_manager._session_dir / "checkpoint.json"
+            cp.write_text(json.dumps(self._bridge._messages, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            pass
 
-    def _log_system(self, text: str) -> None:
-        self.query_one("#chat-area", RichLog).write(text)
+    async def _save_checkpoint(self) -> str:
+        await self._auto_save_checkpoint()
+        return f"💾 Checkpoint 已保存 ({len(self._bridge._messages)} 条)"
 
+    async def _reload_bridge(self, old_sid: str) -> None:
+        import json
+        from core.context.memory_manager import MemoryManager
+        # 保存旧 session
+        old = MemoryManager(project_root=self._project, session_id=old_sid)
+        try:
+            (old._session_dir / "checkpoint.json").write_text(
+                json.dumps(self._bridge._messages, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+        # 重建
+        init = self._session.project_init
+        self._bridge._system_prompt = init.build_system_prompt()
+        self._bridge._custom_tools = init.build_tools()
+        await self._bridge.rebuild()
+        # 恢复
+        cp = self._session.memory_manager._session_dir / "checkpoint.json"
+        if cp.exists():
+            self._bridge._messages = json.loads(cp.read_text(encoding="utf-8"))
+
+    async def _do_compact(self) -> str:
+        if not self._bridge:
+            return "未连接"
+        try:
+            from core.context.context_compressor import ContextCompressor
+            compressor = ContextCompressor()
+            n = len(self._bridge._messages)
+            self._bridge._messages = compressor._freeze_tool_results(
+                self._bridge._messages, self._session.session_id)
+            if len(self._bridge._messages) > 30:
+                self._bridge._messages = self._bridge._messages[:1] + self._bridge._messages[-20:]
+            return f"📦 {n} → {len(self._bridge._messages)} 条"
+        except Exception as e:
+            return f"压缩失败: {e}"
+
+    # ====== 键绑定 ======
+
+    def _make_bindings(self) -> KeyBindings:
+        kb = KeyBindings()
+
+        @kb.add("c-n")
+        def _(event):
+            sid = self._session.new()
+            asyncio.create_task(self._bridge.reset())
+            self._print_system(f"🆕 新会话: {sid}")
+
+        @kb.add("c-s")
+        async def _(event):
+            result = await self._save_checkpoint()
+            self._print_system(result)
+
+        @kb.add("c-d")
+        def _(event):
+            self._debug = not self._debug
+            self._print_system(f"🐛 Debug: {'开' if self._debug else '关'}")
+
+        @kb.add("c-b")
+        def _(event):
+            self._print_sidebar()
+
+        @kb.add("c-x")
+        async def _(event):
+            result = await self._do_compact()
+            self._print_system(result)
+
+        @kb.add("c-l")
+        def _(event):
+            RICH_CONSOLE.clear()
+
+        return kb
+
+    def _status_text(self) -> str:
+        if not self._bridge:
+            return "ChachaAgent v0.2"
+        extra = ""
+        if self._session and self._session.rounds:
+            extra = f" | 💬 {self._session.total_tokens}T | 🔄 {self._session.rounds}轮"
+        return f"{self._bridge.model}{extra}"
+
+    # ====== 输出 ======
+
+    def _print_user(self, text: str) -> None:
+        """用户输入 Panel：圆角 + 黄边 + 黄色粗体文字"""
+        from rich.panel import Panel
+        RICH_CONSOLE.print()
+        RICH_CONSOLE.print(Panel(
+            f"[{self._t['user_text']}]{text}[/]",
+            title=f"[{self._t['user_title']}] ❯ You [/]",
+            title_align="left",
+            border_style=self._t["user_border"],
+            box=box.ROUNDED,
+            padding=(0, 1),
+        ))
+
+    def _print_system(self, text: str) -> None:
+        RICH_CONSOLE.print(f"[{self._t['system']}]{text}[/]")
+
+    def _print_tool(self, text: str, style: str = "status") -> None:
+        if style == "thinking":
+            RICH_CONSOLE.print(f"  [{self._t['tool_thinking']}]🔧 {text}[/]")
+        else:
+            RICH_CONSOLE.print(f"  [{self._t['tool_done']}]✅ {text}[/]")
+
+    def _print_sidebar(self) -> None:
+        sessions = self._session.list_sessions()
+        if not sessions:
+            self._print_system("暂无 session")
+            return
+        RICH_CONSOLE.print()
+        table = Table(box=box.SIMPLE, show_header=True,
+                      header_style="bold cyan", border_style="dim")
+        table.add_column("#", width=4, style="bold yellow")
+        table.add_column("", width=2)
+        table.add_column("时间", width=14)
+        table.add_column("预览", width=50)
+        for i, s in enumerate(sessions, 1):
+            marker = "●" if s["id"] == self._session.session_id else ""
+            table.add_row(str(i), marker, s.get("time", ""), s.get("preview", ""))
+        RICH_CONSOLE.print(table)
+        self._print_system("  /session <#> 切换  /session del <#> 删除  /session new 新建")
+
+    def _print_help(self) -> None:
+        items = {
+            "配置": [
+                ("/model <name>", "切换模型"),
+                ("/url <url>", "切换 API URL"),
+                ("/key <sk->", "设置 API Key"),
+                ("/status", "系统状态"),
+            ],
+            "Session": [
+                ("/session", "列出所有 session"),
+                ("/session <id>", "切换到指定 session"),
+                ("/session del <id>", "删除 session（含记忆）"),
+                ("/session new", "新建 session"),
+                ("/new", "新建 session（快捷）"),
+                ("/save", "保存 checkpoint"),
+            ],
+            "记忆": [
+                ("/memory", "查看记忆文件"),
+                ("/dream", "运行 Session Dream"),
+                ("/dream global", "运行 GlobalDream"),
+            ],
+            "调试": [
+                ("/audit", "完整审计报告"),
+                ("/compact", "压缩上下文"),
+                ("/debug", "切换调试模式"),
+            ],
+            "快捷键": [
+                ("Ctrl+N", "新会话"),
+                ("Ctrl+S", "保存 checkpoint"),
+                ("Ctrl+D", "调试模式"),
+                ("Ctrl+B", "会话列表"),
+                ("Ctrl+X", "压缩上下文"),
+                ("Ctrl+L", "清屏"),
+            ],
+        }
+        from rich.table import Table
+        table = Table(box=box.SIMPLE, show_header=False, border_style="dim yellow")
+        table.add_column(style="bold yellow", width=22)
+        table.add_column(style="bright_white")
+        for cat, cmds in items.items():
+            table.add_section()
+            RICH_CONSOLE.print(f"\n[{self._t['help_title']}] {cat} [/]")
+            for cmd, desc in cmds:
+                RICH_CONSOLE.print(
+                    f"  [{self._t['help_cmd']}]{cmd:<20}[/]  "
+                    f"[{self._t['help_desc']}]{desc}[/]"
+                )
+        return ""
+
+
+# ====== 入口 ======
 
 def main():
-    import sys
     project = sys.argv[1] if len(sys.argv) > 1 else "."
-    app = ChachaApp(project_root=project)
-    app.run()
+    cli = ChachaCLI(project)
+    asyncio.run(cli.run())
+
 
 if __name__ == "__main__":
     main()

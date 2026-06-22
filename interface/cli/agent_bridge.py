@@ -32,14 +32,24 @@ class AgentBridge:
         self._system_prompt = system_prompt
         self._custom_tools = tools or []
 
-        # 配置（环境变量优先）
-        self._api_key = os.environ.get("DEEPSEEK_API_KEY",
-                                       os.environ.get("OPENAI_API_KEY", ""))
-        self._base_url = os.environ.get("DEEPSEEK_BASE_URL",
-                                        os.environ.get("OPENAI_BASE_URL",
-                                                       "https://api.deepseek.com"))
-        self._model = os.environ.get("DEEPSEEK_MODEL",
-                                     os.environ.get("OPENAI_MODEL", "deepseek-chat"))
+        # 配置：chachaConfig.toml → 环境变量 → 默认值
+        default_provider = None
+        try:
+            from core.config_manager import get_config_manager
+            cfg = get_config_manager().load()
+            default_provider = cfg.model.providers.get("default")
+        except Exception:
+            pass  # 无配置文件，降级到环境变量/默认值
+
+        self._api_key = (os.environ.get("DEEPSEEK_API_KEY") or
+                         os.environ.get("OPENAI_API_KEY") or
+                         (default_provider.api_key.get_secret_value() if default_provider and default_provider.api_key else ""))
+        self._base_url = (os.environ.get("DEEPSEEK_BASE_URL") or
+                          os.environ.get("OPENAI_BASE_URL") or
+                          (default_provider.base_url if default_provider else "https://api.deepseek.com"))
+        self._model = (os.environ.get("DEEPSEEK_MODEL") or
+                       os.environ.get("OPENAI_MODEL") or
+                       (default_provider.default_model if default_provider else "deepseek-chat"))
 
         self._dispatcher = None
         self._invoker = None
@@ -72,15 +82,14 @@ class AgentBridge:
     # ====== 初始化 ======
 
     async def initialize(self) -> str:
-        await self._load_static_contexts()
-
+        # CHACHA.md + system_prompt 由 ProjectInit.build_system_prompt 处理，不再重复加载
         if not self._api_key:
             return "⚠️  未设置 API Key。使用 /key sk-xxx 设置。"
-        await self._rebuild()
+        await self.rebuild()
         self._initialized = True
         return f"✅ 就绪 — 模型: {self._model} | 项目: {self._root.name}"
 
-    async def _rebuild(self) -> None:
+    async def rebuild(self) -> None:
         from core.llm_invoker import LLMInvoker
         from core.llm_clients.openai_client import OpenAIClient
         from core.dispatcher import Dispatcher
@@ -166,17 +175,17 @@ class AgentBridge:
             return self._help_text()
         if action == "model":
             self._model = arg or self._model
-            await self._rebuild()
+            await self.rebuild()
             self._initialized = True
             return f"✅ 模型切换为: {self._model}"
         if action == "url":
             self._base_url = arg
-            await self._rebuild()
+            await self.rebuild()
             self._initialized = True
             return f"✅ API URL 切换为: {self._base_url}"
         if action == "key":
             self._api_key = arg
-            await self._rebuild()
+            await self.rebuild()
             self._initialized = True
             return f"✅ API Key 已设置: {self.api_key}"
         if action == "status":
