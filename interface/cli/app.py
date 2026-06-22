@@ -46,6 +46,7 @@ class ChachaCLI:
     # ====== 启动 ======
 
     async def initialize(self) -> str:
+        self._ensure_default_constitution()
         init = ProjectInit(self._project)
         self._session = SessionService(self._project)
         self._session._init = init
@@ -61,6 +62,18 @@ class ChachaCLI:
         return msg
 
     # ====== 主循环 ======
+
+    @staticmethod
+    def _ensure_default_constitution() -> None:
+        """首次运行自动创建 ~/.chacha/CHACHA.md"""
+        import shutil
+        root_md = Path.home() / ".chacha" / "CHACHA.md"
+        if root_md.exists():
+            return
+        builtin = Path(__file__).resolve().parent.parent / "core" / "CHACHA.md.template"
+        if builtin.exists():
+            root_md.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(builtin, root_md)
 
     async def run(self) -> None:
         init_msg = await self.initialize()
