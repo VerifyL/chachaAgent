@@ -14,7 +14,6 @@ from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.formatted_text import HTML
 from rich.console import Console
-from rich.panel import Panel
 from rich.table import Table
 from rich import box
 
@@ -131,6 +130,7 @@ class ChachaCLI:
         errors: list[str] = []
         response_parts: list[str] = []
         tool_trace: list[dict] = []
+        in_tools = False
 
         self._print_user(text)
         RICH_CONSOLE.print(f"[{self._t['agent_header']}]🤖 Chacha[/]")
@@ -139,21 +139,32 @@ class ChachaCLI:
             async for chunk in self._bridge.send_message(text):
                 if chunk["type"] == "text":
                     response_parts.append(chunk["content"])
+                    if in_tools:
+                        # 工具阶段后的最终文本 → 关闭工具块再流式
+                        in_tools = False
+                        RICH_CONSOLE.print(f"[{self._t['separator']}]" + "─" * 30 + "[/]")
                     RICH_CONSOLE.print(chunk["content"], end="")
                 elif chunk["type"] == "tool_call_start":
+                    if not in_tools:
+                        in_tools = True
+                        RICH_CONSOLE.print()  # 换行
+                        RICH_CONSOLE.print(
+                            f"[{self._t['separator']}]" + "━" * 30 + "[/]"
+                        )
                     tool_trace.append({
                         "tool": chunk["tool_name"], "t0": time.monotonic(),
                     })
-                    # 仅从文本→工具的过渡需要换行，连续工具调用不加空行
-                    if response_parts and not tool_trace[:-1]:
-                        RICH_CONSOLE.print()
-                    self._print_tool(f"{chunk['tool_name']}", "thinking")
+                    RICH_CONSOLE.print(
+                        f"  [{self._t['tool_thinking']}]🔧 {chunk['tool_name']}[/]"
+                    )
                 elif chunk["type"] == "tool_call_end":
                     if tool_trace:
                         t = tool_trace[-1]
                         t["ms"] = int((time.monotonic() - t["t0"]) * 1000)
                     preview = chunk.get("preview", "")[:80]
-                    self._print_tool(f"{chunk['tool_name']} — {preview}", "status")
+                    RICH_CONSOLE.print(
+                        f"  [{self._t['tool_done']}]✅ {chunk['tool_name']} — {preview}[/]"
+                    )
                 elif chunk["type"] == "error":
                     errors.append(chunk["message"])
                     RICH_CONSOLE.print(f"[red]错误: {chunk['message']}[/]")
@@ -425,7 +436,6 @@ class ChachaCLI:
                 ("Ctrl+L", "清屏"),
             ],
         }
-        from rich.table import Table
         table = Table(box=box.SIMPLE, show_header=False, border_style="dim yellow")
         table.add_column(style="bold yellow", width=22)
         table.add_column(style="bright_white")
