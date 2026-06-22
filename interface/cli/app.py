@@ -325,7 +325,7 @@ class ChachaCLI:
             result = await self._save_checkpoint()
             self._print_system(result)
 
-        @kb.add("c-d")
+        @kb.add("c-f")
         def _(event):
             self._debug = not self._debug
             self._print_system(f"🐛 Debug: {'开' if self._debug else '关'}")

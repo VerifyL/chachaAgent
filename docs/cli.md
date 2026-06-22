@@ -77,12 +77,10 @@ prompt = "bold"
 | `Ctrl+C` | 清空当前输入，重来 |
 | `Ctrl+D` | 退出 |
 | `Ctrl+N` | 新 Session |
-| `Ctrl+S` | 保存 checkpoint |
-| `Ctrl+D` | 切换调试模式 |
 | `Ctrl+B` | 会话列表 |
+| `Ctrl+S` | 保存 checkpoint |
 | `Ctrl+X` | 压缩上下文 |
 | `Ctrl+L` | 清屏 |
-| `Ctrl+C` | 退出 |
 
 ## 命令
 
