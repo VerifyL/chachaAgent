@@ -58,10 +58,10 @@ build = [
 chacha = "interface.cli.app:main"
 
 [project.urls]
-Homepage = "https://github.com/your-org/chachaAgent"
-Documentation = "https://github.com/your-org/chachaAgent/tree/main/docs"
-Repository = "https://github.com/your-org/chachaAgent"
-Issues = "https://github.com/your-org/chachaAgent/issues"
+Homepage = "https://github.com/VerifyL/chachaAgent"
+Documentation = "https://github.com/VerifyL/chachaAgent/tree/main/docs"
+Repository = "https://github.com/VerifyL/chachaAgent"
+Issues = "https://github.com/VerifyL/chachaAgent/issues"
 
 [tool.setuptools.packages.find]
 include = ["core*", "protocol*", "capabilities*", "interface*", "scripts*", "tests*"]
