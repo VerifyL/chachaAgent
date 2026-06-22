@@ -31,7 +31,7 @@ chacha /path/to/project
 
 ```
 ~/.chacha/
-  config.toml         ← 全局配置（API Key、模型、dream 阈值）
+  config.toml         ← 全局配置（API Key、模型、dream 阈值、max_tokens）
   clirc.toml          ← CLI 主题配色（首次自动生成，可自定义）
   CHACHA.md           ← 全局宪法（首次自动生成默认模板）
   cli_history         ← 命令历史
@@ -161,6 +161,24 @@ prompt = "bold"
 
 | 文件 | 内容 |
 |------|------|
-| `~/.chacha/config.toml` | API Key、模型、dream 阈值 |
+| `~/.chacha/config.toml` | API Key、模型、dream 阈值、max_tokens |
 | `~/.chacha/CHACHA.md` | 默认宪法（安全规则、代码规范等） |
 | `~/.chacha/clirc.toml` | CLI 主题配色（每个区域均可配色） |
+
+### 配置示例
+
+```toml
+# ~/.chacha/config.toml
+[model.providers.default]
+provider = "openai"
+api_key = "sk-..."
+base_url = "https://api.deepseek.com"
+default_model = "deepseek-v4-pro"
+# max_tokens = 131072     # 输出上限（默认 16384，可设 MAX_TOKENS 环境变量）
+
+[dream]
+dream_rounds = 15
+global_dream_rounds = 100
+```
+
+优先级: `~/.chacha/config.toml` → `{project}/chachaConfig.toml` → 环境变量 → 默认值
