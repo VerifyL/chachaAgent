@@ -230,8 +230,20 @@ api_key = ""
 # 自定义 API 端点
 base_url = "https://api.deepseek.com"
 default_model = "deepseek-v4-pro"
+# 上下文窗口大小（用于自动压缩，默认 1_048_576 = 1M）
+# context_window = 1048576
 # 最大输出 token（默认 16384，亦可设置环境变量 MAX_TOKENS）
 # max_tokens = 131072
+
+# [context]
+# 上下文压缩配置（0-1 百分比）
+# compression_trigger_ratio = 0.7      # 超过此值触发压缩
+# warn_ratio = 0.9                     # 超过此值触发告警
+# frozen_keep_latest = 5               # FROZEN: 保留最新 N 个工具结果
+# trim_keep_head = 5                   # TRIMMED: 保留前 N 条消息
+# trim_keep_tail = 12                  # TRIMMED: 保留后 N 条消息
+# summarize_keep_head = 3              # SUMMARIZED: 保留前 N 条
+# summarize_keep_tail = 8              # SUMMARIZED: 保留后 N 条
 
 # [dream]
 # Session Dream 触发阈值

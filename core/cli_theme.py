@@ -88,6 +88,11 @@ audit = "dim"
 system = "dim"
 prompt = "bold"
 
+# 上下文压缩阈值 (token 数，亦可设环境变量 COMPACT_AT / WARN_AT)
+# DeepSeek v4 1M 上下文可设高些, GPT-4o 128K 设低些
+# compact_at = 80000    # 超过此值自动压缩
+# warn_at = 500000      # 超过此值黄色警告
+
 # 可用样式: bold, italic, underline, reverse
 # 可用颜色: black, red, green, yellow, blue, magenta, cyan, white
 #           加 bright_ 前缀: bright_white, bright_yellow ...

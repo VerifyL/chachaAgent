@@ -224,6 +224,138 @@ class ContextCompressor:
         path.write_text(content, encoding="utf-8")
         return path
 
+    # ====== 消息估算 & 三层压缩（供 CLI 调用） ======
+
+    @staticmethod
+    def estimate_tokens(messages: list) -> int:
+        """估算消息列表的 token 数（中英混合 ≈ 2.5 char/token）。"""
+        import json
+        total = sum(len(json.dumps(m, ensure_ascii=False)) for m in messages)
+        return int(total / 2.5)
+
+    @staticmethod
+    def auto_compact(
+        messages: list,
+        context_window: int,
+        *,
+        llm=None,
+        trigger_ratio: float = 0.7,
+        warn_ratio: float = 0.9,
+        frozen_keep: int = 5,
+        trim_head: int = 5,
+        trim_tail: int = 12,
+        summary_head: int = 3,
+        summary_tail: int = 8,
+    ) -> tuple[list, str]:
+        """全自动压缩：判断 → 执行 → (压缩后消息, 理由)。不达阈值直接返回 (原消息, "")。"""
+        est = ContextCompressor.estimate_tokens(messages)
+        pct = est / context_window
+
+        if pct >= warn_ratio:
+            reason = f"⚠ {est//1000}K token ({int(pct*100)}% 窗口)"
+        elif pct >= trigger_ratio:
+            reason = f"压缩 {int(pct*100)}% 窗口"
+        else:
+            return messages, ""
+
+        compressed = ContextCompressor.smart_compact_messages(
+            messages, context_window, llm=llm,
+            frozen_keep=frozen_keep, trim_head=trim_head, trim_tail=trim_tail,
+            summary_head=summary_head, summary_tail=summary_tail,
+        )
+        return compressed, reason
+
+    @staticmethod
+    def smart_compact_messages(
+        messages: list,
+        context_window: int,
+        llm=None,
+        *,
+        trigger_ratio: float = 0.7,
+        frozen_keep: int = 5,
+        trim_head: int = 5,
+        trim_tail: int = 12,
+        summary_head: int = 3,
+        summary_tail: int = 8,
+    ) -> list:
+        """三层渐进压缩到 < trigger_ratio 窗口。
+        
+        参数可通过 ContextConfig 传入（config.toml context.xxx 配置）。
+        """
+        msgs = list(messages)
+        target = int(context_window * trigger_ratio)
+
+        while ContextCompressor.estimate_tokens(msgs) > target and len(msgs) > 5:
+            # ── Level 1: FROZEN ──
+            tool_indices = [i for i, m in enumerate(msgs) if m.get("role") == "tool"]
+            if tool_indices and len(tool_indices) > frozen_keep:
+                freeze_idx = tool_indices[0]
+                original = msgs[freeze_idx]
+                preview = str(original.get("content", ""))[:80].split("\n")[0]
+                msgs[freeze_idx] = dict(
+                    original,
+                    content=f"[{preview}]...\n[工具结果已缓存，占位]",
+                )
+                continue
+
+            # ── Level 2: TRIMMED ──
+            n = len(msgs)
+            trim_cutoff = 1 + trim_head + trim_tail  # system + head + tail
+            if n > trim_cutoff:
+                head = msgs[:1 + trim_head]   # system + head 条
+                tail = msgs[-trim_tail:]       # tail 条
+                head[-1] = dict(head[-1], content="……(中间对话已裁剪)……")
+                msgs = head + tail
+                continue
+
+            # ── Level 3: SUMMARIZED ──
+            summary_cutoff = 1 + summary_head + summary_tail
+            if n > summary_cutoff:
+                head = msgs[:1 + summary_head]
+                middle = msgs[1 + summary_head:-summary_tail]
+                tail = msgs[-summary_tail:]
+
+                old_content = ""
+                for m in middle:
+                    role = m.get("role", "")
+                    content = str(m.get("content", ""))[:150]
+                    if content:
+                        old_content += f"[{role}] {content}\n"
+
+                if llm and old_content.strip():
+                    import asyncio
+                    summary = asyncio.run(
+                        ContextCompressor._summarize_block(llm, old_content)
+                    )
+                    msgs = head + [
+                        {"role": "user", "content": f"[历史摘要] {summary}"},
+                    ] + tail
+                else:
+                    head[-1] = dict(head[-1], content="……(中间对话已裁剪)……")
+                    msgs = head + tail
+                continue
+
+            break
+
+        return msgs
+
+    @staticmethod
+    async def _summarize_block(llm, text: str) -> str:
+        """LLM 摘要一段对话。"""
+        try:
+            resp = await llm.invoke(
+                messages=[
+                    {"role": "system",
+                     "content": "将对话历史压缩为 1-3 句摘要，保留关键决策、代码变更和用户偏好。"},
+                    {"role": "user", "content": text},
+                ],
+                session_id="compact-summary",
+            )
+            summary = resp.text.strip()[:200]
+            return summary if summary else text[:80]
+        except Exception:
+            return text[:80]
+
     @staticmethod
     def _clone_block(b: ContextBlock, new_content: str) -> ContextBlock:
         return ContextBlock(

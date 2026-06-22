@@ -144,12 +144,21 @@ prompt = "bold"
 ──────────────────────────────────    ← 分隔线
 ```
 
-## 组件
+## 架构
+
+```
+app.py (CLI 层)
+  └─ agent_bridge.py (编排层)
+       ├─ ContextCompressor.auto_compact()  ← 每轮结束自动压缩
+       ├─ Dispatcher.dispatch_stream()      ← LLM + 工具循环
+       └─ SessionService.add_round()        ← 审计 + 记忆
+```
 
 | 文件 | 说明 |
 |------|------|
 | `app.py` | prompt_toolkit + Rich 主 CLI |
-| `agent_bridge.py` | CLI ↔ 核心模块桥接 |
+| `agent_bridge.py` | CLI ↔ 核心编排，含自动压缩 |
+| `core/context/context_compressor.py` | 三层渐进压缩：FROZEN → TRIMMED → SUMMARIZED |
 | `core/cli_theme.py` | 主题加载（~/.chacha/clirc.toml） |
 | `core/config_manager.py` | 配置加载（自动生成 ~/.chacha/config.toml） |
 | `core/session_service.py` | Session 编排 + Dream + 审计 |
@@ -174,7 +183,20 @@ provider = "openai"
 api_key = "sk-..."
 base_url = "https://api.deepseek.com"
 default_model = "deepseek-v4-pro"
-# max_tokens = 131072     # 输出上限（默认 16384，可设 MAX_TOKENS 环境变量）
+# context_window = 1048576    # 上下文窗口（自动根据模型名推断）
+# max_tokens = 131072         # 输出上限（默认 16384）
+
+[context]
+# 上下文压缩（自动 /compact 均生效）
+compression_trigger_ratio = 0.7     # 超过 70% 窗口触发压缩
+warn_ratio = 0.9                    # 超过 90% 触发警告
+
+# 三层压缩参数
+frozen_keep_latest = 5              # FROZEN: 保留最新 N 个工具结果
+trim_keep_head = 5                  # TRIMMED: 保留前 N 条
+trim_keep_tail = 12                 # TRIMMED: 保留后 N 条
+summarize_keep_head = 3             # SUMMARIZED: 保留前 N 条
+summarize_keep_tail = 8             # SUMMARIZED: 保留后 N 条
 
 [dream]
 dream_rounds = 15
@@ -182,3 +204,13 @@ global_dream_rounds = 100
 ```
 
 优先级: `~/.chacha/config.toml` → `{project}/chachaConfig.toml` → 环境变量 → 默认值
+
+## 上下文压缩
+
+| 级别 | 动作 | 触发 |
+|------|------|------|
+| FROZEN | > N 个工具结果时，最旧的冻结为占位符（文件系统已缓存） | 自动 + 手动 |
+| TRIMMED | 保 system + 前 N + 后 M 条，中间裁剪 | 自动 + 手动 |
+| SUMMARIZED | 保 system + 前 N + 后 M 条，中间 LLM 摘要 | 自动 + 手动 |
+
+逐级降落，直到总数低于`compression_trigger_ratio` 窗口比例。`agent_bridge.send_message()` 每轮结束后自动调用。

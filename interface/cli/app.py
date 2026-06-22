@@ -57,6 +57,9 @@ class ChachaCLI:
         )
         msg = await self._bridge.initialize()
         self._session.set_llm(self._bridge._invoker)
+        # 告诉 ChatEngine checkpoint 目录
+        self._bridge._engine.set_checkpoint_dir(
+            self._session.memory_manager._session_dir)
         return msg
 
     # ====== 主循环 ======
@@ -141,6 +144,9 @@ class ChachaCLI:
                     tool_trace.append({
                         "tool": chunk["tool_name"], "t0": time.monotonic(),
                     })
+                    # 仅从文本→工具的过渡需要换行，连续工具调用不加空行
+                    if response_parts and not tool_trace[:-1]:
+                        RICH_CONSOLE.print()
                     self._print_tool(f"{chunk['tool_name']}", "thinking")
                 elif chunk["type"] == "tool_call_end":
                     if tool_trace:
@@ -153,6 +159,8 @@ class ChachaCLI:
                     RICH_CONSOLE.print(f"[red]错误: {chunk['message']}[/]")
                 elif chunk["type"] == "done":
                     tokens = chunk.get("tokens", 0)
+                elif chunk["type"] == "compact":
+                    self._print_system(f"🔄 自动压缩: {chunk['reason']}")
         except Exception as e:
             errors.append(str(e))
             RICH_CONSOLE.print(f"[red]异常: {e}[/]")
@@ -174,8 +182,7 @@ class ChachaCLI:
         RICH_CONSOLE.print(f"[{self._t['audit']}]{audit}[/]")
         RICH_CONSOLE.print(f"[{self._t['separator']}]" + "─" * 40 + "[/]")
 
-        # Auto save checkpoint
-        await self._auto_save_checkpoint()
+        # Checkpoint 已在 ChatEngine.save_checkpoint() 中自动保存
 
     # ====== 命令 ======
 
@@ -196,7 +203,8 @@ class ChachaCLI:
             await self._bridge.reset()
             return f"🆕 新会话: {sid}"
         if cmd == "save":
-            return await self._save_checkpoint()
+            self._bridge._engine.save_checkpoint()
+            return f"💾 Checkpoint 已保存 ({len(self._bridge._messages)} 条)"
 
         # 记忆
         if cmd == "memory":
@@ -271,52 +279,28 @@ class ChachaCLI:
         sid = self._session_by_index(idx_str, sessions)
         return await self._session.delete_session(sid)
 
-    # ====== 检查点 ======
-
-    async def _auto_save_checkpoint(self) -> None:
-        import json
-        try:
-            cp = self._session.memory_manager._session_dir / "checkpoint.json"
-            cp.write_text(json.dumps(self._bridge._messages, ensure_ascii=False, indent=2), encoding="utf-8")
-        except Exception:
-            pass
-
-    async def _save_checkpoint(self) -> str:
-        await self._auto_save_checkpoint()
-        return f"💾 Checkpoint 已保存 ({len(self._bridge._messages)} 条)"
-
     async def _reload_bridge(self, old_sid: str) -> None:
-        import json
-        from core.context.memory_manager import MemoryManager
         # 保存旧 session
-        old = MemoryManager(project_root=self._project, session_id=old_sid)
-        try:
-            (old._session_dir / "checkpoint.json").write_text(
-                json.dumps(self._bridge._messages, ensure_ascii=False, indent=2), encoding="utf-8")
-        except Exception:
-            pass
-        # 重建
-        init = self._session.project_init
-        self._bridge._system_prompt = init.build_system_prompt()
-        self._bridge._custom_tools = init.build_tools()
-        await self._bridge.rebuild()
-        # 恢复
-        cp = self._session.memory_manager._session_dir / "checkpoint.json"
-        if cp.exists():
-            self._bridge._messages = json.loads(cp.read_text(encoding="utf-8"))
+        self._bridge._engine.save_checkpoint()
+        # 重置引擎并切换 checkpoint 目录
+        self._bridge._engine.reset()
+        self._bridge._engine.set_checkpoint_dir(
+            self._session.memory_manager._session_dir)
 
     async def _do_compact(self) -> str:
         if not self._bridge:
             return "未连接"
         try:
             from core.context.context_compressor import ContextCompressor
-            compressor = ContextCompressor()
             n = len(self._bridge._messages)
-            self._bridge._messages = compressor._freeze_tool_results(
-                self._bridge._messages, self._session.session_id)
-            if len(self._bridge._messages) > 30:
-                self._bridge._messages = self._bridge._messages[:1] + self._bridge._messages[-20:]
-            return f"📦 {n} → {len(self._bridge._messages)} 条"
+            msgs, _ = ContextCompressor.auto_compact(
+                self._bridge._messages,
+                getattr(self._bridge, "_context_window", 1_048_576),
+                llm=getattr(self._bridge, "_invoker", None),
+                **getattr(self._bridge, "_compress_cfg", {}),
+            )
+            self._bridge._messages = msgs
+            return f"📦 {n} → {len(msgs)} 条"
         except Exception as e:
             return f"压缩失败: {e}"
 
@@ -332,9 +316,9 @@ class ChachaCLI:
             self._print_system(f"🆕 新会话: {sid}")
 
         @kb.add("c-s")
-        async def _(event):
-            result = await self._save_checkpoint()
-            self._print_system(result)
+        def _(event):
+            self._bridge._engine.save_checkpoint()
+            self._print_system(f"💾 Checkpoint 已保存 ({len(self._bridge._messages)} 条)")
 
         @kb.add("c-f")
         def _(event):
