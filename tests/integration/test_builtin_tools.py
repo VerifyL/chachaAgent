@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from capabilities.builtins.memory_tool import LoadMemoryTool, RememberTool
-from capabilities.builtins.chunk_streamer import ReadFileTool, GrepTool
+from capabilities.builtins.memory_tool import LoadMemoryTool
+from cas.builtins.chunk_streamer import ReadFileTool, GrepTool
 from capabilities.builtins.code_patcher import EditFileTool
 
 
@@ -50,12 +50,9 @@ async def test_read_then_grep(project_root):
 # ====== 记忆链 ======
 
 @pytest.mark.asyncio
-async def test_remember_then_load():
-    """写入记忆 → 搜索确认"""
-    r = RememberTool()
-    await r.execute(content="集成测试: 偏好 pytest 框架")
-
-    l = LoadMemoryTool()
+async def test_write_topic_then_read():
+    """写入主题记忆 → 读取确认"""
+    from capabilities.builtins.memory_tool import WriteTopicT    l = LoadMemoryTool()
     result = await l.execute(query="pytest")
     assert "pytest" in result.lower()
 

@@ -248,10 +248,10 @@ class HookOrchestrator:
 
     async def _execute_callable(self, handler: Callable, ctx: HookContext) -> HookResult:
         """执行内置 Python 钩子"""
-        if asyncio.iscoroutinefunction(handler):
-            return await handler(ctx)
-        else:
-            return handler(ctx)
+        result = handler(ctx)
+        if asyncio.iscoroutine(result):
+            return await result
+        return result
 
     async def _execute_external(self, cmd: ShellCommand, ctx: HookContext) -> HookResult:
         """执行外部进程钩子（Claude Code 风格：stdin JSON → stdout JSON）"""

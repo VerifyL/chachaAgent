@@ -9,4 +9,4 @@
 - `errors-fixed` — 成功修复的 bug
 - `project-progress` — 项目进度
 
-当用户要求"记住"时，必须同时调用 `remember` + `write_topic`。
+当用户要求"记住"时，必须使用 `write_topic` 记录。

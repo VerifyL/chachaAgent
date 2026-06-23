@@ -14,6 +14,5 @@
 | `grep` | `grep.md` | 正则搜索 |
 | `edit_file` | `edit_file.md` | 文件修改 |
 | `load_memory` | `load_memory.md` | 读取会话记忆 |
-| `remember` | `remember.md` | 写入短期记忆 |
 | `write_topic` | `write_topic.md` | 写入主题记忆 |
 | `read_topic` | `read_topic.md` | 读取主题记忆 |

@@ -1,78 +1,42 @@
-# 主控制器 (`core/orchestrator.py`) (v2.0)
+# 主控制器 (`core/orchestrator.py`) (v2.1)
 
-本文档说明 `Orchestrator` 的 Think-Act-Observe 循环、子系统协调和终止条件。
+`Orchestrator` 是 ChachaAgent 的**唯一编排入口**，所有对话（CLI / Web / API）最终都走 `run_stream()` 13 步流水线。
 
-## v2.0 新增
+## v2.1 架构统一
 
-- **每轮记忆保存**：assistant 最终回答后异步保存 `session/{date}.md`（只含 user+assistant）
-- **tool_cache 清理**：会话结束时自动清理 `tool_cache/` 目录
-- **DreamPipeline 触发**：每次会话记录计数，10 次或 24h 触发记忆整合
-- **永久记忆联动**：支持 CHACHA_MEMORY.md 的异步更新
+- **`run_stream()`** 成为唯一生产路径，不再委托 ChatEngine，独立完成全链路编排
+- **ChatEngine** 降级为纯消息存储 + 检查点持久化，不再参与运行时调度
+- **Dispatcher** 工具执行并发化 (`asyncio.gather`)，同轮独立工具调用并行执行
 
-### 主循环状态机
+### `run_stream()` 13 步流水线
 
 ```
-                    ┌──────────────────┐
-                    │   用户输入消息      │
-                    └────────┬─────────┘
-                             │
-                             ▼
-                    ┌──────────────────┐
-                    │  会话初始化/恢复   │
-                    └────────┬─────────┘
-                             │
-              ┌──────────────▼──────────────┐
-              │     iteration = 0           │
-              │     while < max_iterations  │
-              └──────────────┬──────────────┘
-                             │
-                             ▼
-              ┌─────────────────────────────┐
-              │  1. ContextManager.assemble │
-              │     + PRE_CONTEXT_ASSEMBLY  │
-              │     钩子注入（Git感知等）    │
-              │     → messages[]            │
-              └──────────────┬──────────────┘
-                             │
-                             ▼
-              ┌─────────────────────────────┐
-              │  2. LLM 流式调用             │
-              │     → 流式 token 推送       │
-              │     → LLMResponse            │
-              └──────────────┬──────────────┘
-                             │
-                    ┌────────┴────────┐
-                    │  有 tool_calls?   │
-                    └────────┬────────┘
-                         是     │     否
-                          ▼     │      │
-              ┌──────────────────┐ │      │
-              │ ToolExecutor     │ │      │
-              │ .execute_batch() │ │      │
-              └────────┬─────────┘ │      │
-                       │           │      │
-                       ▼           │      │
-              ┌──────────────────┐ │      │
-              │ iteration++      │ │      │
-              │ → 回到步骤 1     │ │      │
-              └──────────────────┘ │      │
-                                   │      │
-                                   ▼      ▼
-                          ┌──────────────────┐
-                          │  3. 最终回答       │
-                          │  → _save_round    │
-                          │    _memory()      │
-                          └────────┬─────────┘
-                                   │
-                                   ▼
-                          ┌──────────────────┐
-                          │  4. 会话结束       │
-                          │  cleanup_tool_cache│
-                          │  dream.record_    │
-                          │  session()        │
-                          │  → OrchResponse   │
-                          └──────────────────┘
+用户输入
+  │
+  ├─ 1. ConversationState 初始化 + 消息追加
+  ├─ 2. Hook: PRE_CONTEXT_ASSEMBLY  ← Git 上下文注入等
+  ├─ 3. Policy 检查                 ← 速率/权限拦截
+  ├─ 4. Gateway: session_started
+  ├─ 5. ContextManager 上下文组装   ← MEMORY.md 常驻 + 双区模型
+  ├─ 6. Dispatcher.dispatch_stream() ← 直接调用（并发工具执行）
+  │     ├─ LLMInvoker.stream()
+  │     ├─ asyncio.gather(*tools)   ← 同轮独立工具并发
+  │     └─ Circuit Breaker 按序检查
+  ├─ 7. 自动压缩                    ← ContextCompressor.auto_compact()
+  ├─ 8. 上下文利用率遥测
+  ├─ 9. 最终回答提取                ← DeepSeek think 兼容
+  ├─ 10. 检查点保存                 ← CheckpointManager
+  ├─ 11. 会话记忆保存               ← _save_round_memory()
+  ├─ 12. Gateway: session_ended
+  └─ 13. 清理 + DreamPipeline 触发
 ```
+
+### 两条 API
+
+| 方法 | 流式 | 用途 | 状态 |
+|------|------|------|------|
+| `run_stream(user_input, session_id)` | ✅ yield chunk | **生产主流程** | ✅ v2.1 重写 |
+| `run(user_input, session_id)` | ❌ 返回 OrchResponse | 测试 / 非流式兼容 | 保留 |
 
 ---
 
@@ -80,12 +44,13 @@
 
 ```python
 Orchestrator(
-    context_manager,    # ContextManager（组装上下文）
-    llm_invoker,        # LLMInvoker（调用模型）
-    tool_executor,      # ToolExecutor（执行工具）
-    dispatcher,         # Dispatcher（v2.0: 含 Stage 1 工具缓存）
-    memory_manager,     # MemoryManager（v2.0: 记忆保存 + 清理）
-    dream_pipeline,     # DreamPipeline（v2.0: 记忆整合触发）
+    engine,             # ChatEngine（消息存储 + 检查点）
+    context_manager,    # ContextManager（上下文组装）
+    llm_invoker,        # LLMInvoker（流式 LLM 调用）
+    tool_executor,      # ToolExecutor（工具执行 + 审批）
+    dispatcher,         # Dispatcher（LLM↔工具循环 + 并发）
+    memory_manager,     # MemoryManager（记忆保存 + 清理）
+    dream_pipeline,     # DreamPipeline（记忆整合触发）
     gateway,            # ChaChaAsyncGateway
     telemetry,          # Telemetry
     hook_orchestrator,  # HookOrchestrator
@@ -101,15 +66,21 @@ Orchestrator(
 ```
 用户输入 "hello"
   │
+  ├─ ConversationState 初始化
+  ├─ Hook.PRE_CONTEXT_ASSEMBLY（Git 上下文注入）
+  ├─ Policy 检查（速率/权限）
   ├─ Gateway → SessionLifecycleEvent(event="started")
-  ├─ iteration 1 ... N
-  ├─ 最终回答 → _save_round_memory(user_input, assistant_text)
+  ├─ ContextManager.assemble()（双区模型 + MEMORY.md）
+  ├─ Dispatcher.dispatch_stream()（LLM + 并发工具循环）
+  ├─ ContextCompressor.auto_compact()（Token 压力触发）
+  ├─ save_checkpoint()
+  ├─ _save_round_memory(user_input, assistant_text)
   ├─ _end_session_cleanup()
   │   ├─ cleanup_tool_cache()
   │   ├─ dream_pipeline.record_session()
   │   └─ if dream_pipeline.should_run() → asyncio.create_task(dream.run())
   ├─ Gateway → SessionLifecycleEvent(event="ended")
-  └─ → OrchResponse(text, iterations, total_tokens, duration_ms)
+  └─ yield {"type": "done", ...}
 ```
 
 ---
@@ -120,8 +91,9 @@ Orchestrator(
 |----------|----------|
 | LLM 认证错误/熔断 | **立即终止**，返回 error |
 | LLM 其他错误 | 注入 state 作为系统消息，继续下一轮 |
-| 工具执行错误 | ToolResult(error=True) → 正常注入 ObservationEvent |
+| 工具执行错误 | ToolResult(error=True) → 正常注入 |
 | 最大迭代耗尽 | 强制终止，记录警告日志 |
+| Policy 拦截 | 立即返回 error chunk |
 
 ---
 
@@ -129,25 +101,20 @@ Orchestrator(
 
 ```python
 from core.orchestrator import Orchestrator
-from core.context_manager import ContextManager
-from core.context.memory_manager import MemoryManager
-from core.context.dream import DreamPipeline
-
-mem_mgr = MemoryManager(project_id="p1", session_id="s1")
-dream = DreamPipeline(llm_invoker)
 
 orch = Orchestrator(
-    context_manager=ContextManager(),
-    llm_invoker=llm_invoker,
-    tool_executor=tool_executor,
+    engine=chat_engine,
+    context_manager=ctx_mgr,
+    llm_invoker=llm,
+    tool_executor=tools,
+    dispatcher=disp,
     memory_manager=mem_mgr,
     dream_pipeline=dream,
 )
 
-resp = await orch.run(
-    "帮我读一下 main.py",
-    session_id="s1",
-    project_id="p1",
-)
-# → OrchResponse(text="文件内容是 print('hello')", iterations=2)
+async for chunk in orch.run_stream("帮我读一下 main.py", session_id="s1"):
+    if chunk["type"] == "text":
+        print(chunk["content"], end="")
+    elif chunk["type"] == "done":
+        print(f"\n[{chunk['tokens']} tokens, {chunk['iterations']} rounds]")
 ```

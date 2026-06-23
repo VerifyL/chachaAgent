@@ -209,7 +209,7 @@ class PolicyEngine:
 
     # ====== 工具分类常量 ======
 
-    MEMORY_TOOLS: Set[str] = {"load_memory", "remember", "write_topic", "read_topic"}
+    MEMORY_TOOLS: Set[str] = {"load_memory", "write_topic", "read_topi", "read_topic"}
     """记忆类工具：完全跳过审批"""
 
     READONLY_TOOLS: Set[str] = {

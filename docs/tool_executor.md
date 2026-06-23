@@ -128,7 +128,7 @@ ToolResult.truncated = True
 | `HookOrchestrator` | 步骤 2 + 5 | 前置/后置钩子：BLOCK/MODIFY/CONTINUE |
 | `Telemetry` | 步骤 6 | 记录工具调用指标（次数、耗时、输出行数） |
 
-**Hook 豁免**：`write_topic`、`remember`、`read_topic`、`load_memory` 四个记忆工具绕过 PRE 钩子（保证记忆写入不被全局规则意外阻塞）。后置钩子不受影响。
+**Hook 豁免**：`write_topic`、`read_topic`、`load_memory` 三个记忆工具绕过 PRE 钩子（保证记忆写入不被全局规则意外阻塞）。后置钩子不受影响。
 
 **与 Orchestrator 集成**：
 

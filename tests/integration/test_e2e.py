@@ -16,7 +16,7 @@ from interface.cli.agent_bridge import AgentBridge
 from core.session_service import SessionService
 from capabilities.builtins.chunk_streamer import ReadFileTool, GrepTool
 from capabilities.builtins.code_patcher import EditFileTool
-from capabilities.builtins.memory_tool import LoadMemoryTool, RememberTool
+from capabilities.builtins.memory_tool import LoadMemoryTool
 
 API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-pro")
@@ -36,7 +36,6 @@ def make_bridge(project_root: Path, memory_mgr=None):
         GrepTool(root=project_root),
         EditFileTool(root=project_root),
         LoadMemoryTool(memory_manager=memory_mgr),
-        RememberTool(memory_manager=memory_mgr),
     ]
     system_prompt = "你是 ChachaAgent 端到端测试助手。回复简洁直接，使用中文。"
     return AgentBridge(system_prompt=system_prompt, tools=tools, project_root=project_root)
@@ -102,7 +101,7 @@ async def test_e2e_memory_lifecycle():
     bridge = make_bridge(d, memory_mgr=mgr_shared)
     await bridge.initialize()
 
-    # 1. 在 session1 中写记忆（LLM 可调用 remember 工具）
+    # 1. 在 session1 中写记忆（LLM 可调用 write_topi工具）
     texts = []
     async for chunk in bridge.send_message("记录到记忆：最喜欢的颜色是蓝色"):
         if chunk["type"] == "text":

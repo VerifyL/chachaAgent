@@ -233,7 +233,7 @@ global_dream_rounds = 100
 ```json
 // debug.jsonl 示例
 {"ts":"...","level":"INFO","session":"20260623-1051","msg":"Telemetry 已启动"}
-{"ts":"...","level":"INFO","session":"20260623-1051","msg":"工具调用","tool":"remember","duration_ms":1}
+{"ts":"...","level":"INFO","session":"20260623-1051","msg":"工具调用","tool":"write_topic","duration_ms":1}
 {"ts":"...","level":"INFO","session":"20260623-1051","msg":"本轮完成","round":1,"tokens":352}
 {"ts":"...","level":"INFO","session":"20260623-1051","msg":"LLM 调用","tokens":352,"duration_ms":2800}
 ```

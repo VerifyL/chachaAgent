@@ -1,10 +1,11 @@
 """
 capabilities/builtins/memory_tool.py
-LoadMemory + Remember — 记忆读写工具（BaseTool）。
+LoadMemory + WriteTopic + ReadTopic — 记忆读写工具（BaseTool）。
 
 LLM 自主调用：
   load_memory(query) → 搜索所有记忆文件
-  remember(content)  → 写入今日记忆
+  write_topic(topic, content) → 写入长期主题记忆
+  read_topic(topic) → 读取长期主题记忆
 """
 
 import logging
@@ -47,40 +48,6 @@ class LoadMemoryTool(BaseTool):
         return result or f"未找到与 '{query}' 相关的记忆。"
 
 
-class RememberTool(BaseTool):
-    """写入记忆：remember(content) → 追加到今日文件"""
-
-    name = "remember"
-    description = (
-        "记录当前会话的关键信息到今日记忆（7天后自动清理短期记忆）。"
-        "当用户要求 '记住' 时，必须同时调用 remember 和 write_topic 两个工具，"
-        "一个写入短期会话记忆，一个写入长期主题记忆。"
-    )
-
-    parameters = {
-        "type": "object",
-        "properties": {
-            "content": {"type": "string", "description": "要记住的内容（简洁摘要）"},
-        },
-        "required": ["content"],
-    }
-    risk = "low"
-    requires_approval = False
-
-    def __init__(self, memory_manager: Optional[MemoryManager] = None):
-        self._mgr = memory_manager
-        #self._mgr = memory_manager or MemoryManager()
-
-    async def execute(self, content: str) -> str:
-        if self._mgr is None:
-            return "记忆系统未初始化"
-        path = self._mgr.remember(content.strip())
-        preview = content.strip()[:80]
-        if len(content.strip()) > 80:
-            preview += "..."
-        return f"✅ 已记录到 {path.name} | 预览: {preview}"
-
-
 class WriteTopicTool(BaseTool):
     """写入主题记忆：write_topic(topic, content) → 追加到对应主题文件"""
 
@@ -94,7 +61,7 @@ class WriteTopicTool(BaseTool):
         "- lessons-learned：踩坑教训、反模式、令人意外的工具行为、值得记住的经验\n"
         "- errors-fixed：成功修复的错误及诊断-根因-解决方案三要素\n"
         "- project-progress：功能完成、重构、里程碑、TODO 事项\n"
-        "当用户要求 '记住' 时，必须同时调用 remember（短期）和 write_topic（长期）两个工具。\n"
+        "当用户要求 '记住' 时，使用 write_topic 工具记录长期主题记忆。\n"
         "LLM 也可自主调用 write_topic，无须用户同意（敏感信息除外）。"
     )
     parameters = {

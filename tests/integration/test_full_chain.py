@@ -19,7 +19,7 @@ from core.dispatcher import Dispatcher
 from core.tool_executor import ToolExecutor
 from capabilities.builtins.chunk_streamer import ReadFileTool, GrepTool
 from capabilities.builtins.code_patcher import EditFileTool
-from capabilities.builtins.memory_tool import LoadMemoryTool, RememberTool
+from capabilities.builtins.memory_tool import LoadMemoryTool
 from capabilities.builtins.subagent_tool import SubAgentTool
 from capabilities.sandbox import Sandbox
 from core.subagent.spawner import SubAgentSpawner
@@ -49,9 +49,9 @@ def build_tools(project_root, memory_mgr):
     grepper = GrepTool(root=project_root)
     editor = EditFileTool(root=project_root)
     loader = LoadMemoryTool(memory_manager=memory_mgr)
-    remember = RememberTool(memory_manager=memory_mgr)
+    sandberTool(memory_manager=memory_mgr)
     sandbox = Sandbox()
-    return [reader, grepper, editor, loader, remember, sandbox]
+    return [reader, grepper, editor, loader, sandbandbox]
 
 
 # ====== 测试 1: 纯文本 ======
@@ -149,7 +149,7 @@ async def test_memory_chain():
     invoker = LLMInvoker(model_client=client)
     tools = ToolExecutor(tools=[
         LoadMemoryTool(memory_manager=mgr),
-        RememberTool(memory_manager=mgr),
+    ])
     ])
 
     dispatcher = Dispatcher(invoker, tools)
@@ -158,7 +158,7 @@ async def test_memory_chain():
     resp1 = await dispatcher.dispatch(
         messages=[{
             "role": "system",
-            "content": "你是一个助手，用户提到了重要偏好请用 remember 工具记录。"
+            "content": "你是一个助手，用户提到了重要偏好请用 write_topi工具记录。"
         }, {
             "role": "user",
             "content": "我的项目用 Python 3.11 和 ruff 格式化，记住这个"

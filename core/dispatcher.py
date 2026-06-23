@@ -19,6 +19,7 @@ v2.0 Stage 1 工具结果缓存（宽松）:
     response = await dispatcher.dispatch(messages, session_id)
 """
 
+import asyncio
 import json
 import logging
 import re
@@ -27,6 +28,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Dict, List, Optional
 
 from core.llm_invoker import LLMResponse
+from core.tool_executor import ToolResult
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +44,7 @@ _API_KEY_RE = re.compile(
 def _tool_args_summary(name: str, args: dict) -> str:
     if name in ("read_file", "bash", "list_files", "file_outline",
                  "depe_analyze", "project_overview", "load_memory",
-                 "remember", "write_topic", "read_topic", "subagent"):
+                 "write_topic", "read_topic", "subagent", "subagent"):
         items = [f"{k}={v}" for k, v in args.items()]
         return " ".join(items)
     if name == "read_files" and "paths" in args:
@@ -187,7 +189,10 @@ class Dispatcher:
             assistant_msg["tool_calls"] = safe_tool_calls
             messages.append(assistant_msg)
 
-            # 执行并追加工具结果
+            # 执行并追加工具结果（并发执行）
+            # Phase 1: 解析参数 + 发出 tool_exec_start 事件 + 构建 task 列表
+            _tc_infos: list = []
+            tasks: list = []
             for idx, tc_info in sorted(tool_calls_building.items()):
                 try:
                     args = json.loads(tc_info["args"]) if tc_info["args"] else {}
@@ -196,13 +201,32 @@ class Dispatcher:
                 self.tool_calls_made += 1
                 arg_summary = _tool_args_summary(tc_info["name"], args)
                 yield {"type": "tool_exec_start", "tool_name": tc_info["name"], "args": arg_summary}
-                result = await self._tools.execute(
+                _tc_infos.append((tc_info, arg_summary))
+                tasks.append(self._tools.execute(
                     tool_name=tc_info["name"],
                     arguments=args,
                     session_id=session_id,
                     tool_use_id=tc_info["id"],
                     project_id=self._project_id,
-                )
+                ))
+
+            # Phase 2: 并发执行所有工具（ToolExecutor 内部 Semaphore(5) 兜底）
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            # Phase 3: 按原始顺序处理结果（Circuit Breaker 顺序累加，行为不变）
+            for i, (tc_info, arg_summary) in enumerate(_tc_infos):
+                raw = results[i]
+                if isinstance(raw, Exception):
+                    result = ToolResult(
+                        tool_use_id=tc_info["id"],
+                        tool_name=tc_info["name"],
+                        status="error",
+                        output="",
+                        error=str(raw),
+                    )
+                else:
+                    result = raw
+
                 # blocked / pending_approval → 转为错误消息
                 if result.status in ("blocked", "pending_approval"):
                     result.output = f"[{result.status}] {result.error or '工具执行被阻止'}"

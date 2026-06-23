@@ -333,7 +333,8 @@ class AgentBridge:
         self._orchestrator._memory = memory_manager
 
     async def send_message(self, user_input: str) -> AsyncIterator[Dict[str, Any]]:
-        async for chunk in self._engine.send_message(user_input):
+        """委托 Orchestrator（统一编排路径）。"""
+        async for chunk in self.send_message_orchestrated(user_input):
             yield chunk
 
     async def send_message_orchestrated(

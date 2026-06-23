@@ -221,32 +221,191 @@ class Orchestrator:
         session_id: str = "",
         project_id: str = "default",
     ):
-        """流式执行：委托 ChatEngine，未来会加入 Hook/Policy/State 跟踪。"""
+        """流式执行：Hook → Policy → Gateway → Context → Dispatcher → 压缩 → 记忆。
+
+        v2.1: 不再委托 ChatEngine，直接调度 Dispatcher，注入 Hook/Policy/Gateway/Dream。
+        """
         if not self._engine:
             raise RuntimeError("run_stream 需要 ChatEngine，请调用 set_engine()")
 
-        # 构建 ConversationState（为后续 Hook/Policy 准备）
-        self._state = ConversationState(
+        # ── 1. ConversationState ──
+        state = ConversationState(
             metadata=SessionMetadata(
                 session_id=session_id,
                 project_id=project_id,
             ),
         )
+        state.add_event(MessageEvent(source="user", role="user", content=user_input))
+        self._engine._messages.append({"role": "user", "content": user_input})
 
-        # 委托 ChatEngine 做实际调度
+        # ── 2. Hook: PRE_CONTEXT_ASSEMBLY ──
+        additional_blocks: list = []
+        if self._hooks:
+            try:
+                from core.models.hook import HookPoint
+                from core.models.context import ContextBlock, BlockSource
+                hook_result = await self._hooks.run(
+                    session_id=session_id,
+                    hook_point=HookPoint.PRE_CONTEXT_ASSEMBLY,
+                )
+                if hook_result and hook_result.additional_context:
+                    additional_blocks.append(ContextBlock(
+                        source=BlockSource.ADDITIONAL_CONTEXT,
+                        role="system",
+                        content=hook_result.additional_context,
+                        zone="dynamic",
+                        priority=8,
+                        importance=0.55,
+                    ))
+            except Exception:
+                pass
+
+        # ── 3. Policy 检查 ──
+        if self._policy:
+            try:
+                allowed = await self._policy.check(user_input)
+                if not allowed:
+                    yield {"type": "error", "message": "请求被策略拦截"}
+                    return
+            except Exception:
+                pass
+
+        # ── 4. Gateway: session_started ──
+        if self._gateway:
+            try:
+                from protocol.rpc_schema import SessionLifecycleEvent
+                await self._gateway.publish(
+                    SessionLifecycleEvent(params={
+                        "event": "started",
+                        "session_id": session_id,
+                    }),
+                    session_id=session_id,
+                )
+            except Exception:
+                pass
+
+        # ── 5. 上下文组装 ──
+        from core.context_manager import ContextManager
+        if self._context:
+            ctx = ContextManager.assemble_from_messages(
+                self._engine._messages, self._context,
+                additional_contexts=additional_blocks or None,
+            )
+            msgs_for_llm = ContextManager.blocks_to_messages(ctx)
+        else:
+            msgs_for_llm = list(self._engine._messages)
+
+        # ── 6. Dispatcher 调度（直接调用，不经过 ChatEngine） ──
+        dispatcher = self._dispatcher or getattr(self._engine, '_dispatcher', None)
+        if not dispatcher:
+            yield {"type": "error", "message": "No dispatcher configured"}
+            return
+
         response_parts: list[str] = []
-        async for chunk in self._engine.send_message(user_input):
-            # TODO(v2.0): Hook pre/post
-            # TODO(v2.0): Policy 拦截
-            if chunk.get("type") == "text":
-                response_parts.append(chunk.get("content", ""))
-            elif chunk.get("type") == "done":
-                final_text = "".join(response_parts)
-                # 保存会话记忆（接管 SessionService 的记忆职责）
-                self._save_round_memory(user_input, final_text, project_id)
-                # 清理 + Dream 触发
-                await self._end_session_cleanup(session_id)
-            yield chunk
+        try:
+            async for chunk in dispatcher.dispatch_stream(
+                messages=msgs_for_llm,
+                session_id=session_id,
+                max_rounds=200,
+            ):
+                # ConversationState 事件跟踪
+                if chunk.get("type") == "tool_call_start":
+                    state.add_event(ToolCallEvent(
+                        source="tool",
+                        tool_name=chunk.get("tool_name", "?"),
+                        tool_use_id=chunk.get("tool_use_id", ""),
+                        arguments=chunk.get("arguments", {}),
+                    ))
+                elif chunk.get("type") == "tool_exec_end":
+                    state.add_event(ObservationEvent(
+                        source="tool",
+                        tool_use_id=chunk.get("tool_use_id", ""),
+                        content=chunk.get("content", ""),
+                        status=chunk.get("status", "success"),
+                        error=chunk.get("error"),
+                        truncated=chunk.get("truncated", False),
+                        duration_ms=chunk.get("duration_ms", 0),
+                    ))
+                elif chunk.get("type") == "text":
+                    response_parts.append(chunk.get("content", ""))
+
+                yield chunk
+        except Exception as e:
+            yield {"type": "error", "message": str(e)}
+
+        final_text = "".join(response_parts)
+
+        # ── 7. 自动压缩 ──
+        from core.context.context_compressor import ContextCompressor
+        est = ContextCompressor.estimate_tokens(self._engine._messages)
+        pct = est / self._engine._context_window if self._engine._context_window else 0
+        cache_dir = (self._engine._checkpoint_dir / "tool_cache"
+                      if self._engine._checkpoint_dir else None)
+        msgs, reason = ContextCompressor.auto_compact(
+            self._engine._messages,
+            self._engine._context_window,
+            llm=getattr(self._engine, '_llm', None),
+            cache_dir=cache_dir,
+            **getattr(self._engine, '_compress_cfg', {}),
+        )
+        if reason:
+            self._engine._messages = msgs
+            yield {"type": "compact", "reason": reason}
+
+        # ── 8. 上下文利用率遥测 ──
+        try:
+            tel = getattr(dispatcher, "_telemetry", None) if dispatcher else None
+            if tel and tel.agent:
+                tel.agent.record_context(est, pct, compression_triggered=bool(reason))
+        except Exception:
+            pass
+
+        # ── 9. 最终回答提取（DeepSeek think 兼容） ──
+        if self._context:
+            found_user = False
+            assistant_parts: list[str] = []
+            for m in msgs_for_llm:
+                if m.get("role") == "user" and m.get("content") == user_input:
+                    found_user = True
+                    continue
+                if found_user and m.get("role") == "assistant":
+                    c = (m.get("content") or "").strip()
+                    if c:
+                        assistant_parts.append(c)
+            self._engine._messages.append({
+                "role": "assistant",
+                "content": "\n\n".join(assistant_parts),
+            })
+        else:
+            self._engine._messages = [
+                m for m in self._engine._messages if m.get("role") != "tool"
+            ]
+            for m in self._engine._messages:
+                m.pop("tool_calls", None)
+                m.pop("reasoning_content", None)
+
+        # ── 10. 检查点保存 ──
+        self._engine.save_checkpoint()
+
+        # ── 11. 会话记忆 ──
+        self._save_round_memory(user_input, final_text, project_id)
+
+        # ── 12. Gateway: session_ended ──
+        if self._gateway:
+            try:
+                from protocol.rpc_schema import SessionLifecycleEvent
+                await self._gateway.publish(
+                    SessionLifecycleEvent(params={
+                        "event": "ended",
+                        "session_id": session_id,
+                    }),
+                    session_id=session_id,
+                )
+            except Exception:
+                pass
+
+        # ── 13. 清理 + Dream 触发 ──
+        await self._end_session_cleanup(session_id)
 
     # ====== 会话记忆 & 清理 ======
 

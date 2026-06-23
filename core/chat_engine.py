@@ -57,6 +57,11 @@ class ChatEngine:
         self._dispatcher = dispatcher
         self._tool_executor = getattr(dispatcher, "_tools", None)
 
+    @property
+    def dispatcher(self) -> Optional[Dispatcher]:
+        """公开 Dispatcher（供 Orchestrator 直接调用）。"""
+        return self._dispatcher
+
     def rebuild(self, tools=None) -> None:
         from core.tool_executor import ToolExecutor
         from core.dispatcher import Dispatcher
@@ -164,7 +169,7 @@ class ChatEngine:
     # ====== 发送消息 ======
 
     async def send_message(self, user_input: str) -> AsyncIterator[Dict[str, Any]]:
-        """发送用户消息 → 上下文组装 → 调度 → 自动压缩 → 检查点。"""
+        """简化版：仅追加消息 + 委托 Dispatcher（完整编排已迁入 Orchestrator.run_stream）。"""
         if not self._dispatcher:
             yield {"type": "error", "message": "未初始化"}
             return
@@ -173,71 +178,15 @@ class ChatEngine:
         t0 = time.monotonic()
         sid = self._checkpoint_dir.stem if self._checkpoint_dir else f"chat-{int(t0)}"
 
-        # 通过 ContextManager 组装上下文（MEMORY.md 常驻动态区）
-        if self._cm:
-            from core.context_manager import ContextManager
-            ctx = ContextManager.assemble_from_messages(
-                self._messages, self._cm,
-            )
-            msgs_for_llm = ContextManager.blocks_to_messages(ctx)
-        else:
-            msgs_for_llm = self._messages
-
         try:
             async for chunk in self._dispatcher.dispatch_stream(
-                messages=msgs_for_llm,
+                messages=self._messages,
                 session_id=sid,
                 max_rounds=200,
             ):
                 yield chunk
         except Exception as e:
             yield {"type": "error", "message": str(e)}
-
-        # 自动压缩 + 检查点（压缩后标记 history_trimmed，下次组装注入 MEMORY.md）
-        est = ContextCompressor.estimate_tokens(self._messages)
-        pct = est / self._context_window
-        cache_dir = self._checkpoint_dir / "tool_cache" if self._checkpoint_dir else None
-        msgs, reason = ContextCompressor.auto_compact(
-            self._messages,
-            self._context_window,
-            llm=self._llm,
-            cache_dir=cache_dir,
-            **self._compress_cfg,
-        )
-        if reason:
-            self._messages = msgs
-            yield {"type": "compact", "reason": reason}
-
-        # 上下文利用率遥测
-        tel = getattr(self._dispatcher, "_telemetry", None) if self._dispatcher else None
-        if tel and tel.agent:
-            tel.agent.record_context(est, pct, compression_triggered=bool(reason))
-
-        # 同步最终回答：收集本轮所有 assistant 文本（含 tool_calls 伴生）。
-        # DeepSeek 等模型习惯在 tool_call 前输出回答文本，最后一轮可能只有空 stop。
-        # 只取「无 tool_calls」的那条会丢失真正的回答内容。
-        if self._cm:
-            found_user = False
-            assistant_parts: list[str] = []
-            for m in msgs_for_llm:
-                if m.get("role") == "user" and m.get("content") == user_input:
-                    found_user = True
-                    continue
-                if found_user and m.get("role") == "assistant":
-                    c = (m.get("content") or "").strip()
-                    if c:
-                        assistant_parts.append(c)
-            self._messages.append({
-                "role": "assistant",
-                "content": "\n\n".join(assistant_parts),
-            })
-        else:
-            self._messages = [m for m in self._messages if m.get("role") != "tool"]
-            for m in self._messages:
-                m.pop("tool_calls", None)
-                m.pop("reasoning_content", None)
-
-        self.save_checkpoint()
 
     def reset(self) -> None:
         self._reset_messages()

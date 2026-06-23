@@ -20,10 +20,11 @@ def build_tools(root: Optional[Path] = None, memory_manager=None) -> List:
     from capabilities.builtins.subagent_tool import SubAgentTool
     from capabilities.builtins.chunk_streamer import ReadFileTool, ReadFilesTool, GrepTool
     from capabilities.builtins.code_patcher import EditFileTool
+    from capabilities.builtins.diff_patcher import ApplyPatchTool
     from capabilities.sandbox import Sandbox
     from capabilities.builtins.git_tools import GitDiffTool, GitLogTool, GitStatusTool
     from capabilities.builtins.memory_tool import (
-        LoadMemoryTool, RememberTool, WriteTopicTool, ReadTopicTool,
+        LoadMemoryTool, WriteTopicTool, ReadTopicTool,
     )
 
     return [
@@ -37,8 +38,8 @@ def build_tools(root: Optional[Path] = None, memory_manager=None) -> List:
         ReadFilesTool(root=root),
         GrepTool(root=root),
         EditFileTool(root=root),
+        ApplyPatchTool(root=root),
         LoadMemoryTool(memory_manager=memory_manager),
-        RememberTool(memory_manager=memory_manager),
         WriteTopicTool(memory_manager=memory_manager),
         ReadTopicTool(memory_manager=memory_manager),
         GitDiffTool(root=root),

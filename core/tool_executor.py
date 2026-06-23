@@ -223,7 +223,7 @@ class ToolExecutor:
                     self._policy.record_approval(decision.cache_key, True)
 
         # 2. 前置钩子（关键工具豁免：记忆读写不被拦截）
-        _HOOK_BYPASS_TOOLS = {"write_topic", "remember", "read_topic", "load_memory"}
+        _HOOK_BYPASS_TOOLS = {"write_topic", "read_topic", "load_memory"}
         if self._hooks and tool_name not in _HOOK_BYPASS_TOOLS:
             from core.models.hook import ToolCallContext, HookPoint
             tc = ToolCallContext(
