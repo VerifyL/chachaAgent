@@ -1,6 +1,6 @@
 """
 core/subagent/spawner.py
-SubAgentSpawner — 子Agent 孵化器（参考 Claude Code sub-agent 设计）。
+SubAgentSpawner — 子Agent 孵化器（参考 sub-agent 设计）。
 
 用法:
     spawner = SubAgentSpawner(llm_invoker, parent_tool_executor)
@@ -43,10 +43,15 @@ class SubAgentSpawner:
         llm_invoker,
         parent_tool_executor: Optional[ToolExecutor] = None,
         hook_orchestrator: Optional[Any] = None,
+        project_root: Optional[str] = None,
+        telemetry: Optional[Any] = None,
     ):
         self._llm = llm_invoker
         self._parent_tools = parent_tool_executor
         self._hooks = hook_orchestrator
+        self._project_root = project_root
+        self._telemetry = telemetry
+        self._parent_budget = None
 
     async def spawn(
         self,
@@ -88,7 +93,10 @@ class SubAgentSpawner:
             tools = self._build_tools(definition)
 
             # 4. 调度执行
-            dispatcher = Dispatcher(self._llm, tools)
+            dispatcher = Dispatcher(
+                self._llm, tools,
+                memory_manager=None,  # 子Agent 短对话，缓存收益不大
+            )
 
             result = await asyncio.wait_for(
                 dispatcher.dispatch(
@@ -110,6 +118,7 @@ class SubAgentSpawner:
                 tokens_used=result.usage.get("total", 0),
                 duration_ms=elapsed,
                 status="success" if not result.error else "error",
+                tool_calls_made=dispatcher.tool_calls_made,
             )
 
             # 后置钩子
@@ -147,9 +156,6 @@ class SubAgentSpawner:
     def _build_context(self, definition: SubAgentDef) -> ContextManager:
         """构建子Agent 专用 ContextManager"""
         mgr = ContextManager()
-        if definition.skip_claude_md:
-            # 不加载 CHACHA.md（同 Claude Code Explore）
-            pass
         return mgr
 
     def _build_tools(self, definition: SubAgentDef) -> ToolExecutor:
@@ -159,8 +165,8 @@ class SubAgentSpawner:
 
         allowed = set(definition.tools_whitelist)
         filtered = []
-        for t in self._parent_tools._tool_objects:
+        for t in self._parent_tools.get_tools():
             if hasattr(t, 'name') and t.name in allowed:
                 filtered.append(t)
 
-        return ToolExecutor(tools=filtered)
+        return ToolExecutor(tools=filtered, telemetry=self._telemetry)

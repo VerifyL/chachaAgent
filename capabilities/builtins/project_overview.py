@@ -19,7 +19,14 @@ class ProjectOverviewTool(BaseTool):
     """获取项目结构总览：project_overview(root?) → 目录树 + README + 关键配置"""
 
     name = "project_overview"
-    description = "获取项目结构总览（目录树 + README 摘要 + 关键配置文件）。首次了解项目时优先使用此工具，避免盲目 read_file/grep。"
+    description = (
+        "获取项目结构总览（目录树 + README + 关键元数据）。"
+        "首次了解项目时优先使用此工具。后续探索建议流程：\n"
+        "  1. file_outline(关键文件) — 获取文件骨架\n"
+        "  2. grep(关键词) — 定位目标\n"
+        "  3. read_file(文件, 起始行) — 读具体片段\n"
+        "最小化 token 消耗，避免一次性读太多大文件。"
+    )
     parameters = {
         "type": "object",
         "properties": {},

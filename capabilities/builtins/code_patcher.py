@@ -43,6 +43,10 @@ class EditFileTool(BaseTool):
         self, path: str, old_string: str, new_string: str, replace_all: bool = False
     ) -> str:
         full_path = (Path(path) if Path(path).is_absolute() else self._root / path).resolve()
+        try:
+            full_path.relative_to(self._root)
+        except ValueError:
+            return "[错误] 访问被拒绝: 路径超出项目根目录"
         if not full_path.exists():
             return f"[错误] 文件不存在: {path}"
 

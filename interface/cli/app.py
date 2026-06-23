@@ -59,7 +59,7 @@ class ChachaCLI:
             self._bridge._telemetry.set_session_id(self._session.session_id)
         msg = await self._bridge.initialize()
         # 注入 project_root + project_id
-        self._bridge._engine._project_root = self._project
+        self._bridge.set_project_root(self._project)
         pid = self._session.memory_manager._project_id
         self._bridge._project_id = pid
         if self._bridge._dispatcher:
@@ -67,8 +67,10 @@ class ChachaCLI:
         if self._bridge._telemetry:
             self._session._telemetry = self._bridge._telemetry
         self._session.set_llm(self._bridge._invoker)
-        self._bridge._engine.set_checkpoint_dir(
+        self._bridge.set_checkpoint_dir(
             self._session.memory_manager.session_dir)
+        # 构建 Orchestrator（为 Hook/Policy 准备）
+        self._bridge.build_orchestrator(session_id=self._session.session_id, memory_manager=self._session.memory_manager)
         return msg
 
     # ====== 主循环 ======
@@ -147,7 +149,10 @@ class ChachaCLI:
         RICH_CONSOLE.print(f"[{self._t['agent_header']}]🤖 Chacha[/]")
 
         try:
-            async for chunk in self._bridge.send_message(text):
+            async for chunk in self._bridge.send_message_orchestrated(
+                text, session_id=self._session.session_id,
+                project_id=self._bridge._project_id or "",
+            ):
                 if chunk["type"] == "text":
                     response_parts.append(chunk["content"])
                     if in_tools:
@@ -199,6 +204,7 @@ class ChachaCLI:
         await self._session.add_round(
             tokens=tokens, duration_ms=elapsed_ms, errors=errors,
             user_input=text, assistant_text="".join(response_parts),
+            skip_memory=True,  # 由 Orchestrator.run_stream() 接管
         )
 
         # 上下文利用率 + 缓存命中
@@ -244,7 +250,7 @@ class ChachaCLI:
             await self._bridge.reset()
             return f"🆕 新会话: {sid}"
         if cmd == "save":
-            self._bridge._engine.save_checkpoint()
+            self._bridge.save_checkpoint()
             return f"💾 Checkpoint 已保存 ({len(self._bridge._messages)} 条)"
 
         # 记忆
@@ -322,14 +328,19 @@ class ChachaCLI:
 
     async def _reload_bridge(self, old_sid: str) -> None:
         # 保存旧 session
-        self._bridge._engine.save_checkpoint()
+        self._bridge.save_checkpoint()
         # 重建工具 + Dispatcher
         self._bridge.set_tools_for_session(self._session.memory_manager)
         await self._bridge.rebuild()
         # 重置引擎并切换 checkpoint 目录
-        self._bridge._engine.reset()
-        self._bridge._engine.set_checkpoint_dir(
+        await self._bridge.reset()
+        self._bridge.set_checkpoint_dir(
             self._session.memory_manager.session_dir)
+        # 更新 Orchestrator 的 memory_manager 引用
+        self._bridge.build_orchestrator(
+            session_id=self._session.session_id,
+            memory_manager=self._session.memory_manager,
+        )
 
     async def _do_compact(self) -> str:
         if not self._bridge:
@@ -365,7 +376,7 @@ class ChachaCLI:
 
         @kb.add("c-s")
         def _(event):
-            self._bridge._engine.save_checkpoint()
+            self._bridge.save_checkpoint()
             self._print_system(f"💾 Checkpoint 已保存 ({len(self._bridge._messages)} 条)")
 
         @kb.add("c-f")

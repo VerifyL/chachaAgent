@@ -26,6 +26,10 @@ class AgentBridge:
         self._system_prompt = system_prompt
         self._custom_tools = tools or []
 
+        # Orchestrator（内嵌 ChatEngine，app.py 不直接访问 engine）
+        from core.orchestrator import Orchestrator
+        self._orchestrator: Optional[Orchestrator] = None
+
         # 配置：chachaConfig.toml → 环境变量 → 默认值
         self._telemetry_cfg = None
         default_provider = None
@@ -78,6 +82,11 @@ class AgentBridge:
             compress_cfg=compress_cfg,
             context_manager=self._context_manager,
         )
+
+        self._orchestrator = Orchestrator(
+            context_manager=self._context_manager,
+        )
+        self._orchestrator.set_engine(self._engine)
 
         self._dispatcher = None
         self._invoker = None
@@ -151,8 +160,19 @@ class AgentBridge:
             tool_executor=self._executor,
             telemetry=self._telemetry,
             project_id=self._project_id,
+            context_window=self._context_window,
         )
         self._engine.set_dispatcher(self._dispatcher)
+
+        # 2.5 注入工具运行时依赖（如 SubAgentTool）
+        for tool in self._custom_tools:
+            if hasattr(tool, 'configure'):
+                tool.configure(
+                    llm_invoker=self._invoker,
+                    parent_tool_executor=self._executor,
+                    project_root=self._root,
+                    telemetry=self._telemetry,
+                )
 
         # 3. ContextManager — 注入记忆和技能
         from core.context_manager import ContextManager
@@ -166,6 +186,10 @@ class AgentBridge:
             idx = mgr.read()
             if idx:
                 self._context_manager.set_memory_index(idx)
+            # 读取最近 3 天会话记忆
+            recent = mgr.read_recent_days(3)
+            if recent:
+                self._context_manager.set_session_memory(recent)
             user_path = Path.home() / ".chacha" / "USER_MEMORY.md"
             if user_path.exists():
                 self._context_manager.set_global_permanent_memory(
@@ -183,23 +207,9 @@ class AgentBridge:
         return f"API: {self._model} | 上下文: {self._context_window // 1000}K"
 
     def set_tools_for_session(self, memory_manager) -> None:
-        """根据 session 的 MemoryManager 重建工具。"""
-        from capabilities.builtins.chunk_streamer import ReadFileTool, GrepTool
-        from capabilities.builtins.code_patcher import EditFileTool
-        from capabilities.builtins.memory_tool import (
-            LoadMemoryTool, RememberTool, WriteTopicTool, ReadTopicTool,
-        )
-        from capabilities.builtins.project_overview import ProjectOverviewTool
-        self._custom_tools = [
-            ProjectOverviewTool(root=self._root),
-            ReadFileTool(root=self._root),
-            GrepTool(root=self._root),
-            EditFileTool(root=self._root),
-            LoadMemoryTool(memory_manager=memory_manager),
-            RememberTool(memory_manager=memory_manager),
-            WriteTopicTool(memory_manager=memory_manager),
-            ReadTopicTool(memory_manager=memory_manager),
-        ]
+        """根据 session 的 MemoryManager 重建工具（统一走 registry）。"""
+        from capabilities.registry import build_tools
+        self._custom_tools = build_tools(root=self._root, memory_manager=memory_manager)
 
     async def rebuild(self) -> None:
         """重建 Dispatcher + ToolExecutor"""
@@ -211,17 +221,56 @@ class AgentBridge:
             tool_executor=self._executor,
             telemetry=self._telemetry,
             project_id=self._project_id,
+            context_window=self._context_window,
         )
         self._engine.set_dispatcher(self._dispatcher)
 
+        # 重新注入工具运行时依赖
+        for tool in self._custom_tools:
+            if hasattr(tool, 'configure'):
+                tool.configure(
+                    llm_invoker=self._invoker,
+                    parent_tool_executor=self._executor,
+                    project_root=self._root,
+                    telemetry=self._telemetry,
+                )
+
     # ====== 发送消息（委托 ChatEngine） ======
+
+    def build_orchestrator(self, session_id: str = "", memory_manager=None) -> None:
+        """注入运行时依赖（LLM/Dispatcher/Telemetry/MemoryManager）到 Orchestrator。"""
+        self._orchestrator._llm = self._invoker
+        self._orchestrator._tools = self._executor
+        self._orchestrator._dispatcher = self._dispatcher
+        self._orchestrator._telemetry = self._telemetry
+        self._orchestrator._memory = memory_manager
 
     async def send_message(self, user_input: str) -> AsyncIterator[Dict[str, Any]]:
         async for chunk in self._engine.send_message(user_input):
             yield chunk
 
+    async def send_message_orchestrated(
+        self, user_input: str, session_id: str = "", project_id: str = "", memory_manager=None
+    ) -> AsyncIterator[Dict[str, Any]]:
+        """通过 Orchestrator 调度（预留 Hook/Policy 通道）。"""
+        if not self._orchestrator:
+            self.build_orchestrator(session_id=session_id, memory_manager=memory_manager)
+        async for chunk in self._orchestrator.run_stream(
+            user_input, session_id=session_id, project_id=project_id,
+        ):
+            yield chunk
+
     async def get_result(self) -> str:
         return ""
+
+    def set_project_root(self, root) -> None:
+        self._engine._project_root = root
+
+    def set_checkpoint_dir(self, path) -> None:
+        self._engine.set_checkpoint_dir(path)
+
+    def save_checkpoint(self) -> None:
+        self._engine.save_checkpoint()
 
     async def reset(self) -> None:
         self._engine.reset()

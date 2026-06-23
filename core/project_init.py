@@ -49,19 +49,5 @@ class ProjectInit:
 
     def build_tools(self) -> List:
         """构建工具列表（MemoryManager 已注入）。"""
-        from capabilities.builtins.chunk_streamer import ReadFileTool, GrepTool
-        from capabilities.builtins.code_patcher import EditFileTool
-        from capabilities.builtins.memory_tool import (
-            LoadMemoryTool, RememberTool, WriteTopicTool, ReadTopicTool,
-        )
-        from capabilities.builtins.project_overview import ProjectOverviewTool
-        return [
-            ProjectOverviewTool(root=self._root),
-            ReadFileTool(root=self._root),
-            GrepTool(root=self._root),
-            EditFileTool(root=self._root),
-            LoadMemoryTool(memory_manager=self._memory),
-            RememberTool(memory_manager=self._memory),
-            WriteTopicTool(memory_manager=self._memory),
-            ReadTopicTool(memory_manager=self._memory),
-        ]
+        from capabilities.registry import build_tools
+        return build_tools(root=self._root, memory_manager=self._memory)

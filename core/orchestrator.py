@@ -67,6 +67,11 @@ class Orchestrator:
         self._hooks = hook_orchestrator
         self._policy = policy_engine
         self._max_iterations = max_iterations
+        self._engine: Optional[Any] = None  # ChatEngine（由 set_engine 设置）
+
+    def set_engine(self, engine) -> None:
+        """注入 ChatEngine 实例（用于 run_stream）。"""
+        self._engine = engine
 
     # ====== 主入口 ======
 
@@ -207,6 +212,41 @@ class Orchestrator:
             total_tokens=total_tokens,
             duration_ms=duration,
         )
+
+    # ====== 流式入口（委托 ChatEngine，为 Hook/Policy 预留） ======
+
+    async def run_stream(
+        self,
+        user_input: str,
+        session_id: str = "",
+        project_id: str = "default",
+    ):
+        """流式执行：委托 ChatEngine，未来会加入 Hook/Policy/State 跟踪。"""
+        if not self._engine:
+            raise RuntimeError("run_stream 需要 ChatEngine，请调用 set_engine()")
+
+        # 构建 ConversationState（为后续 Hook/Policy 准备）
+        self._state = ConversationState(
+            metadata=SessionMetadata(
+                session_id=session_id,
+                project_id=project_id,
+            ),
+        )
+
+        # 委托 ChatEngine 做实际调度
+        response_parts: list[str] = []
+        async for chunk in self._engine.send_message(user_input):
+            # TODO(v2.0): Hook pre/post
+            # TODO(v2.0): Policy 拦截
+            if chunk.get("type") == "text":
+                response_parts.append(chunk.get("content", ""))
+            elif chunk.get("type") == "done":
+                final_text = "".join(response_parts)
+                # 保存会话记忆（接管 SessionService 的记忆职责）
+                self._save_round_memory(user_input, final_text, project_id)
+                # 清理 + Dream 触发
+                await self._end_session_cleanup(session_id)
+            yield chunk
 
     # ====== 会话记忆 & 清理 ======
 

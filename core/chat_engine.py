@@ -82,6 +82,9 @@ class ChatEngine:
                 idx = mgr.read()
                 if idx:
                     self._cm.set_memory_index(idx)
+                recent = mgr.read_recent_days(3)
+                if recent:
+                    self._cm.set_session_memory(recent)
                 perm = mgr.read_permanent_memory()
                 if perm:
                     self._cm.set_permanent_memory(perm)
@@ -182,7 +185,7 @@ class ChatEngine:
             async for chunk in self._dispatcher.dispatch_stream(
                 messages=msgs_for_llm,
                 session_id=sid,
-                max_rounds=100,
+                max_rounds=200,
             ):
                 yield chunk
         except Exception as e:
@@ -208,16 +211,24 @@ class ChatEngine:
         if tel and tel.agent:
             tel.agent.record_context(est, pct, compression_triggered=bool(reason))
 
-        # 同步最终回答：从 msgs_for_llm 提取本轮新增的 user + 无工具 assistant
+        # 同步最终回答：收集本轮所有 assistant 文本（含 tool_calls 伴生）。
+        # DeepSeek 等模型习惯在 tool_call 前输出回答文本，最后一轮可能只有空 stop。
+        # 只取「无 tool_calls」的那条会丢失真正的回答内容。
         if self._cm:
             found_user = False
+            assistant_parts: list[str] = []
             for m in msgs_for_llm:
                 if m.get("role") == "user" and m.get("content") == user_input:
                     found_user = True
                     continue
-                if found_user and m.get("role") == "assistant" and not m.get("tool_calls"):
-                    self._messages.append({"role": "assistant", "content": m.get("content", "")})
-                    break
+                if found_user and m.get("role") == "assistant":
+                    c = (m.get("content") or "").strip()
+                    if c:
+                        assistant_parts.append(c)
+            self._messages.append({
+                "role": "assistant",
+                "content": "\n\n".join(assistant_parts),
+            })
         else:
             self._messages = [m for m in self._messages if m.get("role") != "tool"]
             for m in self._messages:

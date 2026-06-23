@@ -95,6 +95,19 @@ class MemoryManager:
 
     # ====== 永久记忆 (CHACHA_MEMORY.md) ======
 
+    @property
+    def session_dir(self):
+        return self._session_dir
+
+    @property
+    def topics_dir(self):
+        return self._topics_dir
+
+    @property
+    def tool_cache_dir(self):
+        """返回 tool_cache 目录路径（测试用）。"""
+        return self._tool_cache_dir
+
     def read_permanent_memory(self) -> str:
         """读取 CHACHA_MEMORY.md 永久记忆（保护区，永不删除）。"""
         path = self._project_dir / _PERMANENT_MEMORY_FILENAME
@@ -152,315 +165,279 @@ class MemoryManager:
 
     def read(self) -> str:
         """读取 MEMORY.md 索引（autoDream 产物，轻量摘要）。"""
+        if self._session_dir is None:
+            return ""
         path = self._index_path()
         return self._read(path)
+
+
+    def read_recent_days(self, n_days: int = 3) -> str:
+        """读取最近 N 天的会话记忆。"""
+        if self._session_dir is None:
+            return ""
+        parts = []
+        for i in range(n_days):
+            from datetime import timedelta
+            d = datetime.now(tz=timezone(timedelta(hours=8))) - timedelta(days=i)
+            content = self.read_day(d.strftime("%Y-%m-%d"))
+            if content.strip():
+                parts.append(content.strip())
+        return "\n\n---\n\n".join(parts) if parts else ""
+
+    # ====== 缺失的基础方法 ======
+
+    @staticmethod
+    def _today_str() -> str:
+        return datetime.now(tz=timezone(timedelta(hours=8))).strftime("%Y-%m-%d")
+
+    @staticmethod
+    def _read(path: Path) -> str:
+        return path.read_text(encoding="utf-8") if path.exists() else ""
+
+    def _require_session(self) -> bool:
+        """无 session_id 时返回 False，调用方应安全降级。"""
+        return self._session_dir is not None
+
+    def _index_path(self) -> Path:
+        return self._session_dir / "MEMORY.md" if self._session_dir else self._base / "MEMORY.md"
+
+    def _day_path(self, date_str: str) -> Path:
+        return self._session_dir / f"{date_str}.md" if self._session_dir else Path()
 
     def read_day(self, date_str: str) -> str:
         """读取指定日期的完整记忆文件。"""
         return self._read(self._day_path(date_str))
 
-    def update_index(self, content: str) -> Path:
-        """覆盖式写入 MEMORY.md 索引（autoDream 输出）。"""
-        path = self._index_path()
-        path.write_text(content.strip() + "\n", encoding="utf-8")
+    def list_days(self, limit: int = 50) -> list:
+        """列出可用日期文件（按时间倒序）。"""
+        if not self._session_dir:
+            return []
+        files = sorted(self._session_dir.glob("????-??-??.md"), reverse=True)
+        return [f.stem for f in files if f.name != "MEMORY.md"][:limit]
+
+    def search(self, query: str) -> str:
+        """跨所有日期文件搜索关键词。"""
+        if not self._session_dir:
+            return ""
+        results = []
+        for day_file in sorted(self._session_dir.glob("????-??-??.md"), reverse=True):
+            if day_file.name == "MEMORY.md":
+                continue
+            content = self._read(day_file)
+            if query.lower() in content.lower():
+                preview = content[:500]
+                results.append(f"--- {day_file.stem} ---\n{preview}")
+                if len(results) >= 5:
+                    break
+        return "\n\n".join(results) if results else ""
+
+    def remember(self, content: str) -> Path:
+        """追加内容到今日记忆文件。"""
+        if self._session_dir is None:
+            raise RuntimeError("会话目录未初始化（session_dir is None）")
+        ts = datetime.now(tz=timezone(timedelta(hours=8))).strftime("%H:%M")
+        path = self._session_dir / f"{self._today_str()}.md"
+        existing = self._read(path)
+        entry = f"\n## {ts}\n{content.strip()}"
+        path.write_text((existing + entry).strip() + "\n", encoding="utf-8")
+        logger.info("会话记忆已保存: %s", path)
         return path
 
-    def list_days(self, limit: int = 30) -> list[str]:
-        """列出最近 N 天（按日期降序）。"""
-        files = sorted(
-            [f.stem for f in self._session_dir.glob("????-??-??.md")],
-            reverse=True,
-        )
-        return files[:limit]
-
-    # ====== Session 管理 ======
-
-    def list_all_sessions(self) -> list[str]:
-        """列出所有 session ID（排除 _default）。"""
+    def list_all_sessions(self) -> list:
+        """列出项目中所有 session ID（按时间倒序）。"""
         sessions_dir = self._base / "sessions"
         if not sessions_dir.exists():
             return []
         return sorted(
-            [d.name for d in sessions_dir.iterdir()
-             if d.is_dir() and d.name != "_default"],
+            (d.name for d in sessions_dir.iterdir() if d.is_dir()),
             reverse=True,
         )
 
     def delete_session(self, session_id: str) -> bool:
-        """删除指定 session 目录。"""
+        """递归删除指定 session 目录及其所有内容。"""
         import shutil
-        session_path = self._base / "sessions" / session_id
-        if session_path.exists():
-            shutil.rmtree(session_path)
-            logger.info("已删除 session: %s", session_id)
-            return True
-        return False
+        target = self._base / "sessions" / session_id
+        if not target.exists():
+            return False
+        shutil.rmtree(target)
+        logger.info("Session 已删除: %s", session_id)
+        return True
 
-    def read_session_memory(self, session_id: str) -> str:
-        """读取指定 session 的 MEMORY.md（供 GlobalDream 收集）。"""
-        path = self._base / "sessions" / session_id / "MEMORY.md"
-        return path.read_text(encoding="utf-8").strip() if path.exists() else ""
+    # ====== Tool Cache 管理 ======
 
-    def list_all_session_dirs(self) -> list[Path]:
-        """收集所有 session 的 MEMORY.md（排除 _default）。"""
-        sessions_dir = self._base / "sessions"
-        if not sessions_dir.exists():
-            return []
-        result = []
-        for sd in sorted(sessions_dir.iterdir(), reverse=True):
-            if not sd.is_dir() or sd.name == "_default":
-                continue
-            mem = sd / "MEMORY.md"
-            if mem.exists():
-                result.append(mem)
-        return result
+    def cache_tool_result(self, key: str, tool_name: str, result: str) -> Path:
+        """缓存工具结果到 tool_cache 目录。
 
-    def list_all_session_days(self, limit_days: int = 7) -> list[Path]:
-        """收集 memory/session/ 下最近 N 天的每日文件。
-        
+        Args:
+            key: 缓存键
+            tool_name: 工具名
+            result: 工具结果内容
+
         Returns:
-            每日文件路径列表
+            写入的文件路径
         """
-        if not self._session_dir.exists():
-            return []
-
-        cutoff = datetime.now(tz=timezone(timedelta(hours=8)))
-        day_files = sorted(self._session_dir.glob("????-??-??.md"))
-        recent = []
-        for f in day_files:
-            try:
-                dt = datetime.strptime(f.stem, "%Y-%m-%d").replace(tzinfo=timezone(timedelta(hours=8)))
-                if (cutoff - dt).days <= limit_days:
-                    recent.append(f)
-            except ValueError:
-                continue
-        return recent
-
-
-    # ====== 搜索（LLM 工具 load_memory 调用） ======
-
-    def search(
-        self, query: str, limit: int = 10,
-        max_chars: int = 6000,
-    ) -> str:
-        """搜索记忆文件，返回匹配 query 的条目。"""
-        keywords = query.lower().split()
-        scored: list[tuple[str, float]] = []
-
-        # 搜索 memory/session/ 下的日文件
-        for day_file in sorted(self._session_dir.glob("????-??-??.md"), reverse=True):
-            text = self._read(day_file)
-            entries = self._split_entries(text)
-            for entry in entries:
-                entry_lower = entry.lower()
-                score = sum(1 for kw in keywords if kw in entry_lower)
-                if score > 0:
-                    source = f"session/{day_file.stem}"
-                    scored.append((
-                        f"[{source}] {entry.strip()}",
-                        score / len(keywords),
-                    ))
-
-        # 搜索 memory/topics/ 下的主题文件
-        if self._topics_dir.exists():
-            for topic_file in sorted(self._topics_dir.glob("*.md")):
-                text = self._read(topic_file)
-                entries = self._split_entries(text)
-                for entry in entries:
-                    entry_lower = entry.lower()
-                    score = sum(1 for kw in keywords if kw in entry_lower)
-                    if score > 0:
-                        source = f"topics/{topic_file.stem}"
-                        scored.append((
-                            f"[{source}] {entry.strip()}",
-                            score / len(keywords),
-                        ))
-
-        scored.sort(key=lambda x: x[1], reverse=True)
-        result = "\n".join(entry for entry, _ in scored[:limit])
-        if len(result) > max_chars:
-            result = result[:max_chars] + "\n... [截断]"
-        return result
-
-
-    # ====== 写 ======
-
-    def remember(self, content: str, date_str: Optional[str] = None) -> Path:
-        """追加一条记忆到日期文件。返回文件路径。"""
-        date = date_str or self._date_str()
-        path = self._day_path(date)
-
-        timestamp = datetime.now(tz=timezone(timedelta(hours=8))).isoformat()
-        entry = f"\n## {timestamp}\n{content.strip()}\n"
-
-        existing = self._read(path)
-        path.write_text((existing + entry).strip() + "\n", encoding="utf-8")
-        logger.info("记忆已写入: %s", path)
-        return path
-
-    # ====== 工具结果缓存 ======
-
-    def cache_tool_result(
-        self, tool_use_id: str, tool_name: str, result: str,
-    ) -> Path:
-        """缓存工具结果到 tool_cache/ 目录。返回缓存路径。"""
-        ts = datetime.now(tz=timezone(timedelta(hours=8))).strftime("%Y%m%d_%H%M%S_%f")
-        filename = f"{tool_name}_{tool_use_id}_{ts}.json"
-        path = self._tool_cache_dir / filename
-
+        if self._tool_cache_dir is None:
+            raise RuntimeError("tool_cache 目录未初始化（需提供 session_id）")
+        path = self._tool_cache_dir / f"{tool_name}_{key}.json"
         data = {
-            "tool_name": tool_name,
-            "tool_use_id": tool_use_id,
-            "cached_at": datetime.now(tz=timezone(timedelta(hours=8))).isoformat(),
+            "tool": tool_name,
+            "key": key,
             "result": result,
+            "cached_at": datetime.now(tz=timezone(timedelta(hours=8))).isoformat(),
         }
         path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        logger.debug("Tool 结果已缓存: %s", path)
         return path
 
-    def read_cached_tool_result(self, cache_key: str) -> Optional[str]:
-        """读取缓存的工具结果。cache_key 可以是文件名或路径。"""
-        # 尝试在 tool_cache/ 中查找
-        candidates = [
-            self._tool_cache_dir / cache_key,
-            self._tool_cache_dir / f"{cache_key}.json",
-        ]
-        if cache_key.startswith("tool_cache/"):
-            candidates.insert(0, self._base / cache_key)
-        for p in candidates:
-            if p.exists():
-                data = json.loads(p.read_text(encoding="utf-8"))
-                return data.get("result", "")
-        return None
-
     def cleanup_tool_cache(self) -> int:
-        """清空 tool_cache 目录。返回删除文件数。"""
+        """清理 tool_cache 目录中的所有文件（会话结束时调用）。
+
+        Returns:
+            删除的文件数量
+        """
+        if self._tool_cache_dir is None or not self._tool_cache_dir.exists():
+            return 0
         count = 0
-        if self._tool_cache_dir.exists():
-            for f in self._tool_cache_dir.iterdir():
+        for f in self._tool_cache_dir.iterdir():
+            if f.is_file():
                 f.unlink()
                 count += 1
+        logger.info("清理 tool_cache: 已删除 %d 个文件", count)
+        return count
+
+    # ====== tool_cache 管理 ======
+
+    def cache_tool_result(self, name: str, tool: str, data: str) -> Path:
+        """缓存工具调用结果到 tool_cache 目录。
+
+        Args:
+            name: 缓存条目名称
+            tool: 工具名称
+            data: 结果数据
+
+        Returns:
+            写入的文件路径
+        """
+        if self._tool_cache_dir is None:
+            raise RuntimeError("tool_cache 目录未初始化（需要 session_id）")
+        entry = {"tool": tool, "data": data}
+        path = self._tool_cache_dir / f"{name}.json"
+        path.write_text(json.dumps(entry, ensure_ascii=False, indent=2), encoding="utf-8")
+        return path
+
+    def cleanup_tool_cache(self) -> int:
+        """清理 tool_cache 目录中的所有缓存文件。
+
+        Returns:
+            删除的文件数量
+        """
+        if self._tool_cache_dir is None or not self._tool_cache_dir.exists():
+            return 0
+        count = 0
+        for f in self._tool_cache_dir.iterdir():
+            f.unlink()
+            count += 1
+        if count:
             logger.info("已清理 tool_cache: %d 个文件", count)
         return count
 
-    @property
-    def tool_cache_dir(self) -> Path:
-        return self._tool_cache_dir
+    # ====== tool_cache 操作 ======
 
-    @property
-    def session_dir(self):
-        """当前 session 的目录路径。"""
-        return self._session_dir
+    def cache_tool_result(self, name: str, tool: str, data: str) -> Path:
+        """缓存工具调用结果到 tool_cache 目录。
 
-    @property
-    def topics_dir(self):
-        """当前 session 的主题记忆目录。"""
-        return self._topics_dir
+        Args:
+            name: 缓存键名
+            tool: 工具名称
+            data: 结果数据
 
-    # ====== 维护（去重/更新/修剪） ======
+        Returns:
+            写入的文件路径
+        """
+        if self._tool_cache_dir is None:
+            raise RuntimeError("tool_cache 目录未初始化（需要 session_id）")
+        path = self._tool_cache_dir / f"{name}.json"
+        payload = {
+            "tool": tool,
+            "data": data,
+            "cached_at": datetime.now(tz=timezone(timedelta(hours=8))).isoformat(),
+        }
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        logger.debug("工具结果已缓存: %s", path)
+        return path
 
-    def deduplicate(self, date_str: Optional[str] = None) -> int:
-        """去除指定日期文件内的重复条目。返回删除数。"""
-        path = self._day_path(date_str or self._date_str())
-        entries = self._split_entries(self._read(path))
-        seen: set[str] = set()
-        unique: list[str] = []
-        removed = 0
+    def cleanup_tool_cache(self) -> int:
+        """清理 tool_cache 目录中的所有缓存文件。
 
-        for entry in entries:
-            lines = entry.strip().split("\n")
-            content_key = lines[-1].strip().lower() if len(lines) > 1 else entry.strip().lower()
-            if content_key in seen:
-                removed += 1
-            else:
-                seen.add(content_key)
-                unique.append(entry)
-
-        if removed > 0:
-            path.write_text("\n".join(unique) + "\n" if unique else "", encoding="utf-8")
-            logger.info("去重完成: %s (删除 %d 条)", path, removed)
-        return removed
-
-    def trim(self, date_str: Optional[str] = None, keep_lines: int = 500) -> int:
-        """裁剪指定日期文件，只保留最后 keep_lines 行。返回删除行数。"""
-        path = self._day_path(date_str or self._date_str())
-        lines = self._read(path).split("\n")
-        if len(lines) <= keep_lines:
+        Returns:
+            删除的文件数量
+        """
+        if self._tool_cache_dir is None or not self._tool_cache_dir.exists():
             return 0
+        count = 0
+        for f in self._tool_cache_dir.iterdir():
+            if f.is_file():
+                f.unlink()
+                count += 1
+        logger.info("tool_cache 已清理，删除 %d 个文件", count)
+        return count
 
-        removed = len(lines) - keep_lines
-        path.write_text("\n".join(lines[-keep_lines:]) + "\n", encoding="utf-8")
-        logger.info("修剪完成: %s (删除 %d 行)", path, removed)
-        return removed
+    # ====== tool_cache 缓存管理 ======
 
-    def update_entry(
-        self, old_text: str, new_content: str, date_str: Optional[str] = None,
-    ) -> bool:
-        """更新指定日期文件中的某条记忆。返回是否成功。"""
-        path = self._day_path(date_str or self._date_str())
-        entries = self._split_entries(self._read(path))
-        updated = False
+    def cache_tool_result(self, name: str, tool: str, data: str) -> Path:
+        """缓存工具结果到 tool_cache 目录。
 
-        for i, entry in enumerate(entries):
-            if old_text.strip().lower() in entry.lower():
-                entries[i] = new_content.strip()
-                updated = True
-                break
+        Args:
+            name: 缓存键名
+            tool: 工具名
+            data: 结果数据
 
-        if updated:
-            path.write_text("\n".join(entries) + "\n", encoding="utf-8")
-            logger.info("记忆已更新: %s", path)
-        return updated
+        Returns:
+            写入的文件路径
+        """
+        if self._tool_cache_dir is None:
+            raise RuntimeError("tool_cache 目录未初始化（无 session_id）")
+        path = self._tool_cache_dir / f"{name}.json"
+        record = {"tool": tool, "data": data}
+        path.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
+        return path
 
-    def prune_old_days(self) -> int:
-        """删除超过 7 天的每日记忆文件（MEMORY.md 和 CHACHA_MEMORY.md 不动）。返回删除数。"""
-        cutoff = datetime.now(tz=timezone(timedelta(hours=8)))
-        deleted = 0
+    def cleanup_tool_cache(self) -> int:
+        """清理 tool_cache 目录中的所有文件。
 
-        # 只扫描 memory/session/ 下的日文件
-        for f in self._session_dir.glob("????-??-??.md"):
-            try:
-                dt = datetime.strptime(f.stem, "%Y-%m-%d").replace(tzinfo=timezone(timedelta(hours=8)))
-                if (cutoff - dt).days > _PRUNE_DAYS:
-                    f.unlink()
-                    deleted += 1
-            except ValueError:
-                continue
-
-        if deleted:
-            logger.info("Prune: 删除 %d 个旧记忆文件 (>%d 天)", deleted, _PRUNE_DAYS)
-        return deleted
-
-
-    # ====== 内部 ======
-
-    @staticmethod
-    def _split_entries(text: str) -> list[str]:
-        parts = text.split("\n## ")
-        return [
-            p if p.startswith("##") or i == 0 else "## " + p
-            for i, p in enumerate(parts) if p.strip()
-        ]
-
-    @staticmethod
-    def _read(path: Path) -> str:
-        return path.read_text(encoding="utf-8").strip() if path.exists() else ""
-
-    def _day_path(self, date_str: str) -> Path:
-        if not self._session_dir:
-            raise RuntimeError("MemoryManager 需要 session_id")
-        return self._session_dir / f"{date_str}.md"
-
-    def _index_path(self) -> Path:
-        """MEMORY.md 现在是 session 级的。"""
-        return self._session_dir / "MEMORY.md"
+        Returns:
+            删除的文件数量
+        """
+        if self._tool_cache_dir is None or not self._tool_cache_dir.exists():
+            return 0
+        count = 0
+        for item in self._tool_cache_dir.iterdir():
+            if item.is_file():
+                item.unlink()
+                count += 1
+        logger.info("清理 tool_cache: 删除 %d 个文件", count)
+        return count
 
 
-    @staticmethod
-    def _date_str() -> str:
-        return datetime.now(tz=timezone(timedelta(hours=8))).strftime("%Y-%m-%d")
+    # ====== tool_cache 操作 ======
 
-    @staticmethod
-    def project_hash(project_root: Path) -> str:
-        return hashlib.sha256(
-            str(project_root.resolve()).encode()
-        ).hexdigest()[:12]
+    def cache_tool_result(self, name: str, tool: str, data: str) -> Path:
+        """缓存工具结果到 tool_cache 目录。"""
+        if self._tool_cache_dir is None:
+            raise RuntimeError("tool_cache 目录未初始化")
+        path = self._tool_cache_dir / f"{name}.json"
+        entry = {"tool": tool, "data": data}
+        path.write_text(json.dumps(entry, ensure_ascii=False, indent=2), encoding="utf-8")
+        return path
+
+    def cleanup_tool_cache(self) -> int:
+        """清理 tool_cache 目录中的所有文件，返回删除的文件数。"""
+        if self._tool_cache_dir is None or not self._tool_cache_dir.exists():
+            return 0
+        count = 0
+        for f in self._tool_cache_dir.iterdir():
+            if f.is_file():
+                f.unlink()
+                count += 1
+        logger.info("清理 tool_cache: 已删除 %d 个缓存文件", count)
+        return count

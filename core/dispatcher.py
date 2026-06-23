@@ -33,15 +33,22 @@ MAX_TOOL_ROUNDS = 200          # 防止无限工具循环
 KEEP_TOOL_RESULTS = 8          # 主动冻结：保留最近 8 个完整工具结果，更早的占位
 
 def _tool_args_summary(name: str, args: dict) -> str:
-    """提取工具的关键参数摘要。"""
-    if name == "read_file" and "path" in args:
-        return f"📄 {args["path"]}"
+    if name in ("read_file", "bash", "list_files", "file_outline",
+                 "depe_analyze", "project_overview", "load_memory",
+                 "remember", "write_topic", "read_topic", "subagent"):
+        items = [f"{k}={v}" for k, v in args.items()]
+        return " ".join(items)
+    if name == "read_files" and "paths" in args:
+        paths = args["paths"]
+        return f"paths={paths}"
     if name == "grep":
         pat = args.get("pattern", "")
         loc = args.get("path", "") or ""
-        return f"🔍 {pat[:30]}" + (f" in {loc}" if loc else "")
-    items = [f"{k}={str(v)[:20]}" for k, v in args.items()]
-    return " ".join(items[:2])
+        return f"pattern={pat}" + (f" path={loc}" if loc else "")
+    if name == "edit_file":
+        return f"path={args.get('path', '?')}"
+    items = [f"{k}={v}" for k, v in args.items()]
+    return " ".join(items)
 
 
 
@@ -49,12 +56,14 @@ class Dispatcher:
     """桥接 LLM ↔ 工具执行（v2.0）"""
 
     def __init__(self, llm_invoker, tool_executor, memory_manager=None,
-                 telemetry=None, project_id=""):
+                 telemetry=None, project_id="", context_window=1_048_576):
         self._llm = llm_invoker
         self._tools = tool_executor
         self._memory = memory_manager
         self._telemetry = telemetry
         self._project_id = project_id
+        self._max_context_window = context_window
+        self.tool_calls_made = 0
 
     async def dispatch_stream(
         self,
@@ -174,7 +183,7 @@ class Dispatcher:
                     args = json.loads(tc_info["args"]) if tc_info["args"] else {}
                 except json.JSONDecodeError:
                     args = {}
-                # 显示工具参数摘要（如 read_file 的文件路径）
+                self.tool_calls_made += 1
                 arg_summary = _tool_args_summary(tc_info["name"], args)
                 yield {"type": "tool_exec_start", "tool_name": tc_info["name"], "args": arg_summary}
                 result = await self._tools.execute(
@@ -214,8 +223,7 @@ class Dispatcher:
         while rounds < max_rounds:
             rounds += 1
 
-            total_tokens += sum(len(str(m.get("content", ""))) for m in messages) // 2
-
+            pre_len = len(messages)
             resp = await self._llm.invoke(
                 messages=messages,
                 tools=schemas if schemas else None,
@@ -250,6 +258,7 @@ class Dispatcher:
             messages.append(assistant_tool_msg)
 
             for tc in resp.tool_calls:
+                self.tool_calls_made += 1
                 result = await self._tools.execute(
                     tool_name=tc.name,
                     arguments=tc.arguments,
@@ -264,6 +273,10 @@ class Dispatcher:
                 })
 
             # Stage 1: 缓存旧工具结果
+            # 增量计 token（只算本轮新增的非 tool 消息）
+            new_msgs = [m for m in messages[pre_len:] if m.get("role") != "tool"]
+            total_tokens += sum(len(str(m.get("content", ""))) for m in new_msgs) // 3
+
             self._freeze_old_tool_results(messages, session_id)
 
             final_finish = resp.finish_reason or "tool_use"
@@ -296,7 +309,8 @@ class Dispatcher:
             i for i, m in enumerate(messages)
             if m.get("role") == "tool" and not m.get("content", "").startswith("{")
         ]
-        freeze_count = len(tool_indices) - KEEP_TOOL_RESULTS
+        keep = max(KEEP_TOOL_RESULTS, self._max_context_window // 8000)
+        freeze_count = len(tool_indices) - keep
         if freeze_count <= 0:
             return
 

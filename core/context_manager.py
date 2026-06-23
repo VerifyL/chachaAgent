@@ -44,7 +44,43 @@ DEFAULT_SYSTEM_PROMPT = (
     "load_memory to look up what was already said. Only use tools if the "
     "information is NOT in the current conversation.\n"
     "- When the user says 'remember' or asks you to save information, ALWAYS use "
-    "the remember and write_topic tools to persist it. Do not just acknowledge."
+    "the remember and write_topic tools to persist it. Do not just acknowledge.\n\n"
+    "## Topic auto-recording (CRITICAL — do NOT skip)\n"
+    "After EVERY meaningful exchange that involves any of the following, "
+    "you MUST call write_topic to persist it. This is as important as giving "
+    "the correct answer. Err on the side of writing too much rather than too little.\n\n"
+    "### project-decisions (technology/architecture choices)\n"
+    "Trigger when: the user or you makes a decision about technology stack, "
+    "architecture pattern, library choice, file/module layout, naming convention, "
+    "API design, or any tradeoff discussion that shapes the project.\n"
+    "Example: 'We decided to use FastAPI over Flask because of async support.'\n"
+    "Example: 'The cache layer will be a separate module, not mixed with db logic.'\n\n"
+    "### lessons-learned (pitfalls, patterns, reusable insights)\n"
+    "Trigger when: you encounter a non-obvious bug, a tool behaves unexpectedly, "
+    "a pattern works well (or badly), a workaround is discovered, or something "
+    "surprising is learned that would help future development.\n"
+    "Example: 'edit_file requires exact string match — even one space difference fails.'\n"
+    "Example: 'bash in sandbox cannot access files outside the project root.'\n\n"
+    "### errors-fixed (bug fix records with solution)\n"
+    "Trigger when: a bug is diagnosed and fixed. Record the symptom, root cause, "
+    "and the fix. This creates a searchable bug database for future reference.\n"
+    "Example: 'ImportError: missing X — root cause was PYTHONPATH missing src/, fixed by adding it.'\n"
+    "Example: 'Race condition in task queue — fixed by adding asyncio.Lock.'\n\n"
+    "### project-progress (milestones, completed features)\n"
+    "Trigger when: a feature is completed, a significant refactor is done, "
+    "a version is released, tests pass for a new module, or any measurable "
+    "progress is made. Also record TODO items that emerge.\n"
+    "Example: 'Completed: user login endpoint with JWT auth, all tests passing.'\n"
+    "Example: 'Refactored memory_manager.py — split read/write concerns into separate classes.'\n"
+    "Example: 'TODO: add rate limiting to the chat endpoint.'\n\n"
+    "### user-preferences (personal style, habits)\n"
+    "Trigger when: the user states a preference about coding style, tool choices, "
+    "language, communication style, or workflow habits.\n"
+    "Example: 'User prefers Chinese replies.'\n"
+    "Example: 'User prefers minimal comments, only docstrings.'\n\n"
+    "IMPORTANT: Do NOT wait for the user to say 'remember'. If the conversation "
+    "contains any of the above patterns, call write_topic proactively after "
+    "finishing your response. A silent topic file is a sign you are not doing your job."
 )
 
 
@@ -222,6 +258,15 @@ class ContextManager:
                 token_count=self._estimate_tokens(memory_content or self._memory_index),
             ))
 
+        # 6. 今日会话记忆（跨 session 切换后由 set_session_memory 注入）
+        if self._session_memory:
+            blocks.append(ContextBlock(
+                source=BlockSource.MEMORY, role="system",
+                content=f"[Today's Session Memory]\n{self._session_memory}",
+                zone="dynamic", priority=9, importance=0.6,
+                token_count=self._estimate_tokens(self._session_memory),
+            ))
+
         # 6. 对话历史
         for i, event in enumerate(state.events):
             if isinstance(event, MessageEvent):
@@ -269,6 +314,17 @@ class ContextManager:
         budget = self._budget or 128000
         utilization = total_tokens / budget if budget > 0 else 0
         pressure = min(1.0, utilization * 1.25)
+
+        # Token 预算条（帮助 LLM 感知上下文压力）
+        budget_hint = (
+            f"[Token Budget] 总预算: {budget} | 已用: {total_tokens} "
+            f"({utilization:.0%}) | 剩余: {budget - total_tokens} | 压力: {pressure:.0%}"
+        )
+        blocks.append(ContextBlock(
+            source=BlockSource.ADDITIONAL_CONTEXT, role="system",
+            content=budget_hint, zone="dynamic", priority=999,
+            importance=0.1, token_count=0,
+        ))
 
         needs_compression = utilization > self._trigger_ratio
         recommended = self._recommend_compression(pressure)

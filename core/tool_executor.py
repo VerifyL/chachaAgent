@@ -281,6 +281,10 @@ class ToolExecutor:
 
     # ====== 查询 ======
 
+    def get_tools(self) -> list:
+        """返回所有已注册工具对象的列表。"""
+        return list(self._tool_objects) if isinstance(self._tool_objects, list) else []
+
     def list_tools(self) -> List[str]:
         return sorted(self._tools.keys())
 

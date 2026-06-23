@@ -83,12 +83,13 @@ class WriteTopicTool(BaseTool):
 
     name = "write_topic"
     description = (
-        "将重要信息记录到对应主题的长期记忆中。适用场景："
-        "用户明确表达偏好 → topic='user-preferences'；"
-        "项目级技术/架构决策 → topic='project-decisions'；"
-        "踩坑教训、值得记住的经验 → topic='lessons-learned'；"
-        "成功修复的错误及方案 → topic='errors-fixed'；"
-        "当前项目的里程碑、进度 → topic='project-progress'。"
+        "将重要信息记录到对应主题的长期记忆中。必须主动调用，不要等用户说'记住'。\n"
+        "触发场景（每次遇到都应记录）：\n"
+        "- user-preferences：用户明确表达偏好（编码风格、工具、语言、沟通方式等）\n"
+        "- project-decisions：技术选型、架构决策、命名约定、模块设计、API 设计等\n"
+        "- lessons-learned：踩坑教训、反模式、令人意外的工具行为、值得记住的经验\n"
+        "- errors-fixed：成功修复的错误及诊断-根因-解决方案三要素\n"
+        "- project-progress：功能完成、重构、里程碑、TODO 事项\n"
         "当用户要求 '记住' 时，必须同时调用 remember 和 write_topic 两个工具，"
         "一个写入短期会话记忆，一个写入长期主题记忆。"
     )

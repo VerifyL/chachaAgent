@@ -5,14 +5,14 @@ SubAgentTool — 派生子Agent 执行独立任务（BaseTool）。
 LLM 自主调用:
   subagent(type="explore", task="找到所有循环依赖")
 
-注册到 ToolExecutor → LLM 在工具列表中看到 → 根据 description 判断是否委托
+注册到 ToolExecutor → LLM 在工具列表中看到 → 根据 description 判断是否委托。
+运行时依赖由 AgentBridge 通过 configure() 注入。
 """
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from capabilities.base import BaseTool
-from core.subagent.spawner import SubAgentSpawner
 
 logger = logging.getLogger(__name__)
 
@@ -38,22 +38,44 @@ class SubAgentTool(BaseTool):
         },
         "required": ["type", "task"],
     }
-    risk = "low"
+    risk = "medium"
     requires_approval = False
 
-    def __init__(self, spawner: Optional[SubAgentSpawner] = None):
-        self._spawner = spawner
+    def __init__(self):
+        self._spawner = None
+        self._llm = None
+        self._parent_executor = None
+        self._project_root = None
+        self._telemetry = None
+
+    def configure(self, llm_invoker, parent_tool_executor,
+                  project_root=None, telemetry=None) -> None:
+        """由 AgentBridge.initialize() 调用，注入运行时依赖。"""
+        self._llm = llm_invoker
+        self._parent_executor = parent_tool_executor
+        self._project_root = project_root
+        self._telemetry = telemetry
 
     async def execute(self, type: str, task: str) -> str:
-        if not self._spawner:
-            return "[错误] 子Agent 孵化器未初始化"
+        if self._spawner is None:
+            if self._llm is None or self._parent_executor is None:
+                return "[错误] 子Agent 未配置（AgentBridge 未调用 configure()）"
+            from core.subagent.spawner import SubAgentSpawner
+            self._spawner = SubAgentSpawner(
+                self._llm, self._parent_executor,
+                project_root=self._project_root,
+                telemetry=self._telemetry,
+            )
 
+        import uuid
+        subagent_id = f"sub-{type}-{uuid.uuid4().hex[:8]}"
         result = await self._spawner.spawn(type, task)
         return (
-            f"[子Agent: {result.agent_type}]\n"
+            f"[子Agent: {result.agent_type}] [ID: {subagent_id}]\n"
             f"任务: {result.task}\n"
             f"状态: {result.status}\n"
-            f"Token: {result.tokens_used}\n"
+            f"Token: {result.tokens_used} | 工具调用: {result.tool_calls_made}次\n"
             f"耗时: {result.duration_ms}ms\n\n"
-            f"{result.text}"
+            f"{result.text}\n\n"
+            f"[使用 expand_subagent(\"{subagent_id}\") 查看详情]"
         )

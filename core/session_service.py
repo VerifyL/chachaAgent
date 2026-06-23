@@ -177,7 +177,8 @@ class SessionService:
     # ====== 审计 ======
 
     async def add_round(self, tokens: int = 0, duration_ms: int = 0,
-                        errors=None, user_input: str = "", assistant_text: str = "") -> None:
+                        errors=None, user_input: str = "", assistant_text: str = "",
+                        skip_memory: bool = False) -> None:
         self.total_tokens += tokens
         self.rounds += 1
         self._history.append({
@@ -185,19 +186,20 @@ class SessionService:
             "duration_ms": duration_ms, "errors": errors or [],
             "time": datetime.now(tz=timezone(timedelta(hours=8))).isoformat(),
         })
-        # 写入记忆
-        self._save_memory(user_input, assistant_text)
-        # 触发 Dream 检查
-        self._dream_hints += 1
-        await self._maybe_dream()
-        # GlobalDream 计数（阈值可配）
-        from core.context.global_dream import GlobalDream
-        gd = GlobalDream.get_instance(
-            dream_rounds=self._global_dream_rounds,
-            dream_hours=self._global_dream_hours,
-        )
-        gd.configure(llm_invoker=self._llm)
-        gd.record_round()
+        # 写入记忆 / Dream / GlobalDream（由 Orchestrator 接管时可跳过）
+        if not skip_memory:
+            self._save_memory(user_input, assistant_text)
+            self._dream_hints += 1
+            await self._maybe_dream()
+            from core.context.global_dream import GlobalDream
+            gd = GlobalDream.get_instance(
+                dream_rounds=self._global_dream_rounds,
+                dream_hours=self._global_dream_hours,
+            )
+            gd.configure(llm_invoker=self._llm)
+            gd.record_round()
+            if gd.should_run() and self._llm:
+                await gd.run()
 
         # 遥测：会话统计
         tel = self._telemetry
