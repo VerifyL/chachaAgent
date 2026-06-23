@@ -20,6 +20,7 @@ v2.0 设计（DYNAMIC_BOUNDARY + 永久记忆）：
 
 import logging
 import time
+import uuid
 from typing import Any, Dict, List, Optional
 
 from core.models.context import (
@@ -36,7 +37,14 @@ logger = logging.getLogger(__name__)
 DEFAULT_SYSTEM_PROMPT = (
     "You are ChaChaAgent, a helpful AI assistant with access to tools. "
     "Use tools when needed to read files, execute commands, or search code. "
-    "Always respond in the user's language."
+    "Always respond in the user's language.\n\n"
+    "Rules:\n"
+    "- When the user asks about something mentioned earlier in this conversation, "
+    "answer from the conversation history. Do NOT call tools like read_topic or "
+    "load_memory to look up what was already said. Only use tools if the "
+    "information is NOT in the current conversation.\n"
+    "- When the user says 'remember' or asks you to save information, ALWAYS use "
+    "the remember and write_topic tools to persist it. Do not just acknowledge."
 )
 
 
@@ -134,7 +142,7 @@ class ContextManager:
         permanent = mgr.read_permanent_memory()
         if permanent:
             sections.append(f"--- 项目永久记忆 ---\n{permanent}")
-        if mgr._session_dir:
+        if mgr.session_dir:
             memory_index = mgr.read()
             if memory_index:
                 sections.append(f"--- 记忆索引 ---\n{memory_index}")
@@ -154,62 +162,58 @@ class ContextManager:
         skills: Optional[str] = None,
         memory_content: Optional[str] = None,
         additional_contexts: Optional[List[ContextBlock]] = None,
+        history_trimmed: bool = False,   # 历史被裁剪后才注入 MEMORY.md
     ) -> AssembledContext:
-        """从 ConversationState 组装 AssembledContext。
+        """
+        从 ConversationState 组装 AssembledContext。
 
-        v2.0 上下文字段顺序:
-            protected: SYSTEM_PROMPT → CHACHA.md → CHACHA_MEMORY.md → SKILL
-            dynamic:   MEMORY.md → Session Memory → History → Tool Results → RAG → Hooks
+        顺序 (v3.0)：
+            protected: SYSTEM_PROMPT+CHACHA.md → USER_MEMORY → CHACHA_MEMORY → SKILLS
+            dynamic:   MEMORY.md(条件) → 对话历史 → 工具结果 → RAG/Hooks
         """
         blocks: list[ContextBlock] = []
 
-        # ---- protected zone ----
+        # ==================== protected zone ====================
 
-        # 1. System Prompt
+        # 1. System Prompt + CHACHA.md 合并为一条
+        system_text = self._system_prompt
+        rules = static_rules or self._static_rules
+        if rules:
+            system_text += f"\n\n{rules}"
         blocks.append(self._cached_block(
-            BlockSource.SYSTEM_PROMPT, "system", self._system_prompt,
+            BlockSource.SYSTEM_PROMPT, "system", system_text,
             zone="protected", priority=0, importance=1.0, ttl=600,
         ))
 
-        # 2. CHACHA.md 宪法
-        rules = static_rules or self._static_rules
-        if rules:
-            blocks.append(self._cached_block(
-                BlockSource.STATIC_RULE, "system", rules,
-                zone="protected", priority=1, importance=0.95, ttl=600,
-            ))
-        
-        
-        # 3 ~/.chacha/USER_MEMORY.md 用户级永久记忆（跨项目）
+        # 2. USER_MEMORY.md 用户级永久记忆
         if self._global_permanent_memory:
             blocks.append(self._cached_block(
                 BlockSource.STATIC_RULE, "system",
                 f"[Global Permanent Memory]\n{self._global_permanent_memory}",
-                zone="protected", priority=2, importance=0.92, ttl=300,
+                zone="protected", priority=1, importance=0.92, ttl=300,
             ))
 
-
-        # 4. CHACHA_MEMORY.md 永久记忆
+        # 3. CHACHA_MEMORY.md 项目永久记忆
         if self._permanent_memory:
             blocks.append(self._cached_block(
-                BlockSource.STATIC_RULE, "system",  # 复用 STATIC_RULE source
+                BlockSource.STATIC_RULE, "system",
                 f"[Permanent Memory]\n{self._permanent_memory}",
-                zone="protected", priority=3, importance=0.9, ttl=300,
+                zone="protected", priority=2, importance=0.9, ttl=300,
             ))
 
-        # 5. SKILL 定义
+        # 4. SKILLS / Tool schemas
         skill_content = skills or self._skills
         if skill_content:
             blocks.append(self._cached_block(
                 BlockSource.SKILL, "system", skill_content,
-                zone="protected", priority=4, importance=0.85, ttl=1200,
+                zone="protected", priority=3, importance=0.85, ttl=1200,
             ))
 
         protected_count = len(blocks)
 
-        # ---- dynamic zone ----
+        # ==================== dynamic zone ====================
 
-        # 5. MEMORY.md 轻量索引
+        # 5. MEMORY.md 轻量索引（常驻动态区）
         if memory_content or self._memory_index:
             blocks.append(ContextBlock(
                 source=BlockSource.MEMORY, role="system",
@@ -218,17 +222,7 @@ class ContextManager:
                 token_count=self._estimate_tokens(memory_content or self._memory_index),
             ))
 
-        # 6. 今日会话记忆
-        if self._session_memory:
-            blocks.append(ContextBlock(
-                source=BlockSource.MEMORY, role="system",
-                content=f"[Today's Session Memory]\n{self._session_memory}",
-                zone="dynamic", priority=11, importance=0.65,
-                token_count=self._estimate_tokens(self._session_memory),
-            ))
-
-        # 7. 对话历史 + 工具结果
-        history_start = len(blocks)
+        # 6. 对话历史
         for i, event in enumerate(state.events):
             if isinstance(event, MessageEvent):
                 blocks.append(ContextBlock(
@@ -244,14 +238,13 @@ class ContextManager:
                 blocks.append(ContextBlock(
                     source=BlockSource.HISTORY,
                     role="assistant",
-                    content=f"[Tool Call: {event.tool_name}({event.arguments})]",
+                    content=event.content or f"[Tool Call: {event.tool_name}({event.arguments})]",
                     zone="dynamic",
                     priority=20 + i,
                     importance=self._history_importance(i),
                     token_count=self._estimate_tokens(str(event.arguments)),
                 ))
             elif isinstance(event, ObservationEvent):
-                # 工具结果（可能已被 Dispatcher 替换为占位符）
                 content = event.content
                 if event.truncated:
                     content = content[:500] + f"\n...[截断，原始 {len(event.content)} 字符]"
@@ -265,7 +258,7 @@ class ContextManager:
                     token_count=self._estimate_tokens(content),
                 ))
 
-        # 8. 钩子注入 additional_context
+        # 7. RAG / SubAgent / 钩子注入
         if additional_contexts:
             blocks.extend(additional_contexts)
 
@@ -291,7 +284,6 @@ class ContextManager:
             reasoning_budget_tokens=0,
             reasoning_tokens_used=0,
             blocks_by_source=self._count_by_source(blocks),
-            trigger_reason=TriggerReason.THRESHOLD.value if needs_compression else TriggerReason.NONE.value,
         )
 
         ctx = AssembledContext(
@@ -300,7 +292,7 @@ class ContextManager:
             recommended_level=recommended,
         )
 
-        if self._telemetry:
+        if self._telemetry and self._telemetry.agent:
             self._telemetry.agent.record_context(
                 total_tokens=total_tokens,
                 utilization=utilization,
@@ -314,7 +306,86 @@ class ContextManager:
         return ctx
 
     def get_messages(self, state: ConversationState) -> List[Dict[str, Any]]:
+        """兼容旧 API：直接返回原始 state 的消息。"""
         return state.get_messages_for_llm()
+
+    # ====== 转换工具 ======
+
+    @staticmethod
+    def blocks_to_messages(ctx: AssembledContext) -> List[Dict[str, Any]]:
+        """AssembledContext.blocks → OpenAI 消息格式（保留完整 tool_calls）。"""
+        msgs: List[Dict[str, Any]] = []
+        for b in ctx.blocks:
+            entry: Dict[str, Any] = {"role": b.role, "content": b.content}
+            # 保留 tool_calls（若块附加了额外元数据）
+            extra = getattr(b, "_extra", None)
+            if extra and "tool_calls" in extra:
+                entry["tool_calls"] = extra["tool_calls"]
+            msgs.append(entry)
+        return msgs
+
+    @staticmethod
+    def messages_to_state(messages: List[Dict[str, Any]],
+                          session_id: str = "",
+                          project_id: str = "") -> ConversationState:
+        """原始 OpenAI 消息列表 → ConversationState。"""
+        from core.models.session import ConversationState, SessionMetadata
+        import json
+        meta = SessionMetadata(project_id=project_id or "",
+                               session_id=session_id or str(uuid.uuid4()))
+        state = ConversationState(metadata=meta)
+        for m in messages:
+            role = m.get("role", "")
+            content = m.get("content", "")
+            if role in ("user", "system"):
+                state.add_event(MessageEvent(
+                    source="user" if role == "user" else "system",
+                    role=role, content=content or "",
+                ))
+            elif role == "assistant":
+                if m.get("tool_calls"):
+                    for tc in m["tool_calls"]:
+                        fn = tc.get("function", {})
+                        try:
+                            args = json.loads(fn.get("arguments", "{}"))
+                        except (json.JSONDecodeError, TypeError):
+                            args = {}
+                        state.add_event(ToolCallEvent(
+                            source="agent",
+                            tool_name=fn.get("name", "?"),
+                            arguments=args,
+                            tool_use_id=tc.get("id", ""),
+                        ))
+                else:
+                    state.add_event(MessageEvent(
+                        source="agent", role="assistant", content=content or "",
+                    ))
+            elif role == "tool":
+                state.add_event(ObservationEvent(
+                    source="tool",
+                    tool_use_id=m.get("tool_call_id", ""),
+                    content=content or "",
+                    status="success",
+                ))
+        return state
+
+    @staticmethod
+    def assemble_from_messages(
+        messages: List[Dict[str, Any]],
+        cm: "ContextManager",
+        **kwargs,
+    ) -> AssembledContext:
+        """快捷：消息列表 → assemble()"""
+        state = ContextManager.messages_to_state(messages)
+        return cm.assemble(state, **kwargs)
+
+    @staticmethod
+    def _estimate_tokens(text: str) -> int:
+        try:
+            from core.context.token_counter import TokenCounter
+            return TokenCounter().count_text(text)
+        except Exception:
+            return max(1, len(text) // 4)
 
     # ====== 内部 ======
 
@@ -353,10 +424,6 @@ class ContextManager:
 
     def _history_importance(self, position: int) -> float:
         return max(0.3, 1.0 - position * 0.05)
-
-    @staticmethod
-    def _estimate_tokens(text: str) -> int:
-        return max(1, len(text) // 4)
 
     @staticmethod
     def _count_by_source(blocks: list[ContextBlock]) -> dict[str, int]:

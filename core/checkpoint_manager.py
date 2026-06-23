@@ -57,10 +57,10 @@ class CheckpointManager:
             loop_state_snapshot=state.loop_state,
         )
 
-        # 写入文件
+        # 写入文件（每 session 仅保留一个，同名覆盖）
         cp_dir = self._dir / sid
         cp_dir.mkdir(parents=True, exist_ok=True)
-        cp_path = cp_dir / f"{cp.checkpoint_id}.json"
+        cp_path = cp_dir / "checkpoint.json"
 
         data = state.model_dump(mode="json")
         cp_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")

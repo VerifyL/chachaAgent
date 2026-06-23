@@ -65,16 +65,22 @@ class AgentBridge:
             context_window = default_provider.context_window
 
         compress_cfg = self._load_compress_cfg()
+
+        # ContextManager（注入 system prompt + telemetry）
+        from core.context_manager import ContextManager
+        self._context_manager = ContextManager(telemetry=self._telemetry)
+        self._context_manager.set_system_prompt(system_prompt)
+
         self._engine = ChatEngine(
             system_prompt=system_prompt,
             tools=tools,
             context_window=context_window,
             compress_cfg=compress_cfg,
+            context_manager=self._context_manager,
         )
 
         self._dispatcher = None
         self._invoker = None
-        self._context_manager = None
         self._initialized = False
 
     # ====== 属性 ======
@@ -106,11 +112,17 @@ class AgentBridge:
     # ====== 初始化 ======
 
     async def initialize(self) -> str:
-        """初始化 LLM + Dispatcher"""
+        """初始化 LLM + Dispatcher + 策略 + 重试 + 治理"""
         from core.llm_invoker import LLMInvoker
         from core.llm_clients.openai_client import OpenAIClient
+        from core.llm_clients.retry_handler import RetryHandler
+        from core.output_governor import OutputGovernor
         from core.tool_executor import ToolExecutor
         from core.dispatcher import Dispatcher
+
+        # 重试处理器 + 输出治理器
+        retry = RetryHandler(max_retries=3)
+        governor = OutputGovernor()
 
         # 1. LLM
         client = OpenAIClient(
@@ -118,7 +130,11 @@ class AgentBridge:
             model=self._model,
             base_url=self._base_url,
         )
-        self._invoker = LLMInvoker(model_client=client)
+        self._invoker = LLMInvoker(
+            model_client=client,
+            retry_handler=retry,
+            output_governor=governor,
+        )
         self._engine.set_llm(self._invoker)
 
         # 启动可观测性
@@ -126,23 +142,64 @@ class AgentBridge:
             self._telemetry.start()
 
         # 2. Dispatcher
-        self._executor = ToolExecutor(tools=self._custom_tools, telemetry=self._telemetry)
+        self._executor = ToolExecutor(
+            tools=self._custom_tools,
+            telemetry=self._telemetry,
+        )
         self._dispatcher = Dispatcher(
             llm_invoker=self._invoker,
             tool_executor=self._executor,
             telemetry=self._telemetry,
+            project_id=self._project_id,
         )
-        self._dispatcher._project_id = self._project_id
         self._engine.set_dispatcher(self._dispatcher)
 
-        # 3. ContextManager
+        # 3. ContextManager — 注入记忆和技能
         from core.context_manager import ContextManager
-        cm = ContextManager()
-        cm.set_system_prompt(self._system_prompt)
-        self._context_manager = cm
+        from core.context.memory_manager import MemoryManager
+        import json
+        try:
+            mgr = MemoryManager(project_root=self._root)
+            perm = mgr.read_permanent_memory()
+            if perm:
+                self._context_manager.set_permanent_memory(perm)
+            idx = mgr.read()
+            if idx:
+                self._context_manager.set_memory_index(idx)
+            user_path = Path.home() / ".chacha" / "USER_MEMORY.md"
+            if user_path.exists():
+                self._context_manager.set_global_permanent_memory(
+                    user_path.read_text(encoding="utf-8"))
+            # 工具 schema → skill 文本
+            schemas = self._executor.get_schemas()
+            if schemas:
+                skills_text = "\n".join(
+                    json.dumps(s, ensure_ascii=False) for s in schemas)
+                self._context_manager.set_skills(skills_text)
+        except Exception:
+            pass
 
         self._initialized = True
         return f"API: {self._model} | 上下文: {self._context_window // 1000}K"
+
+    def set_tools_for_session(self, memory_manager) -> None:
+        """根据 session 的 MemoryManager 重建工具。"""
+        from capabilities.builtins.chunk_streamer import ReadFileTool, GrepTool
+        from capabilities.builtins.code_patcher import EditFileTool
+        from capabilities.builtins.memory_tool import (
+            LoadMemoryTool, RememberTool, WriteTopicTool, ReadTopicTool,
+        )
+        from capabilities.builtins.project_overview import ProjectOverviewTool
+        self._custom_tools = [
+            ProjectOverviewTool(root=self._root),
+            ReadFileTool(root=self._root),
+            GrepTool(root=self._root),
+            EditFileTool(root=self._root),
+            LoadMemoryTool(memory_manager=memory_manager),
+            RememberTool(memory_manager=memory_manager),
+            WriteTopicTool(memory_manager=memory_manager),
+            ReadTopicTool(memory_manager=memory_manager),
+        ]
 
     async def rebuild(self) -> None:
         """重建 Dispatcher + ToolExecutor"""
@@ -153,8 +210,8 @@ class AgentBridge:
             llm_invoker=self._invoker,
             tool_executor=self._executor,
             telemetry=self._telemetry,
+            project_id=self._project_id,
         )
-        self._dispatcher._project_id = self._project_id
         self._engine.set_dispatcher(self._dispatcher)
 
     # ====== 发送消息（委托 ChatEngine） ======

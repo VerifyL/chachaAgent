@@ -4,23 +4,25 @@
 
 ## 概述
 
-设计融合了 **Harness 可观测性三大支柱**（Metrics + Logs + Traces）和 ChaChaAgent 自有的审计需求：
+设计融合了 **可观测性三大支柱**（Metrics + Logs + Traces）：
 
-- **双轨日志**：debug.jsonl（研发调试，5级过滤）+ audit.jsonl（安全审计，直接消费 `AuditRecord`）
-- **指标收集**：counter / gauge / histogram + P50/P99 百分位 + Prometheus 文本导出
-- **领域指标**：LLM 调用、工具调用、钩子、会话、成本、上下文的专项记录
-- **单进程追踪**：Span 用 trace_id 关联一次 LLM 调用→工具执行→响应的全链路
+- **双轨日志**：debug.jsonl（研发调试）+ audit.jsonl（安全审计）
+- **指标收集**：counter / gauge / histogram + P50/P99 百分位
+- **领域指标**：LLM 调用、工具调用、会话、上下文利用率
+- **单进程追踪**：Span 用 trace_id 关联全链路（预留）
 
-### 调用模式
+### 调用模式（CLI 集成）
 
 ```
-Orchestrator 完成一次工具调用
+ChatEngine.send_message()
   │
-  ├─ telemetry.agent.record_tool_call("read_file", 150ms, True, 100行)
-  ├─ telemetry.logger.info("tool executed", tool="read_file")
-  └─ telemetry.tracer.finish_span(span)
-
-Gateway.on_event() 可注册为全局监听者，实现被动推送
+  ├─ ContextManager.assemble() → telemetry.agent.record_context()
+  ├─ Dispatcher.dispatch_stream()
+  │    ├─ LLMInvoker → telemetry.agent.record_llm_call()
+  │    ├─ ToolExecutor → telemetry.agent.record_tool_call() + audit.jsonl
+  │    └─ ChatEngine → debug.jsonl ("LLM 调用", "本轮完成")
+  │
+  └─ SessionService.add_round() → telemetry.agent.record_session()
 ```
 
 ---
@@ -137,54 +139,14 @@ assert llm.trace_id == tool.trace_id == root.trace_id
 
 ---
 
-## 5. 使用示例
+## 5. 配置
 
-### 5.1 启动与关闭
+在 `~/.chacha/config.toml`：
 
-```python
-from core.telemetry import Telemetry
-from core.models.config import TelemetryConfig
-
-cfg = TelemetryConfig(log_level="INFO", enable_audit=True)
-telemetry = Telemetry(cfg)
-telemetry.start()
-
-# ... 正常使用 ...
-
-telemetry.stop()  # 导出最终指标摘要到 debug 日志
-```
-
-### 5.2 Orchestrator 中集成
-
-```python
-# LLM 调用前
-cost_allowed, reason, cumulative = policy_engine.evaluate_cost(0.015)
-
-# LLM 调用后
-telemetry.agent.record_llm_call(
-    model="gpt-4",
-    input_tokens=1000,
-    output_tokens=500,
-    latency_ms=2000,
-    success=True,
-)
-
-# 工具执行后
-telemetry.agent.record_tool_call(
-    tool_name="read_file",
-    duration_ms=150,
-    success=True,
-    output_lines=100,
-)
-```
-
-### 5.3 Gateway 全局监听
-
-```python
-async def telemetry_handler(msg: GatewayMessage):
-    telemetry.metrics.inc("chacha_messages_total", tags={"type": type(msg.payload).__name__})
-
-gateway.on_event(telemetry_handler)
+```toml
+[telemetry]
+# enabled = true               # 开启结构化日志 + 审计（默认关闭）
+# log_level = "INFO"           # DEBUG / INFO / WARNING / ERROR
 ```
 
 ---

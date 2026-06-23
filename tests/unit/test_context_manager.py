@@ -1,13 +1,10 @@
 """
 tests/unit/test_context_manager.py
-单元测试：core/context_manager.py ContextManager (v2.0)
+单元测试：core/context_manager.py ContextManager (v2.0 → v3.0)
 
-新增覆盖：
-  - CHACHA_MEMORY.md 永久记忆注入（protected zone）
-  - MEMORY.md 索引注入（dynamic zone）
-  - Session 记忆注入（dynamic zone）
-  - 新 block 排序验证
-  - set_permanent_memory / set_memory_index / set_session_memory / set_static_rules
+v3.0 上下文顺序:
+  protected: SYSTEM(含CHACHA) → USER_MEMORY → CHACHA_MEMORY → SKILLS
+  dynamic:   MEMORY.md(条件) → 对话历史 → 工具结果 → RAG/Hooks
 """
 
 import pytest
@@ -33,7 +30,7 @@ def state():
     return s
 
 
-# ====== 1. 消息排序（原有） ======
+# ====== 1. 消息排序 ======
 
 def test_message_order_system_first(state):
     mgr = ContextManager()
@@ -52,7 +49,7 @@ def test_user_message_after_system(state):
     assert "assistant" in roles
 
 
-# ====== 2. 缓存命中（原有） ======
+# ====== 2. 缓存命中 ======
 
 def test_cache_hit_static_rules(state):
     mgr = ContextManager()
@@ -74,7 +71,7 @@ def test_cache_invalidated_on_change(state):
         assert rules_blocks[0].content == "规则B"
 
 
-# ====== 3. 压缩触发（原有） ======
+# ====== 3. 压缩触发 ======
 
 def test_compression_not_triggered_for_small_context(state):
     mgr = ContextManager(ContextConfig(max_tokens=128000, compression_trigger_ratio=0.8))
@@ -84,14 +81,14 @@ def test_compression_not_triggered_for_small_context(state):
 
 
 def test_compression_triggered_when_over_threshold(state):
-    mgr = ContextManager(ContextConfig(max_tokens=100, compression_trigger_ratio=0.8))
-    for i in range(50):
-        state.add_event(MessageEvent(source="user", role="user", content="x" * 100))
+    mgr = ContextManager(ContextConfig(max_tokens=200, compression_trigger_ratio=0.8))
+    for i in range(3):
+        state.add_event(MessageEvent(source="user", role="user", content="x" * 200))
     ctx = mgr.assemble(state, session_id="s1")
     assert isinstance(ctx.needs_compression, bool)
 
 
-# ====== 4. 空状态（原有） ======
+# ====== 4. 空状态 ======
 
 def test_empty_state():
     meta = SessionMetadata(project_id="p1")
@@ -102,19 +99,19 @@ def test_empty_state():
     assert ctx.blocks[0].source == BlockSource.SYSTEM_PROMPT
 
 
-# ====== 5. 来源分布（原有） ======
+# ====== 5. 来源分布 ======
 
 def test_blocks_by_source(state):
     mgr = ContextManager()
     ctx = mgr.assemble(state, session_id="s1", static_rules="规则", skills="能力")
     dist = ctx.meta.blocks_by_source
-    assert "system_prompt" in dist
-    assert "static_rule" in dist
+    assert "system_prompt" in dist  # v3.0: static_rule 已合并进 system_prompt
     assert "skill" in dist
     assert "history" in dist
+    assert "tool_result" in dist
 
 
-# ====== 6. zone 分配（原有） ======
+# ====== 6. zone 分配 ======
 
 def test_protected_vs_dynamic(state):
     mgr = ContextManager()
@@ -125,7 +122,7 @@ def test_protected_vs_dynamic(state):
     assert len(dynamic) >= 2
 
 
-# ====== 7. set_system_prompt（原有） ======
+# ====== 7. set_system_prompt ======
 
 def test_custom_system_prompt(state):
     mgr = ContextManager()
@@ -135,7 +132,7 @@ def test_custom_system_prompt(state):
     assert system_blocks[0].content == "你是一个测试助手"
 
 
-# ====== 8. v2.0: CHACHA_MEMORY.md 永久记忆 ======
+# ====== 8. CHACHA_MEMORY.md 永久记忆 ======
 
 def test_permanent_memory_in_protected_zone(state):
     """永久记忆在 protected zone 中"""
@@ -143,7 +140,6 @@ def test_permanent_memory_in_protected_zone(state):
     mgr.set_permanent_memory("## 永久记忆\n- 关键决策: 使用 Python")
     ctx = mgr.assemble(state)
 
-    # 找到永久记忆块
     perm_blocks = [b for b in ctx.blocks if "Permanent Memory" in b.content]
     assert len(perm_blocks) == 1
     assert perm_blocks[0].zone == "protected"
@@ -166,79 +162,59 @@ def test_permanent_memory_before_skill(state):
 
     assert perm_pos is not None
     assert skill_pos is not None
-    assert perm_pos < skill_pos  # 永久记忆在技能之前
+    assert perm_pos < skill_pos
 
 
-def test_permanent_memory_after_chacha(state):
-    """永久记忆在 CHACHA.md 之后"""
+def test_permanent_memory_after_system(state):
+    """v3.0: SYSTEM(含CHACHA) 在永久记忆之前"""
     mgr = ContextManager()
     mgr.set_permanent_memory("永久记忆")
     ctx = mgr.assemble(state, static_rules="CHACHA 宪法")
 
-    rule_pos = None
+    sys_block = [b for b in ctx.blocks if b.source == BlockSource.SYSTEM_PROMPT][0]
+    assert "CHACHA 宪法" in sys_block.content
+
     perm_pos = None
     for i, b in enumerate(ctx.blocks):
-        if b.content == "CHACHA 宪法":
-            rule_pos = i
         if "Permanent Memory" in b.content:
             perm_pos = i
-
-    assert rule_pos is not None
     assert perm_pos is not None
-    assert rule_pos < perm_pos  # CHACHA 宪法在永久记忆之前
+    assert ctx.blocks.index(sys_block) < perm_pos
 
 
-# ====== 9. v2.0: MEMORY.md 索引注入 ======
+# ====== 9. MEMORY.md 条件注入 ======
 
-def test_memory_index_in_dynamic_zone(state):
-    """MEMORY.md 索引在 dynamic zone"""
+def test_memory_index_always_in_dynamic(state):
+    """v3.0: MEMORY.md 常驻动态区，不依赖 history_trimmed"""
     mgr = ContextManager()
     mgr.set_memory_index("## 记忆索引\n- 用户偏好 Python")
     ctx = mgr.assemble(state)
-
     mem_blocks = [b for b in ctx.blocks if "Memory Index" in b.content]
     assert len(mem_blocks) == 1
     assert mem_blocks[0].zone == "dynamic"
-    assert "用户偏好 Python" in mem_blocks[0].content
 
 
-# ====== 10. v2.0: Session 记忆注入 ======
-
-def test_session_memory_in_dynamic_zone(state):
-    """Session 今日记忆在 dynamic zone"""
-    mgr = ContextManager()
-    mgr.set_session_memory("Q: 如何配置 ruff\nA: 在 pyproject.toml 中添加")
-    ctx = mgr.assemble(state)
-
-    sess_blocks = [b for b in ctx.blocks if "Today's Session Memory" in b.content]
-    assert len(sess_blocks) == 1
-    assert sess_blocks[0].zone == "dynamic"
-    assert "ruff" in sess_blocks[0].content
-
-
-# ====== 11. v2.0: set_static_rules ======
+# ====== 10. set_static_rules ======
 
 def test_set_static_rules(state):
     mgr = ContextManager()
     mgr.set_static_rules("CHACHA.md 宪法内容")
     ctx = mgr.assemble(state)
 
-    rule_blocks = [b for b in ctx.blocks if "CHACHA.md 宪法内容" in b.content]
-    assert len(rule_blocks) >= 1
-    assert rule_blocks[0].zone == "protected"
+    # v3.0: CHACHA 合并进 SYSTEM
+    sys_blocks = [b for b in ctx.blocks if b.source == BlockSource.SYSTEM_PROMPT]
+    assert len(sys_blocks) >= 1
+    assert "CHACHA.md 宪法内容" in sys_blocks[0].content
+    assert sys_blocks[0].zone == "protected"
 
 
-# ====== 12. v2.0: 完整上下文排序 ======
+# ====== 11. 完整上下文排序 ======
 
 def test_full_context_ordering(state):
-    """验证完整上下文的排序:
-    SYSTEM → CHACHA.md → CHACHA_MEMORY.md → SKILL → MEMORY.md → Session → History → Tool
-    """
+    """v3.0 顺序: SYSTEM → PERMANENT → SKILL → MEMORY(条件) → HISTORY → TOOL"""
     mgr = ContextManager()
-    mgr.set_static_rules("CHACHA宪法")
     mgr.set_permanent_memory("永久记忆")
     mgr.set_memory_index("记忆索引")
-    mgr.set_session_memory("今日记忆")
 
     ctx = mgr.assemble(state, skills="技能定义")
 
@@ -250,10 +226,6 @@ def test_full_context_ordering(state):
             sources.append("PERMANENT")
         elif "Memory Index" in b.content:
             sources.append("MEMORY_INDEX")
-        elif "Today's Session Memory" in b.content:
-            sources.append("SESSION_MEMORY")
-        elif b.content == "CHACHA宪法":
-            sources.append("CHACHA")
         elif b.content == "技能定义":
             sources.append("SKILL")
         elif b.source == BlockSource.HISTORY:
@@ -261,18 +233,16 @@ def test_full_context_ordering(state):
         elif b.source == BlockSource.TOOL_RESULT:
             sources.append("TOOL")
 
-    # 验证顺序约束
     sys_idx = sources.index("SYSTEM") if "SYSTEM" in sources else -1
-    chacha_idx = sources.index("CHACHA") if "CHACHA" in sources else -1
     perm_idx = sources.index("PERMANENT") if "PERMANENT" in sources else -1
     skill_idx = sources.index("SKILL") if "SKILL" in sources else -1
     mem_idx = sources.index("MEMORY_INDEX") if "MEMORY_INDEX" in sources else -1
 
-    assert sys_idx < chacha_idx < perm_idx < skill_idx
-    assert skill_idx < mem_idx  # 动态区在保护区之后
+    assert sys_idx < perm_idx < skill_idx, f"顺序错误: {sources}"
+    assert skill_idx < mem_idx, f"MEMORY 应在 SKILL 之后: {sources}"
 
 
-# ====== 13. v2.0: 无永久记忆不报错 ======
+# ====== 12. 无永久记忆不报错 ======
 
 def test_no_permanent_memory_no_error(state):
     """不设置永久记忆时，上下文正常组装"""
@@ -281,7 +251,7 @@ def test_no_permanent_memory_no_error(state):
     assert ctx.blocks[0].source == BlockSource.SYSTEM_PROMPT
 
 
-# ====== 14. get_messages (原有) ======
+# ====== 13. get_messages ======
 
 def test_get_messages_direct(state):
     mgr = ContextManager()

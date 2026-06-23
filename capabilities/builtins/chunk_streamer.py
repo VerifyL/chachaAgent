@@ -95,8 +95,11 @@ class GrepTool(BaseTool):
 
         files = search_root.rglob(include_glob) if search_root.is_dir() else [search_root]
 
+        skip_parts = {".git", ".venv", "__pycache__", "node_modules", ".idea", ".codebuddy"}
         for f in files:
-            if not f.is_file() or f.suffix == ".pyc" or ".git" in f.parts:
+            if not f.is_file() or f.suffix == ".pyc":
+                continue
+            if any(p in f.parts for p in skip_parts):
                 continue
             try:
                 for i, line in enumerate(f.read_text(encoding="utf-8").split("\n"), 1):

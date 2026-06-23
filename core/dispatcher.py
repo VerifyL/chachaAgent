@@ -32,15 +32,29 @@ logger = logging.getLogger(__name__)
 MAX_TOOL_ROUNDS = 200          # 防止无限工具循环
 KEEP_TOOL_RESULTS = 8          # 主动冻结：保留最近 8 个完整工具结果，更早的占位
 
+def _tool_args_summary(name: str, args: dict) -> str:
+    """提取工具的关键参数摘要。"""
+    if name == "read_file" and "path" in args:
+        return f"📄 {args["path"]}"
+    if name == "grep":
+        pat = args.get("pattern", "")
+        loc = args.get("path", "") or ""
+        return f"🔍 {pat[:30]}" + (f" in {loc}" if loc else "")
+    items = [f"{k}={str(v)[:20]}" for k, v in args.items()]
+    return " ".join(items[:2])
+
+
 
 class Dispatcher:
     """桥接 LLM ↔ 工具执行（v2.0）"""
 
-    def __init__(self, llm_invoker, tool_executor, memory_manager=None, telemetry=None):
+    def __init__(self, llm_invoker, tool_executor, memory_manager=None,
+                 telemetry=None, project_id=""):
         self._llm = llm_invoker
         self._tools = tool_executor
         self._memory = memory_manager
         self._telemetry = telemetry
+        self._project_id = project_id
 
     async def dispatch_stream(
         self,
@@ -105,7 +119,12 @@ class Dispatcher:
                         yield {"type": "error", "message": chunk.content}
             except Exception as e:
                 llm_ok = False
-                yield {"type": "error", "message": str(e)}
+                msg = str(e)
+                if "401" in msg or "403" in msg:
+                    import re
+                    msg = re.sub(r'(api[ _]?key[:\s]*["\']?)([^"\'}\]]+)',
+                                 lambda m: m.group(1) + "***", msg, flags=re.IGNORECASE)
+                yield {"type": "error", "message": msg}
                 return
             finally:
                 # LLM 调用遥测
@@ -155,14 +174,18 @@ class Dispatcher:
                     args = json.loads(tc_info["args"]) if tc_info["args"] else {}
                 except json.JSONDecodeError:
                     args = {}
-                pid = getattr(self, "_project_id", "")
+                # 显示工具参数摘要（如 read_file 的文件路径）
+                arg_summary = _tool_args_summary(tc_info["name"], args)
+                yield {"type": "tool_exec_start", "tool_name": tc_info["name"], "args": arg_summary}
                 result = await self._tools.execute(
                     tool_name=tc_info["name"],
                     arguments=args,
                     session_id=session_id,
                     tool_use_id=tc_info["id"],
-                    project_id=pid,
+                    project_id=self._project_id,
                 )
+                yield {"type": "tool_exec_end", "tool_name": tc_info["name"],
+                       "preview": (result.output or result.error or "")[:80].split("\n")[0]}
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc_info["id"],
@@ -226,14 +249,13 @@ class Dispatcher:
             }
             messages.append(assistant_tool_msg)
 
-            pid = getattr(self, "_project_id", "")
             for tc in resp.tool_calls:
                 result = await self._tools.execute(
                     tool_name=tc.name,
                     arguments=tc.arguments,
                     session_id=session_id,
                     tool_use_id=tc.id,
-                    project_id=pid,
+                    project_id=self._project_id,
                 )
                 messages.append({
                     "role": "tool",

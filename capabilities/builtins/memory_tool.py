@@ -51,8 +51,11 @@ class RememberTool(BaseTool):
     """写入记忆：remember(content) → 追加到今日文件"""
 
     name = "remember"
-    description = "将当前对话中的重要信息记录到今日记忆（7天后自动清理）。如需长期保留，请用 write_topic 写入对应主题。"
-
+    description = (
+        "记录当前会话的关键信息到今日记忆（7天后自动清理短期记忆）。"
+        "当用户要求 '记住' 时，必须同时调用 remember 和 write_topic 两个工具，"
+        "一个写入短期会话记忆，一个写入长期主题记忆。"
+    )
 
     parameters = {
         "type": "object",
@@ -86,6 +89,8 @@ class WriteTopicTool(BaseTool):
         "踩坑教训、值得记住的经验 → topic='lessons-learned'；"
         "成功修复的错误及方案 → topic='errors-fixed'；"
         "当前项目的里程碑、进度 → topic='project-progress'。"
+        "当用户要求 '记住' 时，必须同时调用 remember 和 write_topic 两个工具，"
+        "一个写入短期会话记忆，一个写入长期主题记忆。"
     )
     parameters = {
         "type": "object",

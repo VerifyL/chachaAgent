@@ -19,6 +19,7 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
+from core.models.audit import audit_factory, AuditEventCategory
 from typing import Any, Callable, Coroutine, Dict, List, Optional, Union
 
 logger = logging.getLogger(__name__)
@@ -202,7 +203,6 @@ class ToolExecutor:
                 _logger=self._telemetry.logger,
             )
             if self._telemetry.logger:
-                from core.models.audit import audit_factory, AuditEventCategory
                 record = audit_factory(
                     AuditEventCategory.TOOL_CALL,
                     session_id=session_id,

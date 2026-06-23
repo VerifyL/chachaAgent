@@ -32,22 +32,24 @@ class RetryHandler:
         self._initial_backoff = initial_backoff
         self._max_backoff = max_backoff
 
-    async def execute(self, coro_fn, *args, **kwargs):
-        """执行异步函数，失败时按策略重试。重试耗尽时抛出最后异常。"""
+    async def execute(self, gen_fn, *args, **kwargs):
+        """执行异步生成器函数，失败时按策略重试。重试耗尽时抛出最后异常。"""
         last_error = None
 
         for attempt in range(self._max_retries):
             try:
-                return await coro_fn(*args, **kwargs)
+                async for chunk in gen_fn(*args, **kwargs):
+                    yield chunk
+                return
+            except (KeyboardInterrupt, asyncio.CancelledError):
+                return
             except Exception as e:
                 last_error = e
                 msg = str(e).lower()
 
-                # 不重试：认证错误
                 if any(keyword in msg for keyword in _NON_RETRYABLE):
                     raise
 
-                # 429：等待 retry_after 或默认值
                 if "429" in msg or "rate" in msg:
                     wait = self._extract_retry_after(e) or self._initial_backoff * (2 ** attempt)
                 else:

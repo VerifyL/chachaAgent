@@ -58,7 +58,8 @@ class ChachaCLI:
         if self._bridge._telemetry:
             self._bridge._telemetry.set_session_id(self._session.session_id)
         msg = await self._bridge.initialize()
-        # 注入 project_id + session_id + telemetry
+        # 注入 project_root + project_id
+        self._bridge._engine._project_root = self._project
         pid = self._session.memory_manager._project_id
         self._bridge._project_id = pid
         if self._bridge._dispatcher:
@@ -67,7 +68,7 @@ class ChachaCLI:
             self._session._telemetry = self._bridge._telemetry
         self._session.set_llm(self._bridge._invoker)
         self._bridge._engine.set_checkpoint_dir(
-            self._session.memory_manager._session_dir)
+            self._session.memory_manager.session_dir)
         return msg
 
     # ====== 主循环 ======
@@ -164,17 +165,19 @@ class ChachaCLI:
                     tool_trace.append({
                         "tool": chunk["tool_name"], "t0": time.monotonic(),
                     })
-                    RICH_CONSOLE.print(
-                        f"  [{self._t['tool_thinking']}]🔧 {chunk['tool_name']}[/]"
-                    )
+                elif chunk["type"] == "tool_exec_start":
+                    if tool_trace:
+                        t = tool_trace[-1]
+                        t["ms"] = int((time.monotonic() - t["t0"]) * 1000)
+                    args_text = chunk.get("args", "")
+                    if args_text:
+                        RICH_CONSOLE.print(f"  [{self._t['tool_thinking']}]🔧 {chunk['tool_name']} — {args_text}[/]")
+                    else:
+                        RICH_CONSOLE.print(f"  [{self._t['tool_thinking']}]🔧 {chunk['tool_name']}[/]")
                 elif chunk["type"] == "tool_call_end":
                     if tool_trace:
                         t = tool_trace[-1]
                         t["ms"] = int((time.monotonic() - t["t0"]) * 1000)
-                    preview = chunk.get("preview", "")[:80]
-                    RICH_CONSOLE.print(
-                        f"  [{self._t['tool_done']}]✅ {chunk['tool_name']} — {preview}[/]"
-                    )
                 elif chunk["type"] == "error":
                     errors.append(chunk["message"])
                     RICH_CONSOLE.print(f"[red]错误: {chunk['message']}[/]")
@@ -183,13 +186,17 @@ class ChachaCLI:
                     usage = chunk.get("usage", {}) if chunk.get("usage") else usage
                 elif chunk["type"] == "compact":
                     self._print_system(f"🔄 自动压缩: {chunk['reason']}")
+        except KeyboardInterrupt:
+            RICH_CONSOLE.print(f"\n⏹ 已中断")
+        except KeyboardInterrupt:
+            RICH_CONSOLE.print(f"\n⏹ 已中断")
         except Exception as e:
             errors.append(str(e))
             RICH_CONSOLE.print(f"[red]异常: {e}[/]")
 
         # 审计
         elapsed_ms = int((time.monotonic() - t0) * 1000)
-        self._session.add_round(
+        await self._session.add_round(
             tokens=tokens, duration_ms=elapsed_ms, errors=errors,
             user_input=text, assistant_text="".join(response_parts),
         )
@@ -316,10 +323,13 @@ class ChachaCLI:
     async def _reload_bridge(self, old_sid: str) -> None:
         # 保存旧 session
         self._bridge._engine.save_checkpoint()
+        # 重建工具 + Dispatcher
+        self._bridge.set_tools_for_session(self._session.memory_manager)
+        await self._bridge.rebuild()
         # 重置引擎并切换 checkpoint 目录
         self._bridge._engine.reset()
         self._bridge._engine.set_checkpoint_dir(
-            self._session.memory_manager._session_dir)
+            self._session.memory_manager.session_dir)
 
     async def _do_compact(self) -> str:
         if not self._bridge:
@@ -335,6 +345,10 @@ class ChachaCLI:
             )
             self._bridge._messages = msgs
             return f"📦 {n} → {len(msgs)} 条"
+        except KeyboardInterrupt:
+            RICH_CONSOLE.print(f"\n⏹ 已中断")
+        except KeyboardInterrupt:
+            RICH_CONSOLE.print(f"\n⏹ 已中断")
         except Exception as e:
             return f"压缩失败: {e}"
 

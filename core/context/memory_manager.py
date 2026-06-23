@@ -120,6 +120,9 @@ class MemoryManager:
 
     def write_topic(self, topic_name: str, content: str) -> Path:
         """追加内容到指定主题文件。"""
+        if self._topics_dir is None:
+            raise RuntimeError("话题目录未初始化")
+        self._topics_dir.mkdir(parents=True, exist_ok=True)  # 确保目录存在
         path = self._topics_dir / f"{topic_name}.md"
         ts = datetime.now(tz=timezone(timedelta(hours=8))).isoformat()
         entry = f"\n## {ts}\n{content.strip()}\n"
@@ -342,6 +345,16 @@ class MemoryManager:
     @property
     def tool_cache_dir(self) -> Path:
         return self._tool_cache_dir
+
+    @property
+    def session_dir(self):
+        """当前 session 的目录路径。"""
+        return self._session_dir
+
+    @property
+    def topics_dir(self):
+        """当前 session 的主题记忆目录。"""
+        return self._topics_dir
 
     # ====== 维护（去重/更新/修剪） ======
 

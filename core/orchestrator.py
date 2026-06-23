@@ -210,7 +210,7 @@ class Orchestrator:
 
     # ====== 会话记忆 & 清理 ======
 
-    def _save_round_memory(self, user_input: str, assistant_text: str) -> None:
+    def _save_round_memory(self, user_input: str, assistant_text: str, project_id: str = "") -> None:
         """异步保存本轮对话到 memory/session/{date}.md（只含 user + assistant，无工具调用）。"""
         try:
             if self._memory:

@@ -54,7 +54,9 @@ class ProjectInit:
         from capabilities.builtins.memory_tool import (
             LoadMemoryTool, RememberTool, WriteTopicTool, ReadTopicTool,
         )
+        from capabilities.builtins.project_overview import ProjectOverviewTool
         return [
+            ProjectOverviewTool(root=self._root),
             ReadFileTool(root=self._root),
             GrepTool(root=self._root),
             EditFileTool(root=self._root),

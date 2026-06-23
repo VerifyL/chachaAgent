@@ -1,28 +1,24 @@
-# 上下文组装策略 (`core/context_manager.py`) (v2.1)
+# 上下文组装策略 (`core/context_manager.py`) (v3.0)
 
 本文档说明 `ContextManager` 的上下文组装流程、DYNAMIC_BOUNDARY 策略、Token 预算控制和压缩触发。
 
-## v2.1 上下文字段顺序
+## v3.0 上下文字段顺序
 
 ```
 ┌─────────────────────────────────────────┐
 │  protected zone（永不压缩，固定顺序）      │
 ├─────────────────────────────────────────┤
-│  1. SYSTEM_PROMPT                       │
-│  2. CHACHA.md（宪法，分层加载）           │
-│  3. USER_MEMORY.md（用户级永久记忆）       │
-│  4. CHACHA_MEMORY.md（项目永久记忆）       │
-│  5. SKILLS / tool schemas               │
+│  1. SYSTEM_PROMPT（已合并 CHACHA.md）    │
+│  2. USER_MEMORY.md（用户级永久记忆）       │
+│  3. CHACHA_MEMORY.md（项目永久记忆）       │
+│  4. SKILLS / tool schemas               │
 ├─────────────────────────────────────────┤
-│  dynamic zone（按 importance 排序，可压缩）│
+│  dynamic zone（可压缩，稳定度降序）        │
 ├─────────────────────────────────────────┤
-│  6. MEMORY.md（DreamPipeline 轻量索引）    │
-│  7. 今日会话记忆（session/{date}.md）      │
-│  8. 对话历史（最近 N 轮完整）              │
-│  9. 最近 K 个工具结果（完整）              │
-│ 10. 老旧工具结果（占位符格式）              │
-│ 11. RAG / SubAgent 结果                  │
-│ 12. 钩子注入 additional_context           │
+│  5. MEMORY.md（DreamPipeline 轻量索引）    │
+│  6. 对话历史（最近 N 轮）                 │
+│  7. 工具结果（完整 + 缓存占位符）          │
+│  8. RAG / SubAgent / 钩子注入            │
 └─────────────────────────────────────────┘
 ```
 

@@ -118,10 +118,36 @@ def read_global_permanent_memory() -> str:
 class GlobalDream:
     """用户级永久记忆整合管道（模块级单例，跨项目共享）。"""
 
-    def __init__(self, llm_invoker=None):
+    _instance = None  # 兼容旧版 get_instance()
+
+    def __init__(self, llm_invoker=None, base_dir=None,
+                 dream_rounds=50, dream_hours=168):
         self._llm = llm_invoker
+        self._base_dir = base_dir
+        self._dream_rounds = dream_rounds
+        self._dream_hours = dream_hours
         self._last_run: Optional[float] = None
         self._dream_count = 0
+
+    # ====== 兼容旧 API ======
+
+    @classmethod
+    def get_instance(cls, **kw):
+        if cls._instance is None:
+            cls._instance = cls(**kw)
+        return cls._instance
+
+    def configure(self, llm_invoker=None, dream_rounds=None, dream_hours=None):
+        if llm_invoker:
+            self._llm = llm_invoker
+        if dream_rounds is not None:
+            self._dream_rounds = dream_rounds
+        if dream_hours is not None:
+            self._dream_hours = dream_hours
+
+    def record_round(self):
+        """兼容旧调用：映射为 record_project_dream。"""
+        self._dream_count += 1
 
     def set_llm(self, llm_invoker) -> None:
         self._llm = llm_invoker
@@ -135,10 +161,10 @@ class GlobalDream:
         if self._llm is None:
             return False
         if self._last_run is None:
-            return self._dream_count >= _GLOBAL_DREAM_COUNT
+            return self._dream_count >= self._dream_rounds
 
-        count_triggered = self._dream_count >= _GLOBAL_DREAM_COUNT
-        time_triggered = time.time() - self._last_run > _GLOBAL_DREAM_HOURS * 3600
+        count_triggered = self._dream_count >= self._dream_rounds
+        time_triggered = time.time() - self._last_run > self._dream_hours * 3600
         return count_triggered or time_triggered
 
     async def run(self) -> str:

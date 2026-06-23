@@ -246,6 +246,7 @@ class ContextCompressor:
         trim_tail: int = 12,
         summary_head: int = 3,
         summary_tail: int = 8,
+        cache_dir=None,
     ) -> tuple[list, str]:
         """全自动压缩：判断 → 执行 → (压缩后消息, 理由)。不达阈值直接返回 (原消息, "")。"""
         est = ContextCompressor.estimate_tokens(messages)
@@ -262,6 +263,7 @@ class ContextCompressor:
             messages, context_window, llm=llm,
             frozen_keep=frozen_keep, trim_head=trim_head, trim_tail=trim_tail,
             summary_head=summary_head, summary_tail=summary_tail,
+            cache_dir=cache_dir,
         )
         return compressed, reason
 
@@ -277,6 +279,7 @@ class ContextCompressor:
         trim_tail: int = 12,
         summary_head: int = 3,
         summary_tail: int = 8,
+        cache_dir=None,
     ) -> list:
         """三层渐进压缩到 < trigger_ratio 窗口。
         
@@ -292,10 +295,19 @@ class ContextCompressor:
                 freeze_idx = tool_indices[0]
                 original = msgs[freeze_idx]
                 preview = str(original.get("content", ""))[:80].split("\n")[0]
-                msgs[freeze_idx] = dict(
-                    original,
-                    content=f"[{preview}]...\n[工具结果已缓存，占位]",
-                )
+                # 落盘缓存
+                raw_content = str(original.get("content", ""))
+                cache_path = ""
+                if cache_dir and raw_content:
+                    from pathlib import Path
+                    cache_dir_p = Path(cache_dir)
+                    cache_dir_p.mkdir(parents=True, exist_ok=True)
+                    ts = datetime.now(tz=timezone(timedelta(hours=8))).strftime("%Y%m%d_%H%M%S_%f")
+                    cache_file = cache_dir_p / f"tool_cache_{ts}.txt"
+                    cache_file.write_text(raw_content, encoding="utf-8")
+                    cache_path = cache_file.name
+                placeholder = f"[{preview}...]\n[工具结果已缓存: {cache_path}]" if cache_path else f"[{preview}...]\n[工具结果已缓存]"
+                msgs[freeze_idx] = dict(original, content=placeholder)
                 continue
 
             # ── Level 2: TRIMMED ──
@@ -323,13 +335,19 @@ class ContextCompressor:
                         old_content += f"[{role}] {content}\n"
 
                 if llm and old_content.strip():
-                    import asyncio
-                    summary = asyncio.run(
-                        ContextCompressor._summarize_block(llm, old_content)
-                    )
-                    msgs = head + [
-                        {"role": "user", "content": f"[历史摘要] {summary}"},
-                    ] + tail
+                    try:
+                        import asyncio
+                        summary = asyncio.run(
+                            ContextCompressor._summarize_block(llm, old_content)
+                        )
+                        msgs = head + [
+                            {"role": "user", "content": f"[历史摘要] {summary}"},
+                        ] + tail
+                        continue
+                    except RuntimeError:
+                        pass  # 已在 async 上下文中，跳过摘要，降级为裁剪
+                    head[-1] = dict(head[-1], content="……(中间对话已裁剪)……")
+                    msgs = head + tail
                 else:
                     head[-1] = dict(head[-1], content="……(中间对话已裁剪)……")
                     msgs = head + tail

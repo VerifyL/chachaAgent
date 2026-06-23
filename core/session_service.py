@@ -166,7 +166,7 @@ class SessionService:
 
     async def run_global_dream(self) -> str:
         """运行 Global Dream（跨 session 学习）"""
-        from core.context.dream import GlobalDream
+        from core.context.global_dream import GlobalDream
         gd = GlobalDream.get_instance(
             dream_rounds=self._global_dream_rounds,
             dream_hours=self._global_dream_hours,
@@ -176,8 +176,8 @@ class SessionService:
 
     # ====== 审计 ======
 
-    def add_round(self, tokens: int = 0, duration_ms: int = 0,
-                  errors=None, user_input: str = "", assistant_text: str = "") -> None:
+    async def add_round(self, tokens: int = 0, duration_ms: int = 0,
+                        errors=None, user_input: str = "", assistant_text: str = "") -> None:
         self.total_tokens += tokens
         self.rounds += 1
         self._history.append({
@@ -189,8 +189,9 @@ class SessionService:
         self._save_memory(user_input, assistant_text)
         # 触发 Dream 检查
         self._dream_hints += 1
+        await self._maybe_dream()
         # GlobalDream 计数（阈值可配）
-        from core.context.dream import GlobalDream
+        from core.context.global_dream import GlobalDream
         gd = GlobalDream.get_instance(
             dream_rounds=self._global_dream_rounds,
             dream_hours=self._global_dream_hours,

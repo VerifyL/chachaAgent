@@ -16,6 +16,7 @@ LLMInvoker — 流式 LLM 调用器：流式分块、工具调用增量解析、
 """
 
 import json
+import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
@@ -59,7 +60,6 @@ class LLMResponse:
     finish_reason: str = "stop"            # stop | tool_calls | length | content_filter
     error: Optional[str] = None
     usage: Dict[str, int] = field(default_factory=dict)  # {input, output, total}
-    error: Optional[str] = None
     duration_ms: int = 0
 
 
@@ -113,14 +113,17 @@ class LLMInvoker:
 
         注意：必须是 async generator（yield 表达式），不能用 return。
         """
-        if self._retry:
-            async for chunk in self._retry.execute(
-                self._client.stream, messages, tools or [],
-            ):
-                yield chunk
-        else:
-            async for chunk in self._client.stream(messages, tools):
-                yield chunk
+        try:
+            if self._retry:
+                async for chunk in self._retry.execute(
+                    self._client.stream, messages, tools or [],
+                ):
+                    yield chunk
+            else:
+                async for chunk in self._client.stream(messages, tools):
+                    yield chunk
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            yield StreamChunk(type="error", content="用户中断")
 
     async def _invoke_impl(
         self,
@@ -148,12 +151,12 @@ class LLMInvoker:
 
         try:
             if self._retry:
-                stream = await self._retry.execute(
+                it = self._retry.execute(
                     self._client.stream, messages, tools or [],
                 )
             else:
-                stream = self._client.stream(messages, tools or [])
-            async for chunk in stream:
+                it = self._client.stream(messages, tools or [])
+            async for chunk in it:
                 if chunk.type == "text":
                     text_parts.append(chunk.content)
                     if self._gateway:
@@ -254,6 +257,10 @@ class LLMInvoker:
         if "429" in msg or "rate" in msg.lower():
             return f"Rate limited: {msg}"
         if "401" in msg or "403" in msg:
+            # 遮罩 API key
+            import re
+            msg = re.sub(r'(api[ _]?key[:\s]*["\']?)([^"\'}\]]+)',
+                         lambda m: m.group(1) + "***", msg, flags=re.IGNORECASE)
             return f"Authentication error: {msg}"
         if "timeout" in msg.lower():
             return f"Timeout: {msg}"

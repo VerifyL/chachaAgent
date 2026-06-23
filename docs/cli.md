@@ -240,3 +240,18 @@ global_dream_rounds = 100
 
 指标 `MetricsCollector` 支持 counter / gauge / histogram + P50/P99 百分位，可对接 Prometheus。
 Span 追踪 `Tracer` 支持单进程 trace_id → span_id 全链路关联。
+
+## 待接入组件
+
+| 组件 | 文件 | 计划 |
+|------|------|------|
+| `HookOrchestrator` | `core/hook_orchestrator.py` | 需要钩子扩展时接入 |
+| `ModelRouter` | `core/llm_clients/router.py` | 多模型路由/降级 |
+| `ModelFactory` | `core/llm_clients/factory.py` | 多模型客户端工厂 |
+| `UsageTracker` | `core/llm_clients/usage_tracker.py` | 精确成本计算 |
+| `Orchestrator` | `core/orchestrator.py` | 需策略引擎+钩子时接入 |
+| `SubAgent` | `core/subagent/` | 沙箱子 Agent |
+| `PolicyEngine` | `core/policy_engine.py` | 已接入工具列表式，需配置后才可用 |
+| `TokenCounter` | `core/context/token_counter.py` | 已在 ContextManager 内部使用 |
+
+接入方式: `agent_bridge.initialize()` 中创建实例并注入到对应的 `LLMInvoker`/`ToolExecutor`/`ContextManager` 构造函数即可。
