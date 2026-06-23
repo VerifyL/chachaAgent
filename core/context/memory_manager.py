@@ -265,11 +265,11 @@ class MemoryManager:
 
     # ====== Tool Cache 管理 ======
 
-    def cache_tool_result(self, key: str, tool_name: str, result: str) -> Path:
+    def cache_tool_result(self, tool_use_id: str, tool_name: str, result: str) -> Path:
         """缓存工具结果到 tool_cache 目录。
 
         Args:
-            key: 缓存键
+            tool_use_id: 工具调用 ID（dispatcher 传入）
             tool_name: 工具名
             result: 工具结果内容
 
@@ -278,10 +278,10 @@ class MemoryManager:
         """
         if self._tool_cache_dir is None:
             raise RuntimeError("tool_cache 目录未初始化（需提供 session_id）")
-        path = self._tool_cache_dir / f"{tool_name}_{key}.json"
+        path = self._tool_cache_dir / f"{tool_name}_{tool_use_id}.json"
         data = {
             "tool": tool_name,
-            "key": key,
+            "key": tool_use_id,
             "result": result,
             "cached_at": datetime.now(tz=timezone(timedelta(hours=8))).isoformat(),
         }
@@ -302,142 +302,34 @@ class MemoryManager:
             if f.is_file():
                 f.unlink()
                 count += 1
-        logger.info("清理 tool_cache: 已删除 %d 个文件", count)
-        return count
-
-    # ====== tool_cache 管理 ======
-
-    def cache_tool_result(self, name: str, tool: str, data: str) -> Path:
-        """缓存工具调用结果到 tool_cache 目录。
-
-        Args:
-            name: 缓存条目名称
-            tool: 工具名称
-            data: 结果数据
-
-        Returns:
-            写入的文件路径
-        """
-        if self._tool_cache_dir is None:
-            raise RuntimeError("tool_cache 目录未初始化（需要 session_id）")
-        entry = {"tool": tool, "data": data}
-        path = self._tool_cache_dir / f"{name}.json"
-        path.write_text(json.dumps(entry, ensure_ascii=False, indent=2), encoding="utf-8")
-        return path
-
-    def cleanup_tool_cache(self) -> int:
-        """清理 tool_cache 目录中的所有缓存文件。
-
-        Returns:
-            删除的文件数量
-        """
-        if self._tool_cache_dir is None or not self._tool_cache_dir.exists():
-            return 0
-        count = 0
-        for f in self._tool_cache_dir.iterdir():
-            f.unlink()
-            count += 1
         if count:
-            logger.info("已清理 tool_cache: %d 个文件", count)
+            logger.info("清理 tool_cache: 已删除 %d 个文件", count)
         return count
 
-    # ====== tool_cache 操作 ======
+    # ====== 索引 & 清理 ======
 
-    def cache_tool_result(self, name: str, tool: str, data: str) -> Path:
-        """缓存工具调用结果到 tool_cache 目录。
-
-        Args:
-            name: 缓存键名
-            tool: 工具名称
-            data: 结果数据
-
-        Returns:
-            写入的文件路径
-        """
-        if self._tool_cache_dir is None:
-            raise RuntimeError("tool_cache 目录未初始化（需要 session_id）")
-        path = self._tool_cache_dir / f"{name}.json"
-        payload = {
-            "tool": tool,
-            "data": data,
-            "cached_at": datetime.now(tz=timezone(timedelta(hours=8))).isoformat(),
-        }
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        logger.debug("工具结果已缓存: %s", path)
+    def update_index(self, content: str) -> Path:
+        """写入 MEMORY.md 索引（autoDream 产物）。"""
+        path = self._index_path()
+        path.write_text(content.strip() + "\n", encoding="utf-8")
+        logger.info("索引已更新: %s", path)
         return path
 
-    def cleanup_tool_cache(self) -> int:
-        """清理 tool_cache 目录中的所有缓存文件。
-
-        Returns:
-            删除的文件数量
-        """
-        if self._tool_cache_dir is None or not self._tool_cache_dir.exists():
+    def prune_old_days(self) -> int:
+        """删除超过 7 天的旧每日记忆文件，返回删除数量。"""
+        if self._session_dir is None:
             return 0
-        count = 0
-        for f in self._tool_cache_dir.iterdir():
-            if f.is_file():
-                f.unlink()
-                count += 1
-        logger.info("tool_cache 已清理，删除 %d 个文件", count)
-        return count
-
-    # ====== tool_cache 缓存管理 ======
-
-    def cache_tool_result(self, name: str, tool: str, data: str) -> Path:
-        """缓存工具结果到 tool_cache 目录。
-
-        Args:
-            name: 缓存键名
-            tool: 工具名
-            data: 结果数据
-
-        Returns:
-            写入的文件路径
-        """
-        if self._tool_cache_dir is None:
-            raise RuntimeError("tool_cache 目录未初始化（无 session_id）")
-        path = self._tool_cache_dir / f"{name}.json"
-        record = {"tool": tool, "data": data}
-        path.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
-        return path
-
-    def cleanup_tool_cache(self) -> int:
-        """清理 tool_cache 目录中的所有文件。
-
-        Returns:
-            删除的文件数量
-        """
-        if self._tool_cache_dir is None or not self._tool_cache_dir.exists():
-            return 0
-        count = 0
-        for item in self._tool_cache_dir.iterdir():
-            if item.is_file():
-                item.unlink()
-                count += 1
-        logger.info("清理 tool_cache: 删除 %d 个文件", count)
-        return count
-
-
-    # ====== tool_cache 操作 ======
-
-    def cache_tool_result(self, name: str, tool: str, data: str) -> Path:
-        """缓存工具结果到 tool_cache 目录。"""
-        if self._tool_cache_dir is None:
-            raise RuntimeError("tool_cache 目录未初始化")
-        path = self._tool_cache_dir / f"{name}.json"
-        entry = {"tool": tool, "data": data}
-        path.write_text(json.dumps(entry, ensure_ascii=False, indent=2), encoding="utf-8")
-        return path
-
-    def cleanup_tool_cache(self) -> int:
-        """清理 tool_cache 目录中的所有文件，返回删除的文件数。"""
-        if self._tool_cache_dir is None or not self._tool_cache_dir.exists():
-            return 0
-        count = 0
-        for f in self._tool_cache_dir.iterdir():
-            if f.is_file():
-                f.unlink()
-                count += 1
-        logger.info("清理 tool_cache: 已删除 %d 个缓存文件", count)
-        return count
+        cutoff = datetime.now(tz=timezone(timedelta(hours=8))) - timedelta(days=_PRUNE_DAYS)
+        deleted = 0
+        for day_file in self._session_dir.glob("????-??-??.md"):
+            try:
+                dt = datetime.strptime(day_file.stem, "%Y-%m-%d").replace(tzinfo=timezone(timedelta(hours=8)))
+            except ValueError:
+                continue
+            if dt < cutoff:
+                day_file.unlink()
+                deleted += 1
+                logger.debug("清理过期记忆: %s", day_file.name)
+        if deleted:
+            logger.info("prune_old_days: 已删除 %d 个过期文件", deleted)
+        return deleted

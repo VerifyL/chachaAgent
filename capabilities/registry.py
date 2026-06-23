@@ -21,6 +21,7 @@ def build_tools(root: Optional[Path] = None, memory_manager=None) -> List:
     from capabilities.builtins.chunk_streamer import ReadFileTool, ReadFilesTool, GrepTool
     from capabilities.builtins.code_patcher import EditFileTool
     from capabilities.sandbox import Sandbox
+    from capabilities.builtins.git_tools import GitDiffTool, GitLogTool, GitStatusTool
     from capabilities.builtins.memory_tool import (
         LoadMemoryTool, RememberTool, WriteTopicTool, ReadTopicTool,
     )
@@ -40,5 +41,8 @@ def build_tools(root: Optional[Path] = None, memory_manager=None) -> List:
         RememberTool(memory_manager=memory_manager),
         WriteTopicTool(memory_manager=memory_manager),
         ReadTopicTool(memory_manager=memory_manager),
+        GitDiffTool(root=root),
+        GitLogTool(root=root),
+        GitStatusTool(root=root),
         Sandbox(),
     ]

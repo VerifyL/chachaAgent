@@ -31,7 +31,7 @@ def test_hook_point_values():
     assert HookPoint.ON_ERROR == "on_error"
     assert HookPoint.ON_SESSION_START == "on_session_start"
     assert HookPoint.ON_SESSION_END == "on_session_end"
-    assert len(HookPoint) == 9
+    assert len(HookPoint) == 11
 
 
 # ========== 2. HookAction 枚举 ==========

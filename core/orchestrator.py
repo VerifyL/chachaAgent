@@ -117,7 +117,7 @@ class Orchestrator:
             iterations += 1
 
             # 1. 上下文组装
-            messages = self._get_messages(state)
+            messages = await self._get_messages(state)
 
             # 2. LLM 调用
             if self._dispatcher:
@@ -283,8 +283,34 @@ class Orchestrator:
 
     # ====== 内部 ======
 
-    def _get_messages(self, state: ConversationState) -> List[Dict[str, Any]]:
+    async def _get_messages(self, state: ConversationState) -> List[Dict[str, Any]]:
+        """组装上下文消息（含 PRE_CONTEXT_ASSEMBLY 钩子注入）。"""
+        # 钩子注入的额外上下文（Git 感知等可插拔模块）
+        additional_blocks: list = []
+        if self._hooks:
+            try:
+                from core.models.hook import HookPoint
+                from core.models.context import ContextBlock, BlockSource
+                hook_result = await self._hooks.run(
+                    session_id=state.metadata.session_id,
+                    hook_point=HookPoint.PRE_CONTEXT_ASSEMBLY,
+                )
+                if hook_result and hook_result.additional_context:
+                    additional_blocks.append(ContextBlock(
+                        source=BlockSource.ADDITIONAL_CONTEXT,
+                        role="system",
+                        content=hook_result.additional_context,
+                        zone="dynamic",
+                        priority=8,
+                        importance=0.55,
+                    ))
+            except Exception:
+                pass
+
         if self._context:
-            ctx = self._context.assemble(state)
+            ctx = self._context.assemble(
+                state,
+                additional_contexts=additional_blocks or None,
+            )
             return ctx.get_messages()
         return state.get_messages_for_llm()

@@ -29,6 +29,8 @@
                              ▼
               ┌─────────────────────────────┐
               │  1. ContextManager.assemble │
+              │     + PRE_CONTEXT_ASSEMBLY  │
+              │     钩子注入（Git感知等）    │
               │     → messages[]            │
               └──────────────┬──────────────┘
                              │

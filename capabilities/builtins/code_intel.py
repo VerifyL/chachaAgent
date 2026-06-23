@@ -35,14 +35,15 @@ MAX_FILE_SIZE = 1024 * 1024  # 1MB
 
 
 class CodeIntelTool(BaseTool):
-    """跨文件语义代码分析：调用者追踪、引用查找、继承链分析"""
+    """跨文件语义代码分析：调用者追踪、引用查找、继承链分析、语义模式搜索"""
 
     name = "code_intel"
     description = (
         "跨文件语义代码分析（基于 AST，比 grep 精确）。"
         "action: find_callers=查找函数/方法调用者; "
         "find_references=查找符号所有引用位置; "
-        "class_hierarchy=类继承链分析。"
+        "class_hierarchy=类继承链分析; "
+        "find_patterns=按语义模式搜索（REST端点/DB查询/并发/异常处理/配置/自定义）。"
         "首次调用构建索引（~1-5s），后续调用毫秒级。"
     )
     parameters = {
@@ -50,16 +51,54 @@ class CodeIntelTool(BaseTool):
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["find_callers", "find_references", "class_hierarchy"],
+                "enum": [
+                    "find_callers", "find_references", "class_hierarchy",
+                    "find_patterns",
+                ],
                 "description": (
                     "分析类型: find_callers=谁调用了这个函数/方法; "
                     "find_references=谁引用了这个符号（含 import/赋值/调用等）; "
-                    "class_hierarchy=类的完整继承链"
+                    "class_hierarchy=类的完整继承链; "
+                    "find_patterns=按语义模式搜索代码"
                 ),
             },
             "symbol": {
                 "type": "string",
-                "description": "目标符号名（函数名/方法名/类名/变量名）",
+                "description": (
+                    "目标符号名。find_callers/find_references/class_hierarchy 必填; "
+                    "find_patterns 可选（限定符号范围）"
+                ),
+            },
+            "pattern": {
+                "type": "string",
+                "enum": [
+                    "rest_endpoints", "db_queries", "concurrency",
+                    "exception_handlers", "configuration", "custom",
+                ],
+                "description": (
+                    "语义模式（find_patterns 必填）: "
+                    "rest_endpoints=FastAPI/Flask/Django路由; "
+                    "db_queries=SQLAlchemy/DjangoORM/raw SQL; "
+                    "concurrency=threading/asyncio/multiprocessing; "
+                    "exception_handlers=try/except + 异常装饰器; "
+                    "configuration=os.environ/settings/config; "
+                    "custom=使用 custom_pattern 自定义"
+                ),
+            },
+            "custom_pattern": {
+                "type": "object",
+                "properties": {
+                    "type": {
+                        "type": "string",
+                        "enum": ["decorator", "call", "import", "class_extend"],
+                        "description": "匹配类型: decorator/call/import/class_extend",
+                    },
+                    "match": {
+                        "type": "string",
+                        "description": "正则表达式匹配目标（如 '@router\\.(get|post)'）",
+                    },
+                },
+                "description": "自定义模式（pattern=custom 时必填）",
             },
             "file_filter": {
                 "type": "string",
@@ -69,7 +108,7 @@ class CodeIntelTool(BaseTool):
                 ),
             },
         },
-        "required": ["action", "symbol"],
+        "required": ["action"],
     }
     risk = "low"
     requires_approval = False
@@ -82,7 +121,10 @@ class CodeIntelTool(BaseTool):
     # ====== 公共入口 ======
 
     async def execute(
-        self, action: str, symbol: str, file_filter: Optional[str] = None
+        self, action: str, symbol: Optional[str] = None,
+        pattern: Optional[str] = None,
+        custom_pattern: Optional[Dict[str, str]] = None,
+        file_filter: Optional[str] = None,
     ) -> str:
         # 构建/刷新索引（file_filter 变化时重建）
         cache_key = file_filter or "__full__"
@@ -91,11 +133,25 @@ class CodeIntelTool(BaseTool):
             self._filter_key = cache_key
 
         if action == "find_callers":
+            if not symbol:
+                return json.dumps(
+                    {"error": "find_callers 需要 symbol 参数"}, ensure_ascii=False
+                )
             result = self._find_callers(symbol)
         elif action == "find_references":
+            if not symbol:
+                return json.dumps(
+                    {"error": "find_references 需要 symbol 参数"}, ensure_ascii=False
+                )
             result = self._find_references(symbol)
         elif action == "class_hierarchy":
+            if not symbol:
+                return json.dumps(
+                    {"error": "class_hierarchy 需要 symbol 参数"}, ensure_ascii=False
+                )
             result = self._class_hierarchy(symbol)
+        elif action == "find_patterns":
+            result = self._find_patterns(pattern, custom_pattern, symbol)
         else:
             return json.dumps({"error": f"未知 action: {action}"}, ensure_ascii=False)
 
@@ -407,6 +463,578 @@ class CodeIntelTool(BaseTool):
             "line": class_def.lineno,
             "subclasses": subclasses,
         }
+
+    # ====== find_patterns ======
+
+    # -- HTTP 方法名集合 --
+    _HTTP_METHODS = frozenset({
+        "get", "post", "put", "delete", "patch", "head", "options", "trace",
+    })
+
+    # -- DB 查询方法名 --
+    _DB_METHODS = frozenset({
+        "execute", "query", "add", "add_all", "commit", "rollback", "flush",
+        "merge", "refresh", "bulk_save_objects", "scalars", "scalar",
+    })
+    _DJANGO_ORM_METHODS = frozenset({
+        "filter", "get", "create", "all", "update", "delete", "exclude",
+        "values", "values_list", "select_related", "prefetch_related",
+        "annotate", "aggregate", "count", "exists", "first", "last",
+        "latest", "earliest", "bulk_create", "bulk_update", "in_bulk",
+    })
+
+    # -- 并发相关 (模块, 类名) --
+    _CONCURRENCY_PATTERNS = [
+        # (模块路径片段, 类型, [类/函数名])
+        ("threading", "call", {"Thread", "Lock", "RLock", "Condition", "Event",
+                               "Semaphore", "BoundedSemaphore", "Timer", "Barrier"}),
+        ("asyncio", "call", {"Lock", "Semaphore", "BoundedSemaphore", "Event",
+                             "Condition", "Queue", "PriorityQueue", "LifoQueue"}),
+        ("asyncio", "import", set()),
+        ("concurrent.futures", "call", {"ThreadPoolExecutor", "ProcessPoolExecutor",
+                                        "Future", "wait", "as_completed"}),
+        ("multiprocessing", "call", {"Process", "Pool", "Queue", "JoinableQueue",
+                                     "SimpleQueue", "Lock", "RLock", "Event",
+                                     "Condition", "Semaphore", "BoundedSemaphore",
+                                     "Pipe", "Value", "Array", "Manager"}),
+        ("subprocess", "call", {"Popen", "run", "call", "check_call", "check_output"}),
+    ]
+
+    def _find_patterns(
+        self, pattern: Optional[str], custom_pattern: Optional[Dict[str, str]],
+        symbol: Optional[str],
+    ) -> Dict[str, Any]:
+        """find_patterns 调度器。"""
+        if not pattern and not custom_pattern:
+            return {"error": "find_patterns 需要 pattern 或 custom_pattern 参数"}
+        if not pattern:
+            pattern = "custom"
+
+        if pattern == "rest_endpoints":
+            result = self._pattern_rest_endpoints(symbol)
+        elif pattern == "db_queries":
+            result = self._pattern_db_queries(symbol)
+        elif pattern == "concurrency":
+            result = self._pattern_concurrency(symbol)
+        elif pattern == "exception_handlers":
+            result = self._pattern_exception_handlers(symbol)
+        elif pattern == "configuration":
+            result = self._pattern_configuration(symbol)
+        elif pattern == "custom":
+            result = self._pattern_custom(custom_pattern, symbol)
+        else:
+            return {"error": f"未知 pattern: {pattern}"}
+
+        result["action"] = "find_patterns"
+        result["pattern"] = pattern
+        return result
+
+    # ---- REST endpoints ----
+
+    def _pattern_rest_endpoints(self, symbol: Optional[str]) -> Dict[str, Any]:
+        """查找 REST API endpoint 定义 (FastAPI / Flask / Django)。"""
+        results: List[Dict[str, Any]] = []
+
+        for filepath, tree in (self._index or {}).items():
+            lines = self._source_cache.get(filepath, [])
+            # ---- FastAPI / Starlette 装饰器: @app.get, @router.post 等 ----
+            for node in ast.walk(tree):
+                if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                if symbol and node.name != symbol:
+                    continue
+
+                for dec in node.decorator_list:
+                    info = self._parse_http_decorator(dec, node, lines, filepath)
+                    if info:
+                        results.append(info)
+
+            # ---- Django: path() / url() / re_path() 调用 ----
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                func = node.func
+                if isinstance(func, ast.Name) and func.id in ("path", "url", "re_path"):
+                    route = self._extract_first_str_arg(node)
+                    view_name = self._extract_view_name(node)
+                    if route:
+                        results.append({
+                            "file": filepath,
+                            "line": node.lineno,
+                            "type": "django_url",
+                            "route": route,
+                            "view": view_name,
+                            "context": self._get_or_empty(lines, node.lineno),
+                        })
+
+        return {"total_results": len(results), "results": results}
+
+    def _parse_http_decorator(
+        self, dec: ast.AST, func_node: ast.AST,
+        lines: List[str], filepath: str,
+    ) -> Optional[Dict[str, Any]]:
+        """解析 HTTP 装饰器: @app.get('/path'), @router.post('/path'), @app.route('/path')"""
+        if not isinstance(dec, ast.Call):
+            return None
+
+        # Flask: @app.route("/path", methods=["GET"])
+        if (isinstance(dec.func, ast.Attribute)
+                and dec.func.attr == "route"
+                and isinstance(dec.func.value, ast.Name)):
+            route = self._extract_first_str_arg(dec)
+            method = self._extract_flask_methods(dec)
+            return {
+                "file": filepath,
+                "line": dec.lineno,
+                "function": func_node.name,
+                "type": "flask_route",
+                "http_method": method,
+                "route": route,
+                "context": self._get_or_empty(lines, dec.lineno),
+            }
+
+        # FastAPI/Starlette: @app.get, @router.post 等
+        if (isinstance(dec.func, ast.Attribute)
+                and dec.func.attr in self._HTTP_METHODS
+                and isinstance(dec.func.value, ast.Name)):
+            route = self._extract_first_str_arg(dec)
+            http_method = dec.func.attr.upper()
+            return {
+                "file": filepath,
+                "line": dec.lineno,
+                "function": func_node.name,
+                "type": "fastapi_route",
+                "http_method": http_method,
+                "route": route,
+                "context": self._get_or_empty(lines, dec.lineno),
+            }
+
+        return None
+
+    def _extract_first_str_arg(self, call_node: ast.Call) -> Optional[str]:
+        """提取 Call 节点的第一个字符串参数。"""
+        if call_node.args:
+            first = call_node.args[0]
+            if isinstance(first, ast.Constant) and isinstance(first.value, str):
+                return first.value
+            if isinstance(first, ast.JoinedStr):
+                # f-string: 提取文字部分
+                parts = []
+                for p in first.values:
+                    if isinstance(p, ast.Constant) and isinstance(p.value, str):
+                        parts.append(p.value)
+                if parts:
+                    return "".join(parts)
+        return None
+
+    def _extract_flask_methods(self, call_node: ast.Call) -> str:
+        """提取 Flask route 的 methods 关键字参数。"""
+        for kw in call_node.keywords:
+            if kw.arg == "methods" and isinstance(kw.value, ast.List):
+                methods = []
+                for elt in kw.value.elts:
+                    if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                        methods.append(elt.value.upper())
+                return ",".join(methods) if methods else "GET"
+        return "GET"
+
+    def _extract_view_name(self, call_node: ast.Call) -> str:
+        """提取 Django path() 的 view 参数名。"""
+        if len(call_node.args) >= 2:
+            view_arg = call_node.args[1]
+            if isinstance(view_arg, ast.Name):
+                return view_arg.id
+            if isinstance(view_arg, ast.Attribute):
+                return self._ast_name(view_arg)
+        return "?"
+
+    # ---- DB queries ----
+
+    def _pattern_db_queries(self, symbol: Optional[str]) -> Dict[str, Any]:
+        """查找数据库查询: SQLAlchemy / Django ORM / raw SQL。"""
+        results: List[Dict[str, Any]] = []
+
+        for filepath, tree in (self._index or {}).items():
+            lines = self._source_cache.get(filepath, [])
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                if symbol:
+                    # 限定 symbol: 检查 Call 是否在目标函数/方法内
+                    if not self._call_in_symbol(node, symbol):
+                        continue
+
+                info = self._classify_db_call(node, lines, filepath)
+                if info:
+                    results.append(info)
+
+        return {"total_results": len(results), "results": results}
+
+    def _classify_db_call(
+        self, call: ast.Call, lines: List[str], filepath: str,
+    ) -> Optional[Dict[str, Any]]:
+        """分类数据库调用。"""
+        func = call.func
+        if not isinstance(func, ast.Attribute):
+            return None
+
+        # SQLAlchemy: session.execute(), session.query() 等
+        if func.attr in self._DB_METHODS and isinstance(func.value, ast.Name):
+            return {
+                "file": filepath,
+                "line": call.lineno,
+                "type": "sqlalchemy",
+                "method": func.attr,
+                "target": func.value.id,
+                "context": self._get_or_empty(lines, call.lineno),
+            }
+
+        # Django ORM: Model.objects.filter() / .get() / .create() 等
+        if func.attr in self._DJANGO_ORM_METHODS:
+            if isinstance(func.value, ast.Attribute) and func.value.attr == "objects":
+                model_node = func.value.value
+                model_name = (
+                    model_node.id if isinstance(model_node, ast.Name)
+                    else self._ast_name(model_node)
+                )
+                return {
+                    "file": filepath,
+                    "line": call.lineno,
+                    "type": "django_orm",
+                    "method": func.attr,
+                    "model": model_name,
+                    "context": self._get_or_empty(lines, call.lineno),
+                }
+
+        # Raw cursor: cursor.execute(), conn.execute()
+        if func.attr == "execute":
+            if isinstance(func.value, ast.Name) and func.value.id in (
+                "cursor", "conn", "connection", "cur",
+            ):
+                sql = self._extract_first_str_arg(call)
+                return {
+                    "file": filepath,
+                    "line": call.lineno,
+                    "type": "raw_sql",
+                    "method": "execute",
+                    "sql_preview": sql[:80] if sql else "?",
+                    "context": self._get_or_empty(lines, call.lineno),
+                }
+
+        return None
+
+    def _call_in_symbol(self, call_node: ast.Call, symbol: str) -> bool:
+        """检查 Call 节点是否在指定 symbol（函数/方法）内。"""
+        parent = getattr(call_node, "_parent", None)
+        while parent is not None:
+            if isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                return parent.name == symbol
+            parent = getattr(parent, "_parent", None)
+        return False
+
+    # ---- concurrency ----
+
+    def _pattern_concurrency(self, symbol: Optional[str]) -> Dict[str, Any]:
+        """查找并发/锁相关代码。"""
+        results: List[Dict[str, Any]] = []
+
+        for filepath, tree in (self._index or {}).items():
+            lines = self._source_cache.get(filepath, [])
+
+            for node in ast.walk(tree):
+                # 导入: import threading / from threading import Lock
+                if isinstance(node, (ast.Import, ast.ImportFrom)):
+                    info = self._classify_concurrency_import(node, filepath, lines)
+                    if info:
+                        results.append(info)
+                        continue
+
+                # with 语句: with lock: / with ThreadPoolExecutor() as executor:
+                if isinstance(node, ast.With):
+                    info = self._classify_concurrency_with(node, filepath, lines)
+                    if info:
+                        results.append(info)
+
+                # 调用: threading.Lock() / asyncio.create_task() 等
+                if isinstance(node, ast.Call):
+                    info = self._classify_concurrency_call(node, filepath, lines)
+                    if info:
+                        results.append(info)
+
+            if symbol:
+                results = [r for r in results if r.get("function") == symbol]
+
+        return {"total_results": len(results), "results": results}
+
+    def _classify_concurrency_import(
+        self, node: ast.AST, filepath: str, lines: List[str],
+    ) -> Optional[Dict[str, Any]]:
+        """分类并发相关导入。"""
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                name = alias.name
+                for mod_prefix, ptype, _ in self._CONCURRENCY_PATTERNS:
+                    if name == mod_prefix or name.startswith(mod_prefix + "."):
+                        return {
+                            "file": filepath, "line": node.lineno,
+                            "type": "concurrency_import",
+                            "module": name,
+                            "context": self._get_or_empty(lines, node.lineno),
+                        }
+        elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                for mod_prefix, ptype, _ in self._CONCURRENCY_PATTERNS:
+                    if node.module == mod_prefix or node.module.startswith(mod_prefix + "."):
+                        names = [a.name for a in node.names]
+                        return {
+                            "file": filepath, "line": node.lineno,
+                            "type": "concurrency_import_from",
+                            "module": node.module,
+                            "imports": names,
+                            "context": self._get_or_empty(lines, node.lineno),
+                        }
+        return None
+
+    def _classify_concurrency_with(
+        self, node: ast.With, filepath: str, lines: List[str],
+    ) -> Optional[Dict[str, Any]]:
+        """分类并发相关 with 语句。"""
+        for item in node.items:
+            ctx_expr = item.context_expr
+            name = self._ast_name(ctx_expr)
+            for mod_prefix, ptype, names in self._CONCURRENCY_PATTERNS:
+                for n in names:
+                    if n in name:
+                        return {
+                            "file": filepath, "line": node.lineno,
+                            "type": "concurrency_with",
+                            "detail": name,
+                            "context": self._get_or_empty(lines, node.lineno),
+                        }
+        return None
+
+    def _classify_concurrency_call(
+        self, node: ast.Call, filepath: str, lines: List[str],
+    ) -> Optional[Dict[str, Any]]:
+        """分类并发相关调用。"""
+        func = node.func
+        name = self._ast_name(func)
+
+        # asyncio.create_task(...) / asyncio.gather(...) / asyncio.run(...)
+        if name.startswith("asyncio."):
+            task_methods = {"create_task", "gather", "run", "wait", "wait_for",
+                           "as_completed", "to_thread", "shield", "timeout"}
+            method = name.split(".", 1)[-1]
+            if method in task_methods:
+                return {
+                    "file": filepath, "line": node.lineno,
+                    "type": "concurrency_call",
+                    "detail": name,
+                    "context": self._get_or_empty(lines, node.lineno),
+                }
+
+        for mod_prefix, ptype, names in self._CONCURRENCY_PATTERNS:
+            if ptype != "call":
+                continue
+            for n in names:
+                if name.endswith("." + n) or name == n:
+                    return {
+                        "file": filepath, "line": node.lineno,
+                        "type": "concurrency_call",
+                        "detail": name,
+                        "context": self._get_or_empty(lines, node.lineno),
+                    }
+        return None
+
+    # ---- exception_handlers ----
+
+    def _pattern_exception_handlers(self, symbol: Optional[str]) -> Dict[str, Any]:
+        """查找异常处理代码: try/except + 异常装饰器。"""
+        results: List[Dict[str, Any]] = []
+
+        for filepath, tree in (self._index or {}).items():
+            lines = self._source_cache.get(filepath, [])
+
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Try):
+                    for handler in node.handlers:
+                        exc_type = (
+                            self._ast_name(handler.type) if handler.type else "bare"
+                        )
+                        exc_name = handler.name or ""
+                        results.append({
+                            "file": filepath,
+                            "line": node.lineno,
+                            "type": "try_except",
+                            "exception": exc_type,
+                            "as_name": exc_name,
+                            "context": self._get_or_empty(lines, node.lineno),
+                        })
+
+                # FastAPI/Starlette: @app.exception_handler(SomeException)
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    for dec in node.decorator_list:
+                        if isinstance(dec, ast.Call) and isinstance(dec.func, ast.Attribute):
+                            if dec.func.attr == "exception_handler":
+                                exc = (self._ast_name(dec.args[0])
+                                       if dec.args else "?")
+                                results.append({
+                                    "file": filepath,
+                                    "line": dec.lineno,
+                                    "type": "exception_decorator",
+                                    "function": node.name,
+                                    "exception": exc,
+                                    "context": self._get_or_empty(lines, dec.lineno),
+                                })
+
+        if symbol:
+            results = [r for r in results if r.get("function") == symbol]
+
+        return {"total_results": len(results), "results": results}
+
+    # ---- configuration ----
+
+    def _pattern_configuration(self, symbol: Optional[str]) -> Dict[str, Any]:
+        """查找配置/环境变量读取: os.environ / os.getenv / settings / config。"""
+        results: List[Dict[str, Any]] = []
+
+        for filepath, tree in (self._index or {}).items():
+            lines = self._source_cache.get(filepath, [])
+
+            for node in ast.walk(tree):
+                # os.environ["KEY"] / os.environ.get("KEY")
+                if isinstance(node, ast.Subscript):
+                    name = self._ast_name(node.value)
+                    if name in ("os.environ", "environ"):
+                        key = self._extract_str_key(node.slice)
+                        results.append({
+                            "file": filepath, "line": node.lineno,
+                            "type": "env_subscript",
+                            "key": key,
+                            "context": self._get_or_empty(lines, node.lineno),
+                        })
+
+                # os.getenv("KEY") / os.environ.get("KEY")
+                if isinstance(node, ast.Call):
+                    func = node.func
+                    name = self._ast_name(func) if isinstance(func, (ast.Name, ast.Attribute)) else ""
+                    if name in ("os.getenv", "os.environ.get", "getenv"):
+                        key = self._extract_first_str_arg(node)
+                        results.append({
+                            "file": filepath, "line": node.lineno,
+                            "type": "getenv_call",
+                            "key": key,
+                            "context": self._get_or_empty(lines, node.lineno),
+                        })
+
+                # settings.XXX / config.XXX / Config(...)
+                if isinstance(node, ast.Attribute):
+                    base = self._ast_name(node.value)
+                    if base in ("settings", "config", "cfg", "conf"):
+                        results.append({
+                            "file": filepath, "line": node.lineno,
+                            "type": "config_attr",
+                            "detail": f"{base}.{node.attr}",
+                            "context": self._get_or_empty(lines, node.lineno),
+                        })
+
+            if symbol:
+                results = [r for r in results if r.get("context", "").find(symbol) >= 0]
+
+        return {"total_results": len(results), "results": results}
+
+    def _extract_str_key(self, slice_node: ast.AST) -> str:
+        """提取 Subscript 的 key 字符串。"""
+        if isinstance(slice_node, ast.Constant) and isinstance(slice_node.value, str):
+            return slice_node.value
+        if isinstance(slice_node, ast.Name):
+            return slice_node.id
+        return self._ast_name(slice_node)
+
+    # ---- custom ----
+
+    def _pattern_custom(
+        self, custom_pattern: Optional[Dict[str, str]], symbol: Optional[str],
+    ) -> Dict[str, Any]:
+        """自定义模式匹配。"""
+        if not custom_pattern or "match" not in custom_pattern:
+            return {"total_results": 0, "results": [],
+                    "error": "custom_pattern 需要 'match' 字段"}
+        if "type" not in custom_pattern:
+            return {"total_results": 0, "results": [],
+                    "error": "custom_pattern 需要 'type' 字段"}
+
+        pat_type = custom_pattern["type"]
+        pat_regex = custom_pattern["match"]
+        try:
+            compiled = re.compile(pat_regex)
+        except re.error as e:
+            return {"total_results": 0, "results": [],
+                    "error": f"正则表达式无效: {e}"}
+
+        results: List[Dict[str, Any]] = []
+
+        for filepath, tree in (self._index or {}).items():
+            lines = self._source_cache.get(filepath, [])
+
+            for node in ast.walk(tree):
+                matched = False
+                detail = ""
+                extra: Dict[str, Any] = {}
+
+                if pat_type == "decorator" and isinstance(
+                    node, (ast.FunctionDef, ast.AsyncFunctionDef)
+                ):
+                    for dec in node.decorator_list:
+                        dec_str = ast.unparse(dec) if hasattr(ast, "unparse") else self._ast_name(dec)
+                        if compiled.search(dec_str):
+                            matched = True
+                            detail = dec_str
+
+                elif pat_type == "call" and isinstance(node, ast.Call):
+                    call_str = ast.unparse(node.func) if hasattr(ast, "unparse") else self._ast_name(node.func)
+                    if compiled.search(call_str):
+                        matched = True
+                        detail = call_str
+
+                elif pat_type == "import" and isinstance(node, (ast.Import, ast.ImportFrom)):
+                    import_str = ast.unparse(node) if hasattr(ast, "unparse") else self._ast_name(node)
+                    if compiled.search(import_str):
+                        matched = True
+                        detail = import_str
+
+                elif pat_type == "class_extend" and isinstance(node, ast.ClassDef):
+                    for base in node.bases:
+                        base_str = ast.unparse(base) if hasattr(ast, "unparse") else self._ast_name(base)
+                        if compiled.search(base_str):
+                            matched = True
+                            detail = base_str
+                            extra["class"] = node.name
+
+                if matched:
+                    ctx_line = self._get_line(lines, node.lineno)
+                    results.append({
+                        "file": filepath,
+                        "line": node.lineno,
+                        "type": pat_type,
+                        "detail": detail,
+                        "context": ctx_line.strip() if ctx_line else "",
+                        **extra,
+                    })
+
+        if symbol:
+            results = [r for r in results
+                       if r.get("context", "").find(symbol) >= 0
+                       or r.get("class", "") == symbol]
+
+        return {"total_results": len(results), "results": results}
+
+    # ---- helpers for pattern matching ----
+
+    def _get_or_empty(self, lines: List[str], lineno: int) -> str:
+        """获取行文本，不存在返回空字符串。"""
+        line = self._get_line(lines, lineno)
+        return line.strip() if line else ""
 
     # ====== helper ======
 

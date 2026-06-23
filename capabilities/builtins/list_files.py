@@ -31,6 +31,7 @@ class ListFilesTool(BaseTool):
             "max_depth": {"type": "integer", "description": "最大递归深度，默认 2"},
             "pattern": {"type": "string", "description": "glob 过滤模式（如 *.py），可选"},
             "include_hidden": {"type": "boolean", "description": "是否显示隐藏文件，默认 false"},
+            "git_status": {"type": "boolean", "description": "是否标注文件 git 状态（M/A/??/D），默认 false"},
         },
     }
     risk = "low"

@@ -75,7 +75,10 @@ class RememberTool(BaseTool):
         if self._mgr is None:
             return "记忆系统未初始化"
         path = self._mgr.remember(content.strip())
-        return f"已记录到 {path.name}"
+        preview = content.strip()[:80]
+        if len(content.strip()) > 80:
+            preview += "..."
+        return f"✅ 已记录到 {path.name} | 预览: {preview}"
 
 
 class WriteTopicTool(BaseTool):
@@ -120,7 +123,10 @@ class WriteTopicTool(BaseTool):
         if topic not in valid_topics:
             return f"无效主题 '{topic}'。可选: {', '.join(sorted(valid_topics))}"
         path = self._mgr.write_topic(topic, content.strip())
-        return f"已记录到 topics/{path.name}"
+        preview = content.strip()[:80]
+        if len(content.strip()) > 80:
+            preview += "..."
+        return f"✅ 已记录到 topics/{path.name} | 预览: {preview}"
 
 
 class ReadTopicTool(BaseTool):

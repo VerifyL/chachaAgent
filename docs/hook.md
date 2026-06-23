@@ -38,7 +38,7 @@ class HookPoint(str, Enum):
 | `POST_TOOL_EXECUTION` | 工具执行之后 | 结果校验、输出脱敏、审计追加 |
 | `PRE_LLM_CALL` | LLM 请求发送前 | Token 预算检查、提示词注入、成本预估 |
 | `POST_LLM_CALL` | LLM 响应收到后 | 响应内容过滤、tool_calls 解析校验 |
-| `PRE_CONTEXT_ASSEMBLY` | 上下文组装前 | 记忆注入、系统提示调整 |
+| `PRE_CONTEXT_ASSEMBLY` | 上下文组装前 | 记忆注入、系统提示调整、**Git 感知等可插拔上下文** |
 | `POST_CONTEXT_ASSEMBLY` | 上下文组装后 | 上下文大小验证、压缩触发判断 |
 | `ON_SESSION_START` | 会话启动时 | 环境初始化、欢迎语注入 |
 | `ON_SESSION_END` | 会话结束时 | 统计汇总、记忆归档 |

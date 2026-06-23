@@ -88,6 +88,19 @@ class AgentBridge:
         )
         self._orchestrator.set_engine(self._engine)
 
+        # Hook 系统（可插拔模块：Git 感知等）
+        from core.hook_orchestrator import HookOrchestrator
+        from core.models.hook import HookPoint
+        from capabilities.builtins.git_context import GitContextHook
+        self._hooks = HookOrchestrator(telemetry=self._telemetry)
+        self._hooks.register(
+            "git-context",
+            HookPoint.PRE_CONTEXT_ASSEMBLY,
+            GitContextHook(project_root=self._root),
+            priority=10,
+        )
+        self._orchestrator._hooks = self._hooks
+
         self._dispatcher = None
         self._invoker = None
         self._initialized = False
@@ -153,6 +166,7 @@ class AgentBridge:
         # 2. Dispatcher
         self._executor = ToolExecutor(
             tools=self._custom_tools,
+            hook_orchestrator=self._hooks,
             telemetry=self._telemetry,
         )
         self._dispatcher = Dispatcher(
@@ -215,7 +229,7 @@ class AgentBridge:
         """重建 Dispatcher + ToolExecutor"""
         from core.tool_executor import ToolExecutor
         from core.dispatcher import Dispatcher
-        self._executor = ToolExecutor(tools=self._custom_tools, telemetry=self._telemetry)
+        self._executor = ToolExecutor(tools=self._custom_tools, hook_orchestrator=self._hooks, telemetry=self._telemetry)
         self._dispatcher = Dispatcher(
             llm_invoker=self._invoker,
             tool_executor=self._executor,

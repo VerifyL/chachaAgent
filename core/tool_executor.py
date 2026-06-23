@@ -153,8 +153,9 @@ class ToolExecutor:
                     duration_ms=int((time.monotonic() - t0) * 1000),
                 )
 
-        # 2. 前置钩子
-        if self._hooks:
+        # 2. 前置钩子（关键工具豁免：记忆读写不被拦截）
+        _HOOK_BYPASS_TOOLS = {"write_topic", "remember", "read_topic", "load_memory"}
+        if self._hooks and tool_name not in _HOOK_BYPASS_TOOLS:
             from core.models.hook import ToolCallContext, HookPoint
             tc = ToolCallContext(
                 tool_name=tool_name, tool_use_id=tool_use_id,

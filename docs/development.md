@@ -46,13 +46,11 @@ max_tokens = 4096
 
 ## CLI 入口与子命令
 
-ChachaAgent 通过 `main.py` 提供统一命令行入口，安装后也可直接使用 `chacha` 命令。
+ChachaAgent 通过 `chacha` 命令提供统一入口（`pyproject.toml` 中注册 `interface.cli.app:main`）。
 
 ### 基本用法
 
 ```bash
-python main.py <子命令> [选项]
-# 或 pip install -e . 后：
 chacha <子命令> [选项]
 ```
 

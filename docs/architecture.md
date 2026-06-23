@@ -2,7 +2,7 @@
 
 > **文档定位**：本文档提供架构全景概述，各模块的详细设计见对应文档（`session.md` / `config.md` / `audit.md` / `hook.md` / `context.md` / `configuration.md`）。
 > 
-> **当前版本范围**：本文档覆盖阶段 0 已完成的**数据模型层 + RPC 消息模型**。后续阶段（编排引擎、能力插件、协议网关等）的章节在对应模块实现时补充，已在文中标注占位。
+> **当前版本范围**：v0.1。核心编排层、能力插件层、记忆子系统、CLI 前端均已实现。Web 前端和多模态为预留方向。
 
 ---
 
@@ -283,14 +283,14 @@ Orchestrator.run(user_input, session_id)
 | `max_iterations=50` 耗尽 | 强制终止 |
 | LLM 认证错误/熔断 | 不可恢复，立即终止 |
 
-### 4.8 待实现模块
+### 4.8 模块状态
 
-| 模块 | 文件 | 阶段 |
+| 模块 | 文件 | 状态 |
 |------|------|------|
-| ErrorReporter（已跳过） | `core/error_reporter.py` | — |
-| **TokenCounter** | `context/token_counter.py` | 📋 阶段 4 |
-| **Summarizer** | `context/summarizer.py` | 📋 阶段 4 |
-| **Anthropic 适配器** | `model/anthropic_client.py` | 📋 阶段 3 |
+| **TokenCounter** | `context/token_counter.py` | ✅ 已实现 |
+| **Summarizer** | `context/summarizer.py` | 📋 预留 |
+| **Anthropic 适配器** | `core/llm_clients/anthropic_client.py` | 📋 预留 |
+| **ErrorReporter** | `core/error_reporter.py` | ❌ 已跳过 |
 
 ---
 
@@ -351,16 +351,18 @@ OpenAIClient(model="llama3", base_url="http://localhost:11434/v1", api_key="olla
 
 ## 6. 记忆与上下文子系统
 
-> **占位** — 阶段 4 实现 `StaticRuleLoader` / `MemoryManager` / `ContextAssembler` / `ContextCompressor` 后补充。
+> 详细文档见 `docs/memory.md`、`docs/context.md`、`docs/context_manager.md`。
 
-**设计方向**：
-- 分层加载 `CHACHA.md`（用户 ~/.chacha/ → 项目/ → 子目录/，支持 @import）
-- `MemoryManager`：读写 MEMORY.md + CHACHA_MEMORY.md + Topics，支持 remember/load_memory/write_topic/read_topic
-- `DreamPipeline`：项目级后台整合，每 N 轮或定时触发 → 同时输出 MEMORY.md + CHACHA_MEMORY.md
-- `GlobalDream`：用户级跨项目整合，DreamPipeline 触发后检查 → 合并为 ~/.chacha/USER_MEMORY.md
-- `ContextAssembler`：9 种 BlockSource 并行收集 + priority 排序 + Token 预算硬约束
-- `ContextCompressor`：渐进式压缩（FROZEN→TRIMMED→SUMMARIZED→CONSOLIDATED）
-- 详细文档见 `docs/memory.md`、`docs/context.md`、`docs/context_manager.md`
+记忆子系统已实现以下核心组件：
+
+| 组件 | 文件 | 职责 |
+|------|------|------|
+| `StaticRuleLoader` | `core/context/static_rule_loader.py` | 分层加载 CHACHA.md（支持 @import） |
+| `MemoryManager` | `core/context/memory_manager.py` | 读写 MEMORY.md / Topics / 每日记忆 |
+| `DreamPipeline` | `core/context/dream.py` | 项目级记忆整合（每 N 轮或定时） |
+| `GlobalDream` | `core/context/global_dream.py` | 用户级跨项目永久记忆整合 |
+| `ContextCompressor` | `core/context/context_compressor.py` | 三层渐进压缩（FROZEN → TRIMMED → SUMMARIZED） |
+| `ContextAssembler` | `core/context/context_assembler.py` | 9 种 BlockSource 并行收集 + priority 排序 |
 
 ### 5.1 🔮 多模态压缩预留点
 
@@ -440,10 +442,8 @@ result = await spawner.spawn("explore", "梳理项目架构")
 
 ## 8. 表现层
 
-> **占位** — 阶段 7/8 实现 CLI 和 Web 前端后补充。
-
-**设计方向**：
-- CLI：Textual TUI（消息滚动 / PTY 终端 / 审批弹窗 / Tab 自动补全）
+- **CLI**：`interface/cli/app.py`，基于 prompt_toolkit + Rich。Enter 发送、Shift+Enter 换行，支持多行粘贴，命令历史持久化。快捷键：Ctrl+N 新建 Session、Ctrl+S 保存检查点、Ctrl+X 压缩上下文等。
+- **Web**：FastAPI + React + WebSocket，尚未完成，目录预留。（消息滚动 / PTY 终端 / 审批弹窗 / Tab 自动补全）
 - Web：FastAPI + WebSocket 实时推送 + React 前端
 - Web 端原生渲染富媒体（多模态预留），CLI 降级显示 URL 或文本描述
 
@@ -466,11 +466,7 @@ result = await spawner.spawn("explore", "梳理项目架构")
 
 ## 10. 测试与质量保障
 
-> **占位** — 阶段 9 作为独立里程碑补充。
-
-**当前覆盖**（阶段 0）：
-- 单元测试：
-  `environment_validator`（4） ·
+**当前覆盖**：单元测试覆盖 config / session / audit / hook / context / rpc_schema / tool 等模块。ronment_validator`（4） ·
   `config`（18） ·
   `config_manager`（20） ·
   `session`（22） ·
