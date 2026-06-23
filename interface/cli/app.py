@@ -1,7 +1,7 @@
 """
 interface/cli/app.py
 ChachaAgent CLI — prompt_toolkit + Rich。
-Enter 发送，Shift+Enter 换行，支持多行粘贴/编辑。
+Enter 发送，Ctrl+J 换行，支持多行粘贴/编辑。
 """
 
 import asyncio
@@ -95,14 +95,14 @@ class ChachaCLI:
         self._print_system(init_msg)
         if self._session.project_init._rules:
             self._print_system("[cyan]📜 CHACHA.md 已加载[/]")
-        self._print_system("Ctrl+N 新会话  Ctrl+S 保存  Ctrl+D 调试  Ctrl+B 会话列表  /help 命令")
+        self._print_system("Ctrl+N 新会话  Ctrl+S 保存  Ctrl+F 调试  Ctrl+B 会话列表  Ctrl+X 压缩  Ctrl+L 清屏  Ctrl+D 退出  Ctrl+J 换行  /help 命令")
         self._print_system("")
 
         # 输入循环
         session = PromptSession(
             history=FileHistory(str(Path.home() / ".chacha" / "cli_history")),
             key_bindings=self._make_bindings(),
-            multiline=False,  # 单行模式，Shift+Enter 自动续行
+            multiline=False,  # Enter 发送，Ctrl+J 换行（key binding 实现）
             bottom_toolbar=self._status_text,
         )
 
@@ -191,8 +191,6 @@ class ChachaCLI:
                     usage = chunk.get("usage", {}) if chunk.get("usage") else usage
                 elif chunk["type"] == "compact":
                     self._print_system(f"🔄 自动压缩: {chunk['reason']}")
-        except KeyboardInterrupt:
-            RICH_CONSOLE.print(f"\n⏹ 已中断")
         except KeyboardInterrupt:
             RICH_CONSOLE.print(f"\n⏹ 已中断")
         except Exception as e:
@@ -358,8 +356,6 @@ class ChachaCLI:
             return f"📦 {n} → {len(msgs)} 条"
         except KeyboardInterrupt:
             RICH_CONSOLE.print(f"\n⏹ 已中断")
-        except KeyboardInterrupt:
-            RICH_CONSOLE.print(f"\n⏹ 已中断")
         except Exception as e:
             return f"压缩失败: {e}"
 
@@ -392,6 +388,11 @@ class ChachaCLI:
         async def _(event):
             result = await self._do_compact()
             self._print_system(result)
+
+        @kb.add("c-j")
+        def _(event):
+            """Ctrl+J 插入换行（多行输入）"""
+            event.current_buffer.insert_text("\n")
 
         @kb.add("c-l")
         def _(event):
@@ -478,10 +479,12 @@ class ChachaCLI:
             "快捷键": [
                 ("Ctrl+N", "新会话"),
                 ("Ctrl+S", "保存 checkpoint"),
-                ("Ctrl+D", "调试模式"),
+                ("Ctrl+F", "调试模式"),
                 ("Ctrl+B", "会话列表"),
                 ("Ctrl+X", "压缩上下文"),
                 ("Ctrl+L", "清屏"),
+                ("Ctrl+D", "退出程序"),
+                ("Ctrl+J", "插入换行"),
             ],
         }
         table = Table(box=box.SIMPLE, show_header=False, border_style="dim yellow")
@@ -503,7 +506,30 @@ class ChachaCLI:
 def main():
     project = sys.argv[1] if len(sys.argv) > 1 else "."
     cli = ChachaCLI(project)
-    asyncio.run(cli.run())
+
+    # Python 3.12 的 asyncio.run() 自带 _on_sigint 会：
+    #  1. task.cancel() → 协程收到 CancelledError 而非 KeyboardInterrupt
+    #  2. raise KeyboardInterrupt → 事件循环层直接炸开
+    # 导致协程内部 except KeyboardInterrupt 永远捕获不到。
+    # 解决方案：手动管理事件循环，绕过 asyncio.run() 的 SIGINT 劫持。
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(cli.run())
+    except KeyboardInterrupt:
+        pass
+    finally:
+        # 模拟 asyncio.run() 的清理逻辑
+        try:
+            loop.run_until_complete(loop.shutdown_asyncgens())
+        except Exception:
+            pass
+        try:
+            loop.run_until_complete(loop.shutdown_default_executor())
+        except Exception:
+            pass
+        asyncio.set_event_loop(None)
+        loop.close()
 
 
 if __name__ == "__main__":

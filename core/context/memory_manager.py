@@ -21,6 +21,7 @@ from datetime import timedelta,  datetime, timezone
 from pathlib import Path
 from typing import Optional
 import hashlib
+from capabilities.atomic_writer import AtomicWriter
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +94,9 @@ class MemoryManager:
         if self._topics_dir:
             self._topics_dir.mkdir(parents=True, exist_ok=True)
 
+        # 原子写入器：tmp+rename + 文件锁 + 回读验证
+        self._writer = AtomicWriter(root=self._project_dir)
+
     # ====== 永久记忆 (CHACHA_MEMORY.md) ======
 
     @property
@@ -116,7 +120,11 @@ class MemoryManager:
     def write_permanent_memory(self, content: str) -> Path:
         """覆盖式写入 CHACHA_MEMORY.md 永久记忆（autoDream 输出）。"""
         path = self._project_dir / _PERMANENT_MEMORY_FILENAME
-        path.write_text(content.strip() + "\n", encoding="utf-8")
+        full_content = content.strip() + "\n"
+        result = self._writer.write(path, full_content, backup=False)
+        if not result.ok:
+            logger.error("永久记忆写入失败: %s -> %s", path, result.error)
+            raise IOError(f"写入永久记忆失败: {result.error}")
         logger.info("永久记忆已更新: %s", path)
         return path
 
@@ -132,7 +140,7 @@ class MemoryManager:
         return self._read(path)
 
     def write_topic(self, topic_name: str, content: str) -> Path:
-        """追加内容到指定主题文件。"""
+        """追加内容到指定主题文件，并实时同步 MEMORY.md 索引。"""
         if self._topics_dir is None:
             raise RuntimeError("话题目录未初始化")
         self._topics_dir.mkdir(parents=True, exist_ok=True)  # 确保目录存在
@@ -140,8 +148,15 @@ class MemoryManager:
         ts = datetime.now(tz=timezone(timedelta(hours=8))).isoformat()
         entry = f"\n## {ts}\n{content.strip()}\n"
         existing = self._read(path)
-        path.write_text((existing + entry).strip() + "\n", encoding="utf-8")
+        full_content = (existing + entry).strip() + "\n"
+        result = self._writer.write(path, full_content, backup=False)
+        if not result.ok:
+            logger.error("主题记忆写入失败: %s -> %s", topic_name, result.error)
+            raise IOError(f"写入主题记忆失败: {result.error}")
         logger.info("主题记忆已写入: %s -> %s", topic_name, path)
+
+        # 实时同步 MEMORY.md 索引（DreamPipeline 后续全量重写时会自然消化）
+        self._append_to_index(topic_name, content)
         return path
 
     def list_topics(self) -> list[str]:
@@ -239,7 +254,11 @@ class MemoryManager:
         path = self._session_dir / f"{self._today_str()}.md"
         existing = self._read(path)
         entry = f"\n## {ts}\n{content.strip()}"
-        path.write_text((existing + entry).strip() + "\n", encoding="utf-8")
+        full_content = (existing + entry).strip() + "\n"
+        result = self._writer.write(path, full_content, backup=False)
+        if not result.ok:
+            logger.error("会话记忆写入失败: %s -> %s", path, result.error)
+            raise IOError(f"写入会话记忆失败: {result.error}")
         logger.info("会话记忆已保存: %s", path)
         return path
 
@@ -285,8 +304,12 @@ class MemoryManager:
             "result": result,
             "cached_at": datetime.now(tz=timezone(timedelta(hours=8))).isoformat(),
         }
-        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        logger.debug("Tool 结果已缓存: %s", path)
+        json_str = json.dumps(data, ensure_ascii=False, indent=2)
+        wr = self._writer.write(path, json_str, backup=False)
+        if not wr.ok:
+            logger.error("Tool 结果缓存失败: %s -> %s", path, wr.error)
+        else:
+            logger.debug("Tool 结果已缓存: %s", path)
         return path
 
     def cleanup_tool_cache(self) -> int:
@@ -306,12 +329,93 @@ class MemoryManager:
             logger.info("清理 tool_cache: 已删除 %d 个文件", count)
         return count
 
+    # ====== 索引实时同步（write_topic → MEMORY.md 追加一行） ======
+
+    # MEMORY.md 索引长度保护常量
+    _INDEX_MAX_SUMMARY_CHARS = 60   # 每条摘要最多 60 字符（索引，不是全文）
+    _INDEX_MAX_LINES = 200          # 超过则裁剪最旧条目
+
+    def _append_to_index(self, topic_name: str, content: str) -> None:
+        """向 MEMORY.md 追加一行索引摘要（不影响 Dream 后续全量重写）。
+
+        实时路径：write_topic 时自动调用，让后续会话能立即感知新 topic。
+        DreamPipeline 后续全量重写 MEMORY.md 时会自然消化这些行。
+
+        长度保护：
+        - 摘要最长 60 字符 + 省略号（索引只做指针，完整内容在 topics/）
+        - 条目严格单行（换行替换为空格）
+        - MEMORY.md 超过 200 行时裁剪最旧条目
+        """
+        from datetime import datetime, timedelta, timezone as _tz
+
+        ts = datetime.now(tz=timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M")
+        # 首行作为摘要，替换换行为空格，截断到上限
+        raw_summary = content.strip().split("\n")[0].replace("\n", " ")
+        max_chars = self._INDEX_MAX_SUMMARY_CHARS
+        if len(raw_summary) > max_chars:
+            summary = raw_summary[:max_chars] + "…"
+        else:
+            summary = raw_summary
+
+        cat_map = {
+            "user-preferences":   "User Preferences",
+            "project-decisions":  "Project Decisions",
+            "lessons-learned":    "Lessons Learned",
+            "errors-fixed":       "Errors Fixed",
+            "project-progress":   "Project Progress",
+        }
+        cat = cat_map.get(topic_name, topic_name)
+        entry = f"- [{ts}] {summary}  → topics/{topic_name}.md\n"
+
+        idx_path = self._index_path()
+        existing = self._read(idx_path)
+        heading = f"### {cat}"
+
+        if heading in existing:
+            new_content = self._insert_under_heading(existing, heading, entry)
+        else:
+            new_content = (existing.strip() + f"\n\n{heading}\n{entry}"
+                           if existing.strip() else f"{heading}\n{entry}")
+
+        # 行数保护：超过上限则裁剪最旧条目（保留前导注释行）
+        lines = new_content.strip().split("\n")
+        if len(lines) > self._INDEX_MAX_LINES:
+            kept = lines[:self._INDEX_MAX_LINES]
+            new_content = "\n".join(kept).strip() + "\n"
+            logger.info("MEMORY.md 超过 %d 行，已裁剪至 %d 行",
+                         self._INDEX_MAX_LINES, len(kept))
+
+        result = self._writer.write(idx_path, new_content.strip() + "\n", backup=False)
+        if not result.ok:
+            logger.warning("MEMORY.md 索引同步失败: %s -> %s", topic_name, result.error)
+        else:
+            logger.debug("MEMORY.md 索引已同步: %s", topic_name)
+
+    @staticmethod
+    def _insert_under_heading(text: str, heading: str, entry: str) -> str:
+        """在指定 heading 行后插入条目（下一 heading 或文件末尾之前）。"""
+        idx = text.find(heading)
+        if idx == -1:
+            return text + "\n" + entry
+
+        # heading 后的换行位置
+        newline_idx = text.find("\n", idx + len(heading))
+        if newline_idx == -1:
+            return text + "\n" + entry
+
+        insert_pos = newline_idx + 1
+        return text[:insert_pos] + entry + text[insert_pos:]
+
     # ====== 索引 & 清理 ======
 
     def update_index(self, content: str) -> Path:
         """写入 MEMORY.md 索引（autoDream 产物）。"""
         path = self._index_path()
-        path.write_text(content.strip() + "\n", encoding="utf-8")
+        full_content = content.strip() + "\n"
+        result = self._writer.write(path, full_content, backup=False)
+        if not result.ok:
+            logger.error("索引写入失败: %s -> %s", path, result.error)
+            raise IOError(f"写入索引失败: {result.error}")
         logger.info("索引已更新: %s", path)
         return path
 

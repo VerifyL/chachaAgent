@@ -28,6 +28,30 @@ logger = logging.getLogger(__name__)
 ToolFunc = Callable[[Dict[str, Any]], Coroutine[Any, Any, str]]
 
 
+# ========================= 可重试与不可重试异常 =========================
+
+RETRYABLE_EXCEPTIONS = (
+    asyncio.TimeoutError,
+    ConnectionError,
+    ConnectionRefusedError,
+    ConnectionResetError,
+    TimeoutError,
+    OSError,  # 临时性 I/O 错误（如 "Too many open files"）
+)
+"""可重试异常：超时、网络断开、临时 I/O 错误。"""
+
+NON_RETRYABLE_EXCEPTIONS = (
+    ValueError,
+    TypeError,
+    KeyError,
+    AttributeError,
+    PermissionError,
+    FileNotFoundError,
+    IsADirectoryError,
+    NotADirectoryError,
+)
+"""不可重试异常：参数错误、权限错误、文件不存在等永久性错误。"""
+
 # ========================= 错误分类 =========================
 
 class ToolNotFoundError(Exception):
@@ -43,6 +67,21 @@ class ToolTimeoutError(Exception):
 class ToolPermissionError(Exception):
     """权限不足（PolicyEngine 拦截）"""
     pass
+
+
+# ========================= 审批请求 =========================
+
+@dataclass
+class ApprovalRequest:
+    """审批请求上下文"""
+    tool_name: str
+    arguments: Dict[str, Any]
+    risk_level: str                # RiskLevel.value
+    risk_score: float
+    session_id: str
+    tool_use_id: str
+    diff: Optional[str] = None     # edit_file 的变更 diff
+    reason: str = ""               # 需要审批的原因
 
 
 # ========================= 执行结果 =========================
@@ -77,6 +116,7 @@ class ToolExecutor:
         policy_engine: Optional[Any] = None,        # PolicyEngine
         hook_orchestrator: Optional[Any] = None,     # HookOrchestrator
         telemetry: Optional[Any] = None,             # Telemetry
+        approval_handler: Optional[Callable[[ApprovalRequest], Coroutine[Any, Any, bool]]] = None,
         max_concurrent: int = 5,
         default_timeout: float = 60.0,
         max_retries: int = 2,
@@ -97,6 +137,7 @@ class ToolExecutor:
         self._policy = policy_engine
         self._hooks = hook_orchestrator
         self._telemetry = telemetry
+        self._approval_handler = approval_handler
         self._semaphore = asyncio.Semaphore(max_concurrent)
         self._timeout = default_timeout
         self._max_retries = max_retries
@@ -144,14 +185,42 @@ class ToolExecutor:
                     duration_ms=int((time.monotonic() - t0) * 1000),
                 )
             if decision.needs_approval:
-                # 挂起，等待 Orchestrator 处理审批
-                # 由 Orchestrator 调用 execute_approved() 继续
-                return ToolResult(
-                    tool_use_id=tool_use_id, tool_name=tool_name,
-                    status="blocked",
-                    error="Approval required",
-                    duration_ms=int((time.monotonic() - t0) * 1000),
+                # 1. 构造审批请求
+                diff = None
+                if tool_name == "edit_file":
+                    diff = self._compute_edit_diff(arguments)
+
+                req = ApprovalRequest(
+                    tool_name=tool_name,
+                    arguments=arguments,
+                    risk_level=decision.risk_level.value,
+                    risk_score=decision.risk_score,
+                    session_id=session_id,
+                    tool_use_id=tool_use_id,
+                    diff=diff,
+                    reason=f"工具 '{tool_name}' 需要审批 (风险等级: {decision.risk_level.value}, 分数: {decision.risk_score:.0f})",
                 )
+
+                # 2. 调用审批处理器
+                if self._approval_handler:
+                    approved = await self._approval_handler(req)
+                else:
+                    # 无审批处理器 → 系统类默认拒绝，其余默认放行
+                    from core.policy_engine import PolicyEngine
+                    approved = tool_name not in PolicyEngine.SYSTEM_TOOLS
+
+                # 3. 审批结果
+                if not approved:
+                    return ToolResult(
+                        tool_use_id=tool_use_id, tool_name=tool_name,
+                        status="blocked",
+                        error=f"用户拒绝了 '{tool_name}' 的执行",
+                        duration_ms=int((time.monotonic() - t0) * 1000),
+                    )
+
+                # 4. 审批通过 → 记录到 PolicyEngine 缓存
+                if self._policy and decision.cache_key:
+                    self._policy.record_approval(decision.cache_key, True)
 
         # 2. 前置钩子（关键工具豁免：记忆读写不被拦截）
         _HOOK_BYPASS_TOOLS = {"write_topic", "remember", "read_topic", "load_memory"}
@@ -266,7 +335,7 @@ class ToolExecutor:
                 return str(output), None, "success"
 
             except asyncio.TimeoutError:
-                last_error = f"Tool '{tool_name}' timed out after {self._timeout}s (attempt {attempt + 1})"
+                last_error = f"Tool '{tool_name}' timed out after {self._timeout}s (attempt {attempt + 1}/{self._max_retries + 1})"
                 if attempt < self._max_retries:
                     backoff = 2 ** attempt
                     logger.warning("%s, retrying in %ds", last_error, backoff)
@@ -274,11 +343,44 @@ class ToolExecutor:
                 else:
                     return "", last_error, "timeout"
 
-            except Exception as e:
-                # 其他异常不重试
-                return "", str(e), "error"
+            except RETRYABLE_EXCEPTIONS as e:
+                last_error = (
+                    f"Tool '{tool_name}' failed with {type(e).__name__}: {e} "
+                    f"(attempt {attempt + 1}/{self._max_retries + 1})"
+                )
+                if attempt < self._max_retries:
+                    backoff = 2 ** attempt
+                    logger.warning("%s, retrying in %ds", last_error, backoff)
+                    await asyncio.sleep(backoff)
+                else:
+                    return "", last_error, "error"
+
+            except NON_RETRYABLE_EXCEPTIONS as e:
+                # 永久性错误不重试，立即失败
+                return "", f"{type(e).__name__}: {e}", "error"
 
         return "", last_error or "unknown", "timeout"
+
+    # ====== 审批辅助 ======
+
+    @staticmethod
+    def _compute_edit_diff(arguments: Dict[str, Any]) -> Optional[str]:
+        """为 edit_file 计算变更 diff。"""
+        path = arguments.get("path", "")
+        old_str = arguments.get("old_string", "")
+        new_str = arguments.get("new_string", "")
+
+        if not path or not old_str:
+            return None
+
+        import difflib
+        old_lines = old_str.splitlines(keepends=True)
+        new_lines = new_str.splitlines(keepends=True)
+        diff_lines = list(difflib.unified_diff(
+            old_lines, new_lines,
+            fromfile=f"a/{path}", tofile=f"b/{path}",
+        ))
+        return "".join(diff_lines) if diff_lines else "(无变更)"
 
     # ====== 查询 ======
 

@@ -84,7 +84,19 @@ class ReadFileTool(BaseTool):
         except OSError as e:
             return json.dumps({"error": "access_error", "message": str(e)}, ensure_ascii=False)
         if fsize > MAX_FILE_SIZE:
-            return json.dumps({"error": "file_too_large", "message": "请用 grep 搜索或指定 symbol/page 范围"}, ensure_ascii=False)
+            # 返回错误 + 前 2000 字符预览，帮助 Agent 判断文件内容
+            try:
+                with open(raw, "r", encoding="utf-8", errors="replace") as f:
+                    preview = f.read(2000)
+            except Exception:
+                preview = ""
+            return json.dumps({
+                "error": "file_too_large",
+                "file": str(raw.relative_to(self._root)),
+                "size_mb": round(fsize / 1024 / 1024, 1),
+                "message": "文件过大，请用 grep 搜索关键词定位，或用 page 参数分页读取",
+                "preview": preview,
+            }, ensure_ascii=False)
 
         # 3. 二进制检测
         if raw.suffix.lower() in _BINARY_EXTS:
@@ -451,6 +463,14 @@ class ReadFilesTool(BaseTool):
             binary_ext = {".pyc", ".so", ".dll", ".png", ".jpg", ".zip", ".tar", ".gz", ".exe", ".o", ".a"}
             if raw.suffix.lower() in binary_ext:
                 parts.append(f"=== {p} ===\n[错误] 二进制文件")
+                continue
+            try:
+                fsize = raw.stat().st_size
+            except OSError:
+                parts.append(f"=== {p} ===\n[错误] 无法获取文件大小")
+                continue
+            if fsize > MAX_FILE_SIZE:
+                parts.append(f"=== {p} ===\n[错误] 文件过大 ({round(fsize/1024/1024, 1)}MB)，请用 read_file 分页读取")
                 continue
             try:
                 with open(raw, "r", encoding="utf-8", errors="replace") as f:

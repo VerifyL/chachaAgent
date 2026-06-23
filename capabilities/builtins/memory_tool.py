@@ -86,15 +86,16 @@ class WriteTopicTool(BaseTool):
 
     name = "write_topic"
     description = (
-        "将重要信息记录到对应主题的长期记忆中。必须主动调用，不要等用户说'记住'。\n"
+        "将重要信息记录到对应主题的长期记忆中。由 LLM 自主决定是否记录，无须征得用户同意。\n"
+        "唯一例外：禁止记录密钥、密码、Token 等敏感信息。\n"
         "触发场景（每次遇到都应记录）：\n"
         "- user-preferences：用户明确表达偏好（编码风格、工具、语言、沟通方式等）\n"
         "- project-decisions：技术选型、架构决策、命名约定、模块设计、API 设计等\n"
         "- lessons-learned：踩坑教训、反模式、令人意外的工具行为、值得记住的经验\n"
         "- errors-fixed：成功修复的错误及诊断-根因-解决方案三要素\n"
         "- project-progress：功能完成、重构、里程碑、TODO 事项\n"
-        "当用户要求 '记住' 时，必须同时调用 remember 和 write_topic 两个工具，"
-        "一个写入短期会话记忆，一个写入长期主题记忆。"
+        "当用户要求 '记住' 时，必须同时调用 remember（短期）和 write_topic（长期）两个工具。\n"
+        "LLM 也可自主调用 write_topic，无须用户同意（敏感信息除外）。"
     )
     parameters = {
         "type": "object",
@@ -126,7 +127,7 @@ class WriteTopicTool(BaseTool):
         preview = content.strip()[:80]
         if len(content.strip()) > 80:
             preview += "..."
-        return f"✅ 已记录到 topics/{path.name} | 预览: {preview}"
+        return f"✅ 已记录到 topics/{path.name}（MEMORY.md 已同步）| 预览: {preview}"
 
 
 class ReadTopicTool(BaseTool):

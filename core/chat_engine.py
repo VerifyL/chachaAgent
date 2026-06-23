@@ -60,9 +60,11 @@ class ChatEngine:
     def rebuild(self, tools=None) -> None:
         from core.tool_executor import ToolExecutor
         from core.dispatcher import Dispatcher
+        from core.policy_engine import PolicyEngine
         if not self._llm:
             return
-        executor = ToolExecutor(tools=tools or [])
+        policy = PolicyEngine()
+        executor = ToolExecutor(tools=tools or [], policy_engine=policy)
         self._dispatcher = Dispatcher(llm_invoker=self._llm, tool_executor=executor)
 
     # ====== 检查点 ======

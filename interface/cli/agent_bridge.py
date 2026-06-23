@@ -163,11 +163,47 @@ class AgentBridge:
         if self._telemetry and self._telemetry.enabled:
             self._telemetry.start()
 
-        # 2. Dispatcher
+        # 2. PolicyEngine + CLI 审批回调
+        from core.policy_engine import PolicyEngine
+        policy = PolicyEngine()
+
+        async def _cli_approval(req) -> bool:
+            """CLI 交互式审批回调"""
+            print(f"\n⚠️  工具 '{req.tool_name}' 需要审批")
+            print(f"   风险等级: {req.risk_level} (分数: {req.risk_score:.0f})")
+            # 展示关键参数（bash 的 command、read_file 的 path 等）
+            args_str = " ".join(
+                f"{k}={str(v)[:200]}" for k, v in req.arguments.items()
+            )
+            if args_str:
+                print(f"   参数: {args_str}")
+            # edit_file → 展示 diff
+            if req.diff:
+                print(f"\n--- 文件变更 ({req.arguments.get('path', '?')}) ---")
+                print(req.diff)
+                print("--- diff 结束 ---")
+            # 系统类工具 → 强调风险，默认拒绝
+            if req.tool_name in PolicyEngine.SYSTEM_TOOLS:
+                print(f"   ⛔ '{req.tool_name}' 是系统级工具，可能执行任意命令！")
+                default = "N"
+            else:
+                default = "y"
+            default_hint = "[Y/n]" if default == "y" else "[y/N]"
+            try:
+                answer = input(f"   是否执行？{default_hint}: ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                return False
+            if not answer:
+                return default == "y"
+            return answer in ("y", "yes")
+
+        # 3. Dispatcher
         self._executor = ToolExecutor(
             tools=self._custom_tools,
+            policy_engine=policy,
             hook_orchestrator=self._hooks,
             telemetry=self._telemetry,
+            approval_handler=_cli_approval,
         )
         self._dispatcher = Dispatcher(
             llm_invoker=self._invoker,
@@ -229,7 +265,44 @@ class AgentBridge:
         """重建 Dispatcher + ToolExecutor"""
         from core.tool_executor import ToolExecutor
         from core.dispatcher import Dispatcher
-        self._executor = ToolExecutor(tools=self._custom_tools, hook_orchestrator=self._hooks, telemetry=self._telemetry)
+        from core.policy_engine import PolicyEngine
+        policy = PolicyEngine()
+
+        async def _cli_approval(req) -> bool:
+            """CLI 交互式审批回调"""
+            print(f"\n⚠️  工具 '{req.tool_name}' 需要审批")
+            print(f"   风险等级: {req.risk_level} (分数: {req.risk_score:.0f})")
+            # 展示关键参数（bash 的 command、read_file 的 path 等）
+            args_str = " ".join(
+                f"{k}={str(v)[:200]}" for k, v in req.arguments.items()
+            )
+            if args_str:
+                print(f"   参数: {args_str}")
+            if req.diff:
+                print(f"\n--- 文件变更 ({req.arguments.get('path', '?')}) ---")
+                print(req.diff)
+                print("--- diff 结束 ---")
+            if req.tool_name in PolicyEngine.SYSTEM_TOOLS:
+                print(f"   ⛔ '{req.tool_name}' 是系统级工具，可能执行任意命令！")
+                default = "N"
+            else:
+                default = "y"
+            default_hint = "[Y/n]" if default == "y" else "[y/N]"
+            try:
+                answer = input(f"   是否执行？{default_hint}: ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                return False
+            if not answer:
+                return default == "y"
+            return answer in ("y", "yes")
+
+        self._executor = ToolExecutor(
+            tools=self._custom_tools,
+            policy_engine=policy,
+            hook_orchestrator=self._hooks,
+            telemetry=self._telemetry,
+            approval_handler=_cli_approval,
+        )
         self._dispatcher = Dispatcher(
             llm_invoker=self._invoker,
             tool_executor=self._executor,

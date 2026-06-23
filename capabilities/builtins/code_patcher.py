@@ -7,26 +7,26 @@ EditFile — 精确文件编辑工具（BaseTool）。
   edit_file(path, old_string, new_string, replace_all=True)  → 全部替换
 
 底层：
-  - 精确匹配优先（当前行为，对 LLM 最友好）
-  - 精确失败时用 difflib.SequenceMatcher 模糊匹配，容忍空白差异
+  - 精确匹配，对齐 Claude Code：不 strip、不 fuzzy
+  - 多匹配时列出上下文供 LLM 选择
   - 写入走 AtomicWriter（原子 rename + 版本化备份 + 回读验证）
 """
 
-import difflib
 import logging
 from pathlib import Path
 from typing import Optional
 
-from capabilities.atomic_writer import AtomicWriter, WriteResult
+from capabilities.atomic_writer import AtomicWriter
 from capabilities.base import BaseTool
+
+CHUNK_SIZE = 64 * 1024        # 64KB chunks for streaming
+LARGE_FILE_THRESHOLD = 10 * 1024 * 1024  # 10MB
 
 logger = logging.getLogger(__name__)
 
-FUZZY_THRESHOLD = 0.80  # SequenceMatcher 相似度阈值
-
 
 class EditFileTool(BaseTool):
-    """精确文件编辑，底层原子写入 + 模糊匹配。"""
+    """精确文件编辑，底层原子写入。"""
 
     name = "edit_file"
     description = (
@@ -65,35 +65,47 @@ class EditFileTool(BaseTool):
         if not full_path.exists():
             return f"[错误] 文件不存在: {path}"
 
-        # 2. 读取
+        # 2. Read: chunked streaming for large files
         try:
-            content = full_path.read_text(encoding="utf-8")
+            file_size = full_path.stat().st_size
+            if file_size > LARGE_FILE_THRESHOLD:
+                # 大文件：分块搜索 + 累积内容，一次 IO 完成搜索和加载
+                found = False
+                chunks = []
+                with open(full_path, "r", encoding="utf-8") as f:
+                    prev = ""
+                    while True:
+                        chunk = f.read(CHUNK_SIZE)
+                        if not chunk:
+                            break
+                        chunks.append(chunk)
+                        if old_string in prev + chunk:
+                            found = True
+                        prev = chunk[-len(old_string):] if len(old_string) > 0 else ""
+                if not found:
+                    snippet = old_string[:80] + ("..." if len(old_string) > 80 else "")
+                    return (
+                        f"[Error] old_string not found. "
+                        f"File may have been modified, use read_file to check current content.\n"
+                        f"Search snippet: '{snippet}'"
+                    )
+                content = "".join(chunks)
+            else:
+                content = full_path.read_text(encoding="utf-8")
         except Exception as e:
             return f"[错误] 读取失败: {e}"
 
-        old = old_string.strip("\n")
-        new = new_string.strip("\n")
-
-        # 3. 精确匹配优先
+        # 3. 精确匹配（对齐 Claude Code：不做任何 strip/fuzzy）
+        old = old_string
+        new = new_string
         count = content.count(old)
 
         if count == 0:
-            # 4. 模糊匹配 fallback
-            fuzzy = self._fuzzy_find(content, old)
-            if fuzzy is None:
-                snippet = old[:80] + ("..." if len(old) > 80 else "")
-                return (
-                    f"[错误] 未找到 old_string 匹配。"
-                    f"文件可能已被修改，请用 read_file 确认当前内容。\n"
-                    f"搜索片段: '{snippet}'"
-                )
+            snippet = old[:80] + ("..." if len(old) > 80 else "")
             return (
-                f"[提示] 精确匹配失败，但找到相似文本（相似度 {fuzzy['ratio']:.0%}）：\n"
-                f"--- 文件中的实际内容 (行 {fuzzy['line']}) ---\n"
-                f"{fuzzy['text'][:200]}\n"
-                f"--- 你提供的 old_string ---\n"
-                f"{old[:200]}\n"
-                f"请用文件中的实际内容作为 old_string 重试。"
+                f"[错误] old_string 未找到。文件可能已被修改，"
+                f"请用 read_file 确认当前内容后重试。\n"
+                f"搜索片段: '{snippet}'"
             )
 
         if not replace_all and count > 1:
@@ -132,35 +144,3 @@ class EditFileTool(BaseTool):
             )
         else:
             return f"[错误] 写入失败: {result.error}\n   备份: {result.backup}"
-
-    def _fuzzy_find(self, content: str, target: str) -> Optional[dict]:
-        """用 difflib 在文件中找最相似的文本块。
-
-        将 target 按行分割，在 content 中逐行滑动窗口比对。
-        """
-        target_lines = target.strip().split("\n")
-        content_lines = content.split("\n")
-
-        if len(target_lines) > len(content_lines):
-            return None
-
-        best_ratio = 0.0
-        best_start = -1
-        best_end = -1
-
-        window = len(target_lines)
-        for i in range(len(content_lines) - window + 1):
-            window_text = "\n".join(content_lines[i : i + window])
-            ratio = difflib.SequenceMatcher(None, target, window_text).ratio()
-            if ratio > best_ratio:
-                best_ratio = ratio
-                best_start = i
-                best_end = i + window
-
-        if best_ratio >= FUZZY_THRESHOLD:
-            return {
-                "ratio": best_ratio,
-                "line": best_start + 1,
-                "text": "\n".join(content_lines[best_start:best_end]),
-            }
-        return None

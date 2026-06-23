@@ -327,7 +327,7 @@ class HookOrchestrator:
           4. handler 是 callable，可能返回 BLOCK/MODIFY → 拒绝（安全优先）
         """
         # 显式设置优先
-        if hook.on_timeout_continue is not None and hook.on_error_continue is not None:
+        if hook.on_timeout_continue is not None or hook.on_error_continue is not None:
             return hook.on_timeout_continue and hook.on_error_continue
 
         # ShellCommand：保守拒绝
@@ -335,7 +335,7 @@ class HookOrchestrator:
             return False
 
         # callable：默认根据预期行为推断
-        return True  # 默认容错（仅当 handler 可能返回 BLOCK 时外部应显式设为 False）
+        return False  # 默认容错（仅当 handler 可能返回 BLOCK 时外部应显式设为 False）
 
     def list_hooks(self, hook_point: Optional[HookPoint] = None) -> List[Dict[str, Any]]:
         """列出已注册的钩子"""

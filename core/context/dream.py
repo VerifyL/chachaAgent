@@ -39,16 +39,17 @@ DREAM_SYSTEM_PROMPT = """You are a memory consolidation assistant. Your task is 
 ## Rules for MEMORY.md:
 1. Read ALL provided daily memories, topics, and the OLD MEMORY.md
 2. Extract important information, deduplicate, and categorize
-3. Each entry must include: a one-line summary + source file path + timestamp
+3. Each entry must include: a one-line summary (≤60 chars) + source pointer (→ topics/xxx.md) + timestamp
 4. Categories:
    - User Preferences (tools, style, workflow habits)
    - Project Decisions (architecture, tech stack, conventions)
    - Lessons Learned (mistakes, pitfalls, best practices discovered)
    - Errors Fixed (bugs resolved, root causes, solutions)
    - Project Progress (milestones, completed features, current status)
-5. Keep entries concise — one to two lines per entry maximum
+5. Keep entries strictly one line — MEMORY.md is only an index pointing to full content
 6. Sort by importance within each category
 7. Format as Markdown with ## category headings
+8. MEMORY.md is only a lightweight index — it points to full content in topics/. Keep each entry strictly one line. Do NOT inline full topic content.
 
 
 ## Rules for CHACHA_MEMORY.md (Incremental Merge):

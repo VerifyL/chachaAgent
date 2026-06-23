@@ -21,6 +21,7 @@ v2.0 Stage 1 工具结果缓存（宽松）:
 
 import json
 import logging
+import re
 import time
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, List, Optional
@@ -30,7 +31,13 @@ from core.llm_invoker import LLMResponse
 logger = logging.getLogger(__name__)
 
 MAX_TOOL_ROUNDS = 200          # 防止无限工具循环
-KEEP_TOOL_RESULTS = 8          # 主动冻结：保留最近 8 个完整工具结果，更早的占位
+KEEP_TOOL_RESULTS = 8
+
+# API Key mask regex (module-level to avoid recompilation on every error)
+_API_KEY_RE = re.compile(
+    r'(api[ _]?key[:\s]*["\x27]?)([^"\x27}\]]+)',
+    re.IGNORECASE,
+)
 
 def _tool_args_summary(name: str, args: dict) -> str:
     if name in ("read_file", "bash", "list_files", "file_outline",
@@ -64,6 +71,9 @@ class Dispatcher:
         self._project_id = project_id
         self._max_context_window = context_window
         self.tool_calls_made = 0
+        self._last_failed_call = ""           # circuit breaker: (tool_name, args_hash)
+        self._same_call_failures = 0         # 同一调用连续失败计数
+        self._max_same_call_failures = 5     # 同一调用连续失败上限
 
     async def dispatch_stream(
         self,
@@ -130,9 +140,7 @@ class Dispatcher:
                 llm_ok = False
                 msg = str(e)
                 if "401" in msg or "403" in msg:
-                    import re
-                    msg = re.sub(r'(api[ _]?key[:\s]*["\']?)([^"\'}\]]+)',
-                                 lambda m: m.group(1) + "***", msg, flags=re.IGNORECASE)
+                    msg = _API_KEY_RE.sub(lambda m: m.group(1) + "***", msg)
                 yield {"type": "error", "message": msg}
                 return
             finally:
@@ -155,6 +163,7 @@ class Dispatcher:
 
             # 执行工具
             # 先构造 1 个 assistant 消息（含所有 tool_calls + reasoning）
+            _tc_id_to_name: Dict[str, str] = {}
             safe_tool_calls = []
             for idx, tc_info in sorted(tool_calls_building.items()):
                 try:
@@ -170,6 +179,7 @@ class Dispatcher:
                         "arguments": json.dumps(safe_args, ensure_ascii=False),
                     },
                 })
+                _tc_id_to_name[tc_info["id"]] = tc_info["name"]
 
             assistant_msg = {"role": "assistant", "content": "".join(text_parts) or None}
             if reasoning_parts:
@@ -193,6 +203,31 @@ class Dispatcher:
                     tool_use_id=tc_info["id"],
                     project_id=self._project_id,
                 )
+                # blocked / pending_approval → 转为错误消息
+                if result.status in ("blocked", "pending_approval"):
+                    result.output = f"[{result.status}] {result.error or '工具执行被阻止'}"
+
+                # Dynamic circuit breaker: same (tool+args) consecutive failures
+                call_key = f"{tc_info['name']}:{arg_summary}"
+                if result.status in ("error", "blocked", "timeout"):
+                    if call_key == self._last_failed_call:
+                        self._same_call_failures += 1
+                    else:
+                        self._last_failed_call = call_key
+                        self._same_call_failures = 1
+                else:
+                    self._last_failed_call = ""
+                    self._same_call_failures = 0
+
+                if self._same_call_failures >= self._max_same_call_failures:
+                    yield {
+                        "type": "error",
+                        "message": (
+                            f"Circuit breaker: same call failed {self._same_call_failures} times "
+                            f"({tc_info['name']}), terminating loop"
+                        ),
+                    }
+                    return
                 yield {"type": "tool_exec_end", "tool_name": tc_info["name"],
                        "preview": (result.output or result.error or "")[:80].split("\n")[0]}
                 messages.append({
@@ -202,7 +237,7 @@ class Dispatcher:
                 })
 
             # Stage 1: 缓存旧工具结果
-            self._freeze_old_tool_results(messages, session_id)
+            self._freeze_old_tool_results(messages, session_id, _tc_id_to_name)
 
         yield {"type": "done", "text": "".join(text_parts), "tokens": llm_tokens, "usage": llm_usage}
 
@@ -257,8 +292,10 @@ class Dispatcher:
             }
             messages.append(assistant_tool_msg)
 
+            _tc_id_to_name: Dict[str, str] = {}
             for tc in resp.tool_calls:
                 self.tool_calls_made += 1
+                _tc_id_to_name[tc.id] = tc.name
                 result = await self._tools.execute(
                     tool_name=tc.name,
                     arguments=tc.arguments,
@@ -266,6 +303,24 @@ class Dispatcher:
                     tool_use_id=tc.id,
                     project_id=self._project_id,
                 )
+                # blocked / pending_approval → 转为错误消息
+                if result.status in ("blocked", "pending_approval"):
+                    result.output = f"[{result.status}] {result.error or '工具执行被阻止'}"
+
+                # Dynamic circuit breaker: same (tool+args) consecutive failures
+                call_key = f"{tc.name}:{json.dumps(tc.arguments, sort_keys=True)}"
+                if result.status in ("error", "blocked", "timeout"):
+                    if call_key == self._last_failed_call:
+                        self._same_call_failures += 1
+                    else:
+                        self._last_failed_call = call_key
+                        self._same_call_failures = 1
+                else:
+                    self._last_failed_call = ""
+                    self._same_call_failures = 0
+
+                if self._same_call_failures >= self._max_same_call_failures:
+                    break
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.id,
@@ -277,7 +332,7 @@ class Dispatcher:
             new_msgs = [m for m in messages[pre_len:] if m.get("role") != "tool"]
             total_tokens += sum(len(str(m.get("content", ""))) for m in new_msgs) // 3
 
-            self._freeze_old_tool_results(messages, session_id)
+            self._freeze_old_tool_results(messages, session_id, _tc_id_to_name)
 
             final_finish = resp.finish_reason or "tool_use"
 
@@ -300,7 +355,7 @@ class Dispatcher:
 
     # ====== Stage 1 工具结果缓存（宽松） ======
 
-    def _freeze_old_tool_results(self, messages: List[Dict], session_id: str) -> None:
+    def _freeze_old_tool_results(self, messages: List[Dict], session_id: str, tc_id_to_name: Optional[Dict[str, str]] = None) -> None:
         """保持最近 KEEP_TOOL_RESULTS 个工具结果完整，更早的替换为 JSON 占位符。
 
         占位格式: {"toolname":"read_file","result_summary":"读取 main.py 前200行...","cache_path":"tool_cache/t3.json"}

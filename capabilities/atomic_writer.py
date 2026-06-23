@@ -15,7 +15,10 @@ AtomicWriter — 原子写入器，所有写入工具的底层基类。
 
 import hashlib
 import logging
+import os
 import shutil
+import subprocess
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -27,6 +30,13 @@ BACKUP_DIR_NAME = ".chacha_agent/backups"
 MAX_BACKUP_VERSIONS = 5
 BACKUP_RETENTION_DAYS = 7
 PREVIEW_LENGTH = 80
+LOCK_TIMEOUT = 5.0  # 文件锁超时（秒）
+
+try:
+    import fcntl
+    _HAS_FCNTL = True
+except ImportError:
+    _HAS_FCNTL = False   # Windows 回退 — 无锁
 
 
 @dataclass
@@ -69,6 +79,7 @@ class AtomicWriter:
         """
         self._root = (root or Path.cwd()).resolve()
         self._backup_dir = self._root / BACKUP_DIR_NAME
+        self._lock_paths: dict = {}  # fd → lock_path 映射，用于释放时清理锁文件
 
     # ====== 公开 API ======
 
@@ -90,9 +101,11 @@ class AtomicWriter:
         if backup and path.exists():
             backup_path = self._create_backup(path)
 
-        # 2. 原子写入
+        # 2. 原子写入（加锁）
         tmp = path.with_suffix(path.suffix + ".tmp")
+        lock_fd = None
         try:
+            lock_fd = self._acquire_lock(path)
             tmp.write_text(content, encoding="utf-8")
             tmp.replace(path)  # 原子 rename
         except Exception as e:
@@ -103,6 +116,8 @@ class AtomicWriter:
                 verified=False, backup=str(backup_path) if backup_path else None,
                 preview="", error=str(e),
             )
+        finally:
+            self._release_lock(lock_fd)
 
         # 3. 验证
         verified = self._verify(path, content)
@@ -144,8 +159,33 @@ class AtomicWriter:
 
     # ====== 备份管理 ======
 
-    def _create_backup(self, file_path: Path) -> Path:
-        """创建版本化备份。"""
+    def _is_in_git_repo(self, file_path: Path) -> bool:
+        """检测文件所在目录是否在 git 仓库内。
+
+        文件在 git 仓库内时跳过 .bak 备份，用 git 做版本控制。
+        超时 5s，任何异常都返回 False（回退到 .bak 兜底）。
+        """
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "--git-dir"],
+                cwd=file_path.parent,
+                capture_output=True,
+                timeout=5,
+            )
+            return result.returncode == 0
+        except Exception:
+            return False
+
+    def _create_backup(self, file_path: Path) -> Optional[Path]:
+        """创建版本化备份。
+
+        如果文件在 git 仓库内则跳过 .bak（由 git 做版本控制），
+        否则创建时间戳 .bak 文件到 .chacha_agent/backups/。
+        """
+        # 有 git → 跳过 .bak，用 git 做版本控制
+        if self._is_in_git_repo(file_path):
+            logger.debug("git 仓库中，跳过 .bak: %s", file_path.name)
+            return None
         self._backup_dir.mkdir(parents=True, exist_ok=True)
 
         # 备份子目录：按文件路径
@@ -193,6 +233,62 @@ class AtomicWriter:
             remaining[0].unlink()
             logger.debug("清理超量备份: %s", remaining[0].name)
             remaining = remaining[1:]
+
+    # ====== 文件锁 ======
+
+    def _acquire_lock(self, path: Path) -> Optional[int]:
+        """获取文件独占锁。
+
+        使用 fcntl.flock（Unix），Windows 上回退到无锁。
+        超时抛 TimeoutError，避免死锁阻塞。
+        """
+        if not _HAS_FCNTL:
+            return None
+
+        lock_path = path.with_suffix(path.suffix + ".lock")
+        fd = os.open(str(lock_path), os.O_CREAT | os.O_WRONLY | os.O_TRUNC)
+        self._lock_paths[fd] = lock_path
+        deadline = time.monotonic() + LOCK_TIMEOUT
+
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return fd
+            except (OSError, IOError):
+                if time.monotonic() > deadline:
+                    os.close(fd)
+                    # 超时：清理锁文件并移除映射
+                    lock_path = self._lock_paths.pop(fd, None)
+                    if lock_path is not None:
+                        try:
+                            os.unlink(lock_path)
+                        except OSError:
+                            pass
+                    raise TimeoutError(
+                        f"无法获取文件锁 '{path.name}'，超时 {LOCK_TIMEOUT}s "
+                        f"(可能有其他进程正在写入同一文件)"
+                    )
+                time.sleep(0.1)
+
+    def _release_lock(self, fd: Optional[int]) -> None:
+        """释放文件锁、关闭描述符、清理锁文件。"""
+        if fd is None:
+            return
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        except Exception:
+            pass
+        try:
+            os.close(fd)
+        except Exception:
+            pass
+        # 清理锁文件
+        lock_path = self._lock_paths.pop(fd, None)
+        if lock_path is not None:
+            try:
+                os.unlink(lock_path)
+            except OSError:
+                pass
 
     # ====== 验证 ======
 

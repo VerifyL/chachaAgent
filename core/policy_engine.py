@@ -207,23 +207,52 @@ class PolicyEngine:
 
     # ====== 默认权限映射 ======
 
+    # ====== 工具分类常量 ======
+
+    MEMORY_TOOLS: Set[str] = {"load_memory", "remember", "write_topic", "read_topic"}
+    """记忆类工具：完全跳过审批"""
+
+    READONLY_TOOLS: Set[str] = {
+        "read_file", "read_files", "grep", "list_files", "file_outline",
+        "depe_analyze", "code_intel", "project_overview",
+        "git_diff", "git_log", "git_status",
+    }
+    """只读类工具：FREE 通行"""
+
+    SYSTEM_TOOLS: Set[str] = {"bash", "subagent"}
+    """系统类工具：默认拒绝（ASK_FIRST + HIGH 风险）"""
+
+    EDIT_TOOLS: Set[str] = {"edit_file"}
+    """编辑类工具：需审批并展示 diff"""
+
+    # ====== 工具风险预设 ======
+
+    _RISK_PRESETS: Dict[str, Tuple[float, float, float, float, float]] = {
+        # (data_sensitivity, financial_impact, irreversibility, model_confidence, user_authorization)
+        "bash":        (0.9, 0.8, 0.95, 0.5, 0.3),   # 最高风险：可执行任意命令
+        "subagent":    (0.7, 0.6, 0.8,  0.5, 0.4),   # 高风险：可派生子任务
+        "edit_file":   (0.4, 0.1, 0.7,  0.7, 0.6),   # 中风险：修改文件
+        "http_tool":   (0.5, 0.4, 0.3,  0.7, 0.5),   # 中风险：网络请求
+    }
+
+
     def _init_default_permissions(self) -> None:
-        """Claude Code 风格的默认工具权限级别"""
-        # Free：只读类
-        self._tool_permissions.update({
-            t: PermissionLevel.FREE
-            for t in ["read_file", "grep", "ls", "cat", "head", "tail", "echo", "pwd"]
-        })
-        # AskFirst：修改类
-        self._tool_permissions.update({
-            t: PermissionLevel.ASK_FIRST
-            for t in ["write_file", "patch", "rm", "mv", "cp", "chmod", "chown"]
-        })
-        # ApproveOnce：高风险类
-        self._tool_permissions.update({
-            t: PermissionLevel.APPROVE_ONCE
-            for t in ["shell", "exec", "pip", "npm", "docker", "kubectl"]
-        })
+        """按工具分类设置默认权限级别"""
+        # 记忆类 → 完全自由通行
+        for t in self.MEMORY_TOOLS:
+            self._tool_permissions[t] = PermissionLevel.FREE
+
+        # 只读类 → 自由通行
+        for t in self.READONLY_TOOLS:
+            self._tool_permissions[t] = PermissionLevel.FREE
+
+        # 系统类 → 每次询问（默认拒绝）
+        for t in self.SYSTEM_TOOLS:
+            self._tool_permissions[t] = PermissionLevel.ASK_FIRST
+
+        # 编辑类 → 每次询问（展示 diff）
+        for t in self.EDIT_TOOLS:
+            self._tool_permissions[t] = PermissionLevel.ASK_FIRST
 
     # ====== 公开接口 ======
 
@@ -233,6 +262,27 @@ class PolicyEngine:
                 "chacha_policy_decisions_total",
                 tags={"tool": tool_name, "status": status},
             )
+
+
+    def _preset_risk_factors(self, tool_name: str) -> RiskFactors:
+        """按工具类型返回预设风险因子。
+
+        已预设的工具使用专用风险加权，未预设的工具使用保守默认值
+        （各维度 0.3~0.6），防止零分绕过风险评估。
+        """
+        if tool_name in self._RISK_PRESETS:
+            ds, fi, ir, mc, ua = self._RISK_PRESETS[tool_name]
+            return RiskFactors(
+                data_sensitivity=ds, financial_impact=fi,
+                irreversibility=ir, model_confidence=mc,
+                user_authorization=ua,
+            )
+        # 未知工具：保守默认值
+        return RiskFactors(
+            data_sensitivity=0.5, financial_impact=0.3,
+            irreversibility=0.5, model_confidence=0.6,
+            user_authorization=0.5,
+        )
 
     def evaluate_tool(
         self,
@@ -276,7 +326,7 @@ class PolicyEngine:
 
         # 6. 风险评估
         if risk_factors is None:
-            risk_factors = RiskFactors()
+            risk_factors = self._preset_risk_factors(tool_name)
         score = risk_factors.score()
         level = risk_factors.to_level()
 

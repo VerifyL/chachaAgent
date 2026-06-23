@@ -1,24 +1,21 @@
-# 模型工厂 (`core/llm_clients/factory.py`)
+# 模型工厂
 
-`ModelFactory.create()` 根据 `ModelProviderConfig` 创建对应的客户端实例。
+`core/llm_clients/factory.py` — 🚧 骨架占位，待实现。
 
-## 支持的 provider
+当前 AgentBridge.initialize() 直接实例化 `OpenAIClient`，未经过工厂模式。
 
-| provider | 客户端 | 状态 |
-|----------|--------|------|
-| `openai` | `OpenAIClient` | ✅ |
-| `ollama` | `OpenAIClient`（兼容 API） | ✅ |
-| `anthropic` | — | 📋 阶段 3 待实现 |
+## 当前状态
 
-## 使用
+| 功能 | 状态 |
+|------|------|
+| ModelFactory.create() | 🚧 骨架 |
+| 根据 provider 动态选择客户端 | 🚧 |
+| Anthropic 客户端 | 🚧 待实现 |
+
+## 当前替代方案
 
 ```python
-from core.llm_clients.factory import ModelFactory
-from core.models.config import ModelProviderConfig
-
-cfg = ModelProviderConfig(provider="openai", default_model="gpt-4")
-client = ModelFactory.create(cfg)
-
-# 注入 LLMInvoker
-invoker = LLMInvoker(model_client=client)
+# AgentBridge.initialize() 中直接创建：
+from core.llm_clients.openai_client import OpenAIClient
+client = OpenAIClient(api_key=key, model=model, base_url=base_url)
 ```
