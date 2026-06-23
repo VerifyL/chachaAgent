@@ -245,6 +245,11 @@ default_model = "deepseek-v4-pro"
 # summarize_keep_head = 3              # SUMMARIZED: 保留前 N 条
 # summarize_keep_tail = 8              # SUMMARIZED: 保留后 N 条
 
+# [telemetry]
+# enabled = true                  # 总开关
+# log_level = "INFO"              # DEBUG / INFO / WARNING / ERROR
+# enable_audit = true             # 审计日志
+
 # [dream]
 # Session Dream 触发阈值
 # dream_rounds = 10

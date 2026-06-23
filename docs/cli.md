@@ -140,7 +140,8 @@ prompt = "bold"
 
 文件内容分析...                        ← 正文
 
-⏱ 1245ms | 💬 352T | 🔄 3轮          ← 审计（可配主题）
+⏱ 1245ms | 💬 352T | 📦 37% | 📥 +128T | 🔄 3轮  ← 审计（可配主题）
+│  │  API total tokens  │ 上下文利用率  │ 缓存命中  │
 ──────────────────────────────────    ← 分隔线
 ```
 
@@ -198,6 +199,10 @@ trim_keep_tail = 12                 # TRIMMED: 保留后 N 条
 summarize_keep_head = 3             # SUMMARIZED: 保留前 N 条
 summarize_keep_tail = 8             # SUMMARIZED: 保留后 N 条
 
+[telemetry]
+# enabled = true               # 开启结构化日志 + 审计（默认关闭）
+# log_level = "INFO"           # DEBUG 可查看详细日志
+
 [dream]
 dream_rounds = 15
 global_dream_rounds = 100
@@ -214,3 +219,24 @@ global_dream_rounds = 100
 | SUMMARIZED | 保 system + 前 N + 后 M 条，中间 LLM 摘要 | 自动 + 手动 |
 
 逐级降落，直到总数低于`compression_trigger_ratio` 窗口比例。`agent_bridge.send_message()` 每轮结束后自动调用。
+
+## 可观测性 (Telemetry)
+
+默认关闭，`config.toml` 中 `[telemetry] enabled = true` 开启。
+
+```
+~/.chacha/logs/
+  debug.jsonl      ← 结构化调试日志（JSONL，每行一条事件）
+  audit.jsonl      ← 安全审计日志（工具调用记录）
+```
+
+```json
+// debug.jsonl 示例
+{"ts":"...","level":"INFO","session":"20260623-1051","msg":"Telemetry 已启动"}
+{"ts":"...","level":"INFO","session":"20260623-1051","msg":"工具调用","tool":"remember","duration_ms":1}
+{"ts":"...","level":"INFO","session":"20260623-1051","msg":"本轮完成","round":1,"tokens":352}
+{"ts":"...","level":"INFO","session":"20260623-1051","msg":"LLM 调用","tokens":352,"duration_ms":2800}
+```
+
+指标 `MetricsCollector` 支持 counter / gauge / histogram + P50/P99 百分位，可对接 Prometheus。
+Span 追踪 `Tracer` 支持单进程 trace_id → span_id 全链路关联。

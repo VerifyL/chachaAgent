@@ -40,7 +40,7 @@ class MockTools:
     def get_schemas(self):
         return [{"type": "function", "function": {"name": "read_file"}}]
 
-    async def execute(self, tool_name, arguments, session_id="", tool_use_id=""):
+    async def execute(self, tool_name, arguments, session_id="", tool_use_id="", **kwargs):
         self.executed.append((tool_name, arguments))
         from core.tool_executor import ToolResult
         return ToolResult(

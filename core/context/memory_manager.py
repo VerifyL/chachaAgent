@@ -17,7 +17,7 @@ v2.0 新增:
 
 import logging
 import json
-from datetime import datetime, timezone
+from datetime import timedelta,  datetime, timezone
 from pathlib import Path
 from typing import Optional
 import hashlib
@@ -121,7 +121,7 @@ class MemoryManager:
     def write_topic(self, topic_name: str, content: str) -> Path:
         """追加内容到指定主题文件。"""
         path = self._topics_dir / f"{topic_name}.md"
-        ts = datetime.now(tz=timezone.utc).isoformat()
+        ts = datetime.now(tz=timezone(timedelta(hours=8))).isoformat()
         entry = f"\n## {ts}\n{content.strip()}\n"
         existing = self._read(path)
         path.write_text((existing + entry).strip() + "\n", encoding="utf-8")
@@ -221,12 +221,12 @@ class MemoryManager:
         if not self._session_dir.exists():
             return []
 
-        cutoff = datetime.now(tz=timezone.utc)
+        cutoff = datetime.now(tz=timezone(timedelta(hours=8)))
         day_files = sorted(self._session_dir.glob("????-??-??.md"))
         recent = []
         for f in day_files:
             try:
-                dt = datetime.strptime(f.stem, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                dt = datetime.strptime(f.stem, "%Y-%m-%d").replace(tzinfo=timezone(timedelta(hours=8)))
                 if (cutoff - dt).days <= limit_days:
                     recent.append(f)
             except ValueError:
@@ -287,7 +287,7 @@ class MemoryManager:
         date = date_str or self._date_str()
         path = self._day_path(date)
 
-        timestamp = datetime.now(tz=timezone.utc).isoformat()
+        timestamp = datetime.now(tz=timezone(timedelta(hours=8))).isoformat()
         entry = f"\n## {timestamp}\n{content.strip()}\n"
 
         existing = self._read(path)
@@ -301,14 +301,14 @@ class MemoryManager:
         self, tool_use_id: str, tool_name: str, result: str,
     ) -> Path:
         """缓存工具结果到 tool_cache/ 目录。返回缓存路径。"""
-        ts = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+        ts = datetime.now(tz=timezone(timedelta(hours=8))).strftime("%Y%m%d_%H%M%S_%f")
         filename = f"{tool_name}_{tool_use_id}_{ts}.json"
         path = self._tool_cache_dir / filename
 
         data = {
             "tool_name": tool_name,
             "tool_use_id": tool_use_id,
-            "cached_at": datetime.now(tz=timezone.utc).isoformat(),
+            "cached_at": datetime.now(tz=timezone(timedelta(hours=8))).isoformat(),
             "result": result,
         }
         path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -400,13 +400,13 @@ class MemoryManager:
 
     def prune_old_days(self) -> int:
         """删除超过 7 天的每日记忆文件（MEMORY.md 和 CHACHA_MEMORY.md 不动）。返回删除数。"""
-        cutoff = datetime.now(tz=timezone.utc)
+        cutoff = datetime.now(tz=timezone(timedelta(hours=8)))
         deleted = 0
 
         # 只扫描 memory/session/ 下的日文件
         for f in self._session_dir.glob("????-??-??.md"):
             try:
-                dt = datetime.strptime(f.stem, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                dt = datetime.strptime(f.stem, "%Y-%m-%d").replace(tzinfo=timezone(timedelta(hours=8)))
                 if (cutoff - dt).days > _PRUNE_DAYS:
                     f.unlink()
                     deleted += 1
@@ -444,7 +444,7 @@ class MemoryManager:
 
     @staticmethod
     def _date_str() -> str:
-        return datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
+        return datetime.now(tz=timezone(timedelta(hours=8))).strftime("%Y-%m-%d")
 
     @staticmethod
     def project_hash(project_root: Path) -> str:

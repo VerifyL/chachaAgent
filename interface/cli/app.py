@@ -54,9 +54,18 @@ class ChachaCLI:
             tools=si.build_tools(),
             project_root=self._project,
         )
+        # Telemetry session 必须在 initialize（包含 start）之前设置
+        if self._bridge._telemetry:
+            self._bridge._telemetry.set_session_id(self._session.session_id)
         msg = await self._bridge.initialize()
+        # 注入 project_id + session_id + telemetry
+        pid = self._session.memory_manager._project_id
+        self._bridge._project_id = pid
+        if self._bridge._dispatcher:
+            self._bridge._dispatcher._project_id = pid
+        if self._bridge._telemetry:
+            self._session._telemetry = self._bridge._telemetry
         self._session.set_llm(self._bridge._invoker)
-        # 告诉 ChatEngine checkpoint 目录
         self._bridge._engine.set_checkpoint_dir(
             self._session.memory_manager._session_dir)
         return msg
@@ -131,6 +140,7 @@ class ChachaCLI:
         response_parts: list[str] = []
         tool_trace: list[dict] = []
         in_tools = False
+        usage: dict = {}
 
         self._print_user(text)
         RICH_CONSOLE.print(f"[{self._t['agent_header']}]🤖 Chacha[/]")
@@ -170,6 +180,7 @@ class ChachaCLI:
                     RICH_CONSOLE.print(f"[red]错误: {chunk['message']}[/]")
                 elif chunk["type"] == "done":
                     tokens = chunk.get("tokens", 0)
+                    usage = chunk.get("usage", {}) if chunk.get("usage") else usage
                 elif chunk["type"] == "compact":
                     self._print_system(f"🔄 自动压缩: {chunk['reason']}")
         except Exception as e:
@@ -183,7 +194,19 @@ class ChachaCLI:
             user_input=text, assistant_text="".join(response_parts),
         )
 
-        audit = f"⏱ {elapsed_ms}ms  |  💬 {tokens}T  |  🔄 第{self._session.rounds}轮"
+        # 上下文利用率 + 缓存命中
+        ctx_pct = ""
+        cache_str = ""
+        if self._bridge._messages:
+            from core.context.context_compressor import ContextCompressor
+            est = ContextCompressor.estimate_tokens(self._bridge._messages)
+            ctx_w = getattr(self._bridge, "_context_window", 1_048_576)
+            ctx_pct = f" | 📦 {int(est/ctx_w*100)}%"
+        cache_hit = usage.get("cache_hit", 0)
+        if cache_hit:
+            cache_str = f" | 📥 +{cache_hit}T"
+
+        audit = f"⏱ {elapsed_ms}ms  |  💬 {tokens}T{ctx_pct}{cache_str}  |  🔄 第{self._session.rounds}轮"
         if errors:
             audit += f"  |  ⚠ {len(errors)}错"
         if self._debug and tool_trace:

@@ -22,7 +22,7 @@ DreamPipeline — 记忆整合管道（v2.0）。
 
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import timedelta,  datetime, timezone
 from typing import Optional
 import asyncio
 logger = logging.getLogger(__name__)
@@ -292,7 +292,7 @@ class DreamPipeline:
         self, raw_text: str, old_memory: str, old_permanent: str,
     ) -> tuple[str, str]:
         """调用 LLM 整合记忆，解析出 MEMORY.md 和 CHACHA_MEMORY.md。"""
-        ts = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        ts = datetime.now(tz=timezone(timedelta(hours=8))).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         system_prompt = DREAM_SYSTEM_PROMPT.replace("{timestamp}", ts)
 

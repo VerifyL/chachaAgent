@@ -20,7 +20,7 @@ v2.0 两阶段工具结果缓存:
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import timedelta,  datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -219,7 +219,7 @@ class ContextCompressor:
     # ====== 工具 ======
 
     def _cache_result(self, content: str, session_id: str) -> Path:
-        ts = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+        ts = datetime.now(tz=timezone(timedelta(hours=8))).strftime("%Y%m%d_%H%M%S_%f")
         path = self._cache_dir / f"{session_id}_{ts}.txt"
         path.write_text(content, encoding="utf-8")
         return path

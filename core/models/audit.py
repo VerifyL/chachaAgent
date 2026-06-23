@@ -10,7 +10,7 @@ core/models/audit.py
 5. 事件分类覆盖：工具调用、记忆变更、成本、权限、会话生命周期、模型调用
 """
 
-from datetime import datetime, timezone
+from datetime import timedelta,  datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union
 from uuid import uuid4
@@ -73,7 +73,7 @@ class AuditEvent(BaseModel):
 
     id: str = Field(default_factory=lambda: str(uuid4()), description="事件唯一 ID")
     timestamp: datetime = Field(
-        default_factory=lambda: datetime.now(tz=timezone.utc),
+        default_factory=lambda: datetime.now(tz=timezone(timedelta(hours=8))),
         description="事件发生时间（UTC）",
     )
     category: AuditEventCategory = Field(..., description="事件分类")

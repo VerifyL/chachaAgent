@@ -109,12 +109,12 @@ class MultimodalConfig(BaseModel):
 # ==========================
 class TelemetryConfig(BaseModel):
     """统一可观测性配置"""
+    enabled: bool = Field(False, description="总开关，关闭则不产生任何日志/指标")
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = Field("INFO", description="日志级别")
+    log_dir: Path = Field(Path.home() / ".chacha" / "logs", description="日志目录")
     enable_audit: bool = Field(True, description="是否写入审计日志")
     enable_prometheus: bool = Field(False, description="是否暴露 Prometheus /metrics 端点")
     prometheus_port: int = Field(9090, ge=1, le=65535, description="Prometheus 端口")
-    audit_log_path: Path = Field(Path.cwd() / ".chacha_agent" / "logs" / "audit.jsonl", description="审计日志路径")
-    debug_log_path: Path = Field(Path.cwd() / ".chacha_agent" / "logs" / "debug.jsonl", description="调试日志路径")
 
 
 # ==========================

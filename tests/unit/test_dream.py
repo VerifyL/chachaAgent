@@ -114,12 +114,12 @@ def test_prune_removes_old_files(mgr):
 
 def test_prune_keeps_recent_files(mgr):
     """最近文件不被删除"""
-    mgr.remember("recent", date_str="2026-06-15")
+    mgr.remember("recent", date_str="2026-06-22")
     llm = MockLLM()
     pipeline = DreamPipeline(llm)
     pipeline._prune(mgr)
 
-    content = mgr.read_day("2026-06-15")
+    content = mgr.read_day("2026-06-22")
     assert "recent" in content
 
 

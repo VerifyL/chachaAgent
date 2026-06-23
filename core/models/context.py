@@ -11,7 +11,7 @@ core/models/context.py
 4. 缓存感知：静态块（系统提示、工具定义）带 cache_ttl，减少重复计算。
 """
 
-from datetime import datetime, timezone
+from datetime import timedelta,  datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional
 from uuid import uuid4
@@ -142,7 +142,7 @@ class ContextBlock(BaseModel):
         description="缓存有效期（秒），静态块（系统提示）设 300-600，动态块设 None 不缓存"
     )
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(tz=timezone.utc),
+        default_factory=lambda: datetime.now(tz=timezone(timedelta(hours=8))),
         description="创建时间（用于时间门触发和 recency 计算）"
     )
 
@@ -173,7 +173,7 @@ class ContextAssemblyMeta(BaseModel):
     session_id: Optional[str] = Field(None, description="会话 ID")
     project_id: Optional[str] = Field(None, description="项目 ID")
     assembled_at: datetime = Field(
-        default_factory=lambda: datetime.now(tz=timezone.utc),
+        default_factory=lambda: datetime.now(tz=timezone(timedelta(hours=8))),
         description="组装时间"
     )
 

@@ -7,7 +7,7 @@ CLI / Web / API 前端只需调用此 service，不直接操作 MemoryManager。
 
 import asyncio
 import time
-from datetime import datetime, timezone
+from datetime import timedelta,  datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -26,9 +26,11 @@ class SessionService:
 
     def __init__(self, project_root: Path, llm_invoker=None,
                  dream_rounds: int = None, dream_hours: int = None,
-                 global_dream_rounds: int = None, global_dream_hours: int = None):
+                 global_dream_rounds: int = None, global_dream_hours: int = None,
+                 telemetry=None):
         self._root = project_root
         self._llm = llm_invoker
+        self._telemetry = telemetry
 
         # 阈值：chachaConfig.toml → 传入参数 → 默认值
         auto = {}
@@ -181,7 +183,7 @@ class SessionService:
         self._history.append({
             "round": self.rounds, "tokens": tokens,
             "duration_ms": duration_ms, "errors": errors or [],
-            "time": datetime.now(tz=timezone.utc).isoformat(),
+            "time": datetime.now(tz=timezone(timedelta(hours=8))).isoformat(),
         })
         # 写入记忆
         self._save_memory(user_input, assistant_text)
@@ -195,6 +197,14 @@ class SessionService:
         )
         gd.configure(llm_invoker=self._llm)
         gd.record_round()
+
+        # 遥测：会话统计
+        tel = self._telemetry
+        if tel and tel.agent and tel.logger:
+            tel.agent.record_session(self.session_id, self.total_tokens, 0.0, int(duration_ms / max(self.rounds, 1)))
+            err_msgs = errors or []
+            tel.logger.info("本轮完成", round=self.rounds, tokens=tokens, duration_ms=duration_ms,
+                           total_tokens=self.total_tokens, errors=err_msgs)
 
     def audit_report(self) -> str:
         lines = [
@@ -237,4 +247,4 @@ class SessionService:
 
     @staticmethod
     def _gen_id() -> str:
-        return datetime.now(tz=timezone.utc).strftime("%Y%m%d-%H%M%S")
+        return datetime.now(tz=timezone(timedelta(hours=8))).strftime("%Y%m%d-%H%M%S")

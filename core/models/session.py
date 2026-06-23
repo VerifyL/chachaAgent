@@ -8,7 +8,7 @@
 3. 事件是不可变的、仅追加的日志，支持完整回放与审计。
 """
 
-from datetime import datetime, timezone
+from datetime import timedelta,  datetime, timezone
 from typing import Any, Dict, List, Literal, Optional
 from uuid import uuid4
 
@@ -44,7 +44,7 @@ class BaseEvent(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     id: str = Field(default_factory=lambda: str(uuid4()))
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(tz=timezone(timedelta(hours=8))))
     source: Literal["user", "agent", "tool", "system"]
 
 
@@ -119,8 +119,8 @@ class SessionMetadata(BaseModel):
     session_id: str = Field(default_factory=lambda: str(uuid4()))
     parent_session_id: Optional[str] = None
     project_id: str
-    created_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone(timedelta(hours=8))))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone(timedelta(hours=8))))
 
     total_tokens: int = 0
     total_cost_usd: float = 0.0
@@ -129,7 +129,7 @@ class SessionMetadata(BaseModel):
 
 class SessionCheckpoint(BaseModel):
     checkpoint_id: str = Field(default_factory=lambda: str(uuid4()))
-    created_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone(timedelta(hours=8))))
     description: Optional[str] = None
     event_index: int
     metadata_snapshot: SessionMetadata
@@ -148,14 +148,14 @@ class ConversationState(BaseModel):
         """追加不可变事件到日志，并返回新的 metadata（因为 SessionMetadata 是冻结的）"""
         self.events.append(event)
         self.metadata = self.metadata.model_copy(
-            update={"updated_at": datetime.now(tz=timezone.utc)}
+            update={"updated_at": datetime.now(tz=timezone(timedelta(hours=8)))}
         )
 
     def update_metadata(self, **kwargs) -> None:
         """更新元数据字段，返回新的 metadata 实例"""
         self.metadata = self.metadata.model_copy(update=kwargs)
         self.metadata = self.metadata.model_copy(
-            update={"updated_at": datetime.now(tz=timezone.utc)}
+            update={"updated_at": datetime.now(tz=timezone(timedelta(hours=8)))}
         )
 
     def get_messages_for_llm(self) -> List[Dict[str, Any]]:

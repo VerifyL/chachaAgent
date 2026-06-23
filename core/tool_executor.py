@@ -115,6 +115,7 @@ class ToolExecutor:
         arguments: Dict[str, Any],
         session_id: str,
         tool_use_id: str = "",
+        project_id: str = "",
     ) -> ToolResult:
         """执行单个工具，含审批、钩子、超时、重试。"""
         t0 = time.monotonic()
@@ -194,11 +195,25 @@ class ToolExecutor:
             )
 
         # 6. 遥测
-        if self._telemetry:
+        if self._telemetry and self._telemetry.agent:
             self._telemetry.agent.record_tool_call(
                 tool_name, duration, status == "success",
                 output_lines=output.count("\n") + 1,
+                _logger=self._telemetry.logger,
             )
+            if self._telemetry.logger:
+                from core.models.audit import audit_factory, AuditEventCategory
+                record = audit_factory(
+                    AuditEventCategory.TOOL_CALL,
+                    session_id=session_id,
+                    project_id=project_id,
+                    tool_name=tool_name,
+                    tool_use_id=tool_use_id,
+                    duration_ms=duration,
+                    arguments_summary={k: str(v)[:100] for k, v in arguments.items()},
+                    status="success",
+                )
+                self._telemetry.logger.audit(record)
 
         return ToolResult(
             tool_use_id=tool_use_id, tool_name=tool_name,

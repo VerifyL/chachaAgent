@@ -146,6 +146,10 @@ class OpenAIClient:
                         "input": getattr(event_usage, "prompt_tokens", 0),
                         "output": getattr(event_usage, "completion_tokens", 0),
                         "total": getattr(event_usage, "total_tokens", 0),
+                        "cache_hit": getattr(event_usage, "prompt_cache_hit_tokens", 0),
+                        "cache_miss": getattr(event_usage, "prompt_cache_miss_tokens", 0),
+                        "reasoning": getattr(event_usage, "completion_tokens_details", None) and
+                                     getattr(event_usage.completion_tokens_details, "reasoning_tokens", 0) or 0,
                         "model": self._model,
                     }
 

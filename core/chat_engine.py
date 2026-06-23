@@ -112,11 +112,12 @@ class ChatEngine:
 
         self._messages.append({"role": "user", "content": user_input})
         t0 = time.monotonic()
+        sid = self._checkpoint_dir.stem if self._checkpoint_dir else f"chat-{int(t0)}"
 
         try:
             async for chunk in self._dispatcher.dispatch_stream(
                 messages=self._messages,
-                session_id=f"chat-{int(t0)}",
+                session_id=sid,
                 max_rounds=10,
             ):
                 yield chunk
@@ -124,6 +125,8 @@ class ChatEngine:
             yield {"type": "error", "message": str(e)}
 
         # 自动压缩 + 检查点
+        est = ContextCompressor.estimate_tokens(self._messages)
+        pct = est / self._context_window
         msgs, reason = ContextCompressor.auto_compact(
             self._messages,
             self._context_window,
@@ -133,6 +136,11 @@ class ChatEngine:
         if reason:
             self._messages = msgs
             yield {"type": "compact", "reason": reason}
+
+        # 上下文利用率遥测
+        tel = getattr(self._dispatcher, "_telemetry", None) if self._dispatcher else None
+        if tel and tel.agent:
+            tel.agent.record_context(est, pct, compression_triggered=bool(reason))
 
         self.save_checkpoint()
 

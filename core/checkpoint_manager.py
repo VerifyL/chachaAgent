@@ -17,7 +17,7 @@ CheckpointManager — 会话检查点保存与恢复。
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import timedelta,  datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -148,7 +148,7 @@ class CheckpointManager:
         if not cp_dir.exists():
             return 0
 
-        cutoff = datetime.now(tz=timezone.utc).timestamp() - max_age_hours * 3600
+        cutoff = datetime.now(tz=timezone(timedelta(hours=8))).timestamp() - max_age_hours * 3600
         files = sorted(cp_dir.glob("*.json"), key=lambda f: f.stat().st_mtime, reverse=True)
 
         deleted = 0

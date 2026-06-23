@@ -16,7 +16,7 @@ GlobalDream — 用户级永久记忆整合（跨项目提炼）。
 import asyncio
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import timedelta,  datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -191,7 +191,7 @@ class GlobalDream:
         self, old_global: str, project_memories: list[tuple[str, str]],
     ) -> str:
         """调用 LLM 增量合并用户级永久记忆。"""
-        ts = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        ts = datetime.now(tz=timezone(timedelta(hours=8))).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         system_prompt = GLOBAL_DREAM_SYSTEM_PROMPT.replace("{timestamp}", ts)
 

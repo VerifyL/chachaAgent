@@ -24,7 +24,7 @@ import time
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import timedelta,  datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -50,13 +50,15 @@ class StructuredLogger:
 
     def __init__(self, config: TelemetryConfig):
         self._config = config
+        self._session_id = ""
         self._level_rank = {
             LogLevel.DEBUG: 10, LogLevel.INFO: 20,
             LogLevel.WARNING: 30, LogLevel.ERROR: 40, LogLevel.CRITICAL: 50,
         }
         self._min_level = self._level_rank.get(LogLevel(config.log_level), 20)
-        self._debug_path = Path(config.debug_log_path)
-        self._audit_path = Path(config.audit_log_path)
+        log_dir = Path(config.log_dir)
+        self._debug_path = log_dir / "debug.jsonl"
+        self._audit_path = log_dir / "audit.jsonl"
         self._lock = threading.Lock()
         self._enable_audit = config.enable_audit
 
@@ -73,8 +75,9 @@ class StructuredLogger:
         if not self._should_log(level):
             return
         entry = {
-            "ts": datetime.now(tz=timezone.utc).isoformat(),
+            "ts": datetime.now(tz=timezone(timedelta(hours=8))).isoformat(),
             "level": level.value,
+            "session": self._session_id or "",
             "msg": message,
             **kwargs,
         }
@@ -112,7 +115,7 @@ class MetricsCollector:
 
     def observe(self, name: str, value: float, tags: Optional[Dict[str, str]] = None) -> None:
         self.histograms[self._key(name, tags)].append({
-            "value": value, "ts": datetime.now(tz=timezone.utc).isoformat(),
+            "value": value, "ts": datetime.now(tz=timezone(timedelta(hours=8))).isoformat(),
         })
 
     def percentile(self, name: str, pct: int) -> float:
@@ -241,11 +244,15 @@ class AgentMetrics:
 
     # ---- 工具调用 ----
     def record_tool_call(self, tool_name: str, duration_ms: float,
-                         success: bool, output_lines: int = 0) -> None:
+                         success: bool, output_lines: int = 0,
+                         _logger: Optional[StructuredLogger] = None) -> None:
         tags = {"tool": tool_name, "status": "success" if success else "error"}
         self._m.inc("chacha_tool_calls_total", tags=tags)
         self._m.observe("chacha_tool_duration_ms", duration_ms, tags=tags)
         self._m.observe("chacha_tool_output_lines", output_lines, tags={"tool": tool_name})
+        if _logger:
+            _logger.info("工具调用", tool=tool_name, duration_ms=int(duration_ms),
+                         success=success, output_lines=output_lines)
 
     # ---- 钩子 ----
     def record_hook(self, hook_name: str, duration_ms: float, action: str) -> None:
@@ -290,12 +297,18 @@ class Telemetry:
     """
 
     def __init__(self, config: Optional[TelemetryConfig] = None):
-        cfg = config or TelemetryConfig()
+        cfg = config if config and config.enabled else TelemetryConfig(enabled=False)
         self._config = cfg
-        self.logger = StructuredLogger(cfg)
-        self.metrics = MetricsCollector()
-        self.tracer = Tracer()
-        self.agent = AgentMetrics(self.metrics)
+        self.enabled = cfg.enabled
+        self.logger = StructuredLogger(cfg) if cfg.enabled else None
+        self.metrics = MetricsCollector() if cfg.enabled else None
+        self.tracer = Tracer() if cfg.enabled else None
+        self.agent = AgentMetrics(self.metrics) if cfg.enabled and self.metrics else None
+
+    def set_session_id(self, session_id: str) -> None:
+        self._session_id = session_id
+        if self.logger:
+            self.logger._session_id = session_id
 
     def start(self) -> None:
         self.logger.info("Telemetry 已启动",

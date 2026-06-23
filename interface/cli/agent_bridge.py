@@ -27,11 +27,25 @@ class AgentBridge:
         self._custom_tools = tools or []
 
         # 配置：chachaConfig.toml → 环境变量 → 默认值
+        self._telemetry_cfg = None
         default_provider = None
         try:
             from core.config_manager import get_config_manager
             cfg = get_config_manager().load()
             default_provider = cfg.model.providers.get("default")
+            self._telemetry_cfg = cfg.telemetry
+        except Exception:
+            pass
+
+        # 可观测性（开关控制，session_id 后续由 app.py 注入）
+        from core.telemetry import Telemetry
+        self._telemetry = Telemetry(self._telemetry_cfg) if self._telemetry_cfg else None
+
+        self._project_id = getattr(default_provider, "project_id", "") if default_provider else ""
+        try:
+            from core.config_manager import get_config_manager
+            full_cfg = get_config_manager().load()
+            self._project_id = full_cfg.project_id or ""
         except Exception:
             pass
 
@@ -107,12 +121,18 @@ class AgentBridge:
         self._invoker = LLMInvoker(model_client=client)
         self._engine.set_llm(self._invoker)
 
+        # 启动可观测性
+        if self._telemetry and self._telemetry.enabled:
+            self._telemetry.start()
+
         # 2. Dispatcher
-        executor = ToolExecutor(tools=self._custom_tools)
+        self._executor = ToolExecutor(tools=self._custom_tools, telemetry=self._telemetry)
         self._dispatcher = Dispatcher(
             llm_invoker=self._invoker,
-            tool_executor=executor,
+            tool_executor=self._executor,
+            telemetry=self._telemetry,
         )
+        self._dispatcher._project_id = self._project_id
         self._engine.set_dispatcher(self._dispatcher)
 
         # 3. ContextManager
@@ -128,11 +148,13 @@ class AgentBridge:
         """重建 Dispatcher + ToolExecutor"""
         from core.tool_executor import ToolExecutor
         from core.dispatcher import Dispatcher
-        executor = ToolExecutor(tools=self._custom_tools)
+        self._executor = ToolExecutor(tools=self._custom_tools, telemetry=self._telemetry)
         self._dispatcher = Dispatcher(
             llm_invoker=self._invoker,
-            tool_executor=executor,
+            tool_executor=self._executor,
+            telemetry=self._telemetry,
         )
+        self._dispatcher._project_id = self._project_id
         self._engine.set_dispatcher(self._dispatcher)
 
     # ====== 发送消息（委托 ChatEngine） ======
