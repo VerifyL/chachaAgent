@@ -3,6 +3,7 @@ capabilities/builtins/code_patcher.py
 EditFile — 精确文件编辑工具（BaseTool）。
 
 用法:
+  edit_file(path, old_string='', new_string)  → 创建新文件（old_string 为空）
   edit_file(path, old_string, new_string)  → 精确替换（首处匹配即替换）
   edit_file(path, old_string, new_string, replace_all=True)  → 全部替换
 
@@ -10,6 +11,7 @@ EditFile — 精确文件编辑工具（BaseTool）。
   - 精确匹配，对齐 Claude Code：不 strip、不 fuzzy
   - 多匹配时列出上下文供 LLM 选择
   - 写入走 AtomicWriter（原子 rename + 版本化备份 + 回读验证）
+  - 新文件自动创建父目录，无需备份
 """
 
 import logging
@@ -31,7 +33,8 @@ class EditFileTool(BaseTool):
     name = "edit_file"
     description = (
         "精确替换文件内容。old_string 必须唯一匹配（避免误改），"
-        "自动备份到 .chacha_agent/backups/"
+        "自动备份到 .chacha_agent/backups/。"
+        "old_string='' 时可创建新文件。"
     )
     parameters = {
         "type": "object",
@@ -62,8 +65,24 @@ class EditFileTool(BaseTool):
         except ValueError:
             return "[错误] 访问被拒绝: 路径超出项目根目录"
 
+        # 文件不存在 + old_string 为空 → 创建新文件
         if not full_path.exists():
-            return f"[错误] 文件不存在: {path}"
+            if old_string == "":
+                # 确保父目录存在
+                full_path.parent.mkdir(parents=True, exist_ok=True)
+                result = self._writer.write(full_path, new_string, backup=False)
+                if result.ok:
+                    preview = new_string.strip()[:80]
+                    if len(new_string.strip()) > 80:
+                        preview += "..."
+                    return (
+                        f"✅ 已创建新文件: {path}\n"
+                        f"   内容: {preview}"
+                    )
+                else:
+                    return f"[错误] 创建文件失败: {result.error}"
+            else:
+                return f"[错误] 文件不存在: {path}（新建文件请传 old_string=''）"
 
         # 2. Read: chunked streaming for large files
         try:

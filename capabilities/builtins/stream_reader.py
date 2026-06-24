@@ -44,6 +44,8 @@ _BINARY_EXTS = frozenset({
 _line_index: Dict[str, List[int]] = {}
 # 定时清理计数器
 _cleanup_counter = 0
+# 写入后待强制重建的路径集合（消除 _invalidate→rename 之间的窗口期）
+_pending_rebuild: set = set()
 
 
 def _ensure_index(path: str) -> List[int]:
@@ -58,8 +60,11 @@ def _ensure_index(path: str) -> List[int]:
     except OSError:
         return [0]
 
+    # 写入后强制重建：跳过缓存
     key = f"{abspath}::{mtime}"
-    if key in _line_index:
+    if abspath in _pending_rebuild:
+        _pending_rebuild.discard(abspath)
+    elif key in _line_index:
         return _line_index[key]
 
     offsets = [0]
@@ -98,6 +103,13 @@ def _invalidate(path: str) -> None:
         _line_index.pop(k, None)
 
 
+def _mark_for_rebuild(path: str) -> None:
+    """标记路径待强制重建索引（消除 _invalidate→rename 之间的窗口期）。
+    
+    AtomicWriter 在写入完成后调用此函数，确保下次 _ensure_index 
+    无条件重建，避免 APFS rename 后 mtime 传播延迟导致的空读。
+    """
+    _pending_rebuild.add(os.path.abspath(path))
 def _clean_stale(exclude_path: str) -> None:
     """清除非当前文件的过期缓存条目（保留 200 条）。"""
     if len(_line_index) <= 200:

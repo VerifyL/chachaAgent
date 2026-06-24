@@ -84,12 +84,6 @@ class AtomicWriter:
     # ====== 公开 API ======
 
     def write(self, path: Path, content: str, backup: bool = True) -> WriteResult:
-        # 写入前使行索引失效
-        try:
-            from capabilities.builtins.stream_reader import _invalidate
-            _invalidate(str(path))
-        except Exception:
-            pass
         """原子覆盖写入。
 
         Args:
@@ -128,6 +122,13 @@ class AtomicWriter:
         # 3. 验证
         verified = self._verify(path, content)
 
+        # 4. 标记强制重建行索引（消除 _invalidate→rename 窗口期）
+        try:
+            from capabilities.builtins.stream_reader import _mark_for_rebuild
+            _mark_for_rebuild(str(path))
+        except Exception:
+            pass
+
         preview = content.strip()[:PREVIEW_LENGTH]
         if len(content.strip()) > PREVIEW_LENGTH:
             preview += "..."
@@ -145,12 +146,6 @@ class AtomicWriter:
         )
 
     def append(self, path: Path, entry: str) -> WriteResult:
-        # 追加写入也使行索引失效（行偏移变了）
-        try:
-            from capabilities.builtins.stream_reader import _invalidate
-            _invalidate(str(path))
-        except Exception:
-            pass
         """原子追加写入（无备份）。
 
         用于记忆文件：remember / write_topic。
