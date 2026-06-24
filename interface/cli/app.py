@@ -42,6 +42,7 @@ class ChachaCLI:
         # 主题
         write_default_theme()
         self._t = load_theme()
+        self._show_reasoning = True  # Ctrl+R 切换
 
     # ====== 启动 ======
 
@@ -187,7 +188,8 @@ class ChachaCLI:
                     errors.append(chunk["message"])
                     RICH_CONSOLE.print(f"[red]错误: {chunk['message']}[/]")
                 elif chunk["type"] == "reasoning":
-                    RICH_CONSOLE.print(f"[dim]{chunk['content']}[/]", end="")
+                    if self._show_reasoning:
+                        RICH_CONSOLE.print(f"[dim]{chunk['content']}[/]", end="")
                 elif chunk["type"] == "done":
                     tokens = chunk.get("tokens", 0)
                     usage = chunk.get("usage", {}) if chunk.get("usage") else usage
@@ -399,6 +401,12 @@ class ChachaCLI:
         @kb.add("c-l")
         def _(event):
             RICH_CONSOLE.clear()
+
+        @kb.add("c-r")
+        def _(event):
+            self._show_reasoning = not self._show_reasoning
+            status = "开" if self._show_reasoning else "关"
+            self._print_system(f"🧠 思考过程: {status}")
 
         return kb
 
