@@ -261,8 +261,8 @@ class ToolExecutor:
                 cut = cut[:last_nl]
             remaining = len(output) - len(cut)
             # 缓存完整输出，生成续读 key
-            import hashlib, time
-            cache_key = hashlib.md5(f"{tool_name}:{tool_use_id}:{time.time()}".encode()).hexdigest()[:12]
+            import hashlib as _hl
+            cache_key = _hl.md5(f"{tool_name}:{tool_use_id}:{time.time()}".encode()).hexdigest()[:12]
             self._output_cache[cache_key] = (output, time.time())
             self._cleanup_cache()
             # 分页提示（根据工具类型给出具体建议）
