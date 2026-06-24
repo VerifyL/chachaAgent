@@ -63,7 +63,7 @@ Repository = "https://github.com/VerifyL/chachaAgent"
 Issues = "https://github.com/VerifyL/chachaAgent/issues"
 
 [tool.setuptools.packages.find]
-include = ["core*", "protocol*", "capabilities*", "interface*", "scripts*", "tests*"]
+include = ["core*", "protocol*", "capabilities*", "interface*", "scripts*"]
 
 [tool.setuptools.package-data]
 "*" = ["*.toml", "*.md", "*.jsonl", "*.template"]
