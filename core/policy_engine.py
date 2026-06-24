@@ -11,9 +11,11 @@ PolicyEngine — 安全策略引擎：命令拦截、风险评估、成本熔断
 """
 
 import hashlib
+import json
 import time
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from core.models.config import PolicyConfig
@@ -203,6 +205,19 @@ class PolicyEngine:
 
         # 工具→权限级别映射
         self._tool_permissions: Dict[str, PermissionLevel] = {}
+
+        # 审批旁路: session级 + settings.json持久化, 取并集
+        self._session_bypass: Set[str] = set()
+        self._settings_path = Path.home() / ".chacha" / "settings.json"
+        self._persist_bypass: Set[str] = self._load_settings()
+
+        # 分类名 -> 工具名映射
+        self._category_map: Dict[str, Set[str]] = {
+            "all":       {"*"},
+            "bash":      {"bash"},
+            "file_write": {"edit_file", "apply_patch"},
+            "shell":     {"bash", "git_diff", "git_log", "git_status"},
+        }
         self._init_default_permissions()
 
     # ====== 默认权限映射 ======
@@ -219,7 +234,7 @@ class PolicyEngine:
     }
     """只读类工具：FREE 通行"""
 
-    SYSTEM_TOOLS: Set[str] = {"bash", "subagent"}
+    SYSTEM_TOOLS: Set[str] = {"bash", "subagent", "set_approval_mode"}
     """系统类工具：默认拒绝（ASK_FIRST + HIGH 风险）"""
 
     EDIT_TOOLS: Set[str] = {"edit_file"}
@@ -291,6 +306,11 @@ class PolicyEngine:
         session_id: str = "",
         risk_factors: Optional[RiskFactors] = None,
     ) -> PolicyDecision:
+        # 0. 审批旁路检查（会话级 || 持久化）
+        if self._is_bypassed(tool_name):
+            self._emit_metric(tool_name, "bypassed")
+            return PolicyDecision(allowed=True, permission_level=PermissionLevel.FREE)
+
         # 1. 工具白名单（显式放行，覆盖后续所有检查）
         if tool_name in self._command_whitelist:
             self._emit_metric(tool_name, "whitelisted")
@@ -402,6 +422,76 @@ class PolicyEngine:
         self._circuit_breaker.reset()
 
     # ====== 内部 ======
+
+    # ====== 审批旁路 ======
+
+    def _load_settings(self) -> Set[str]:
+        """从 ~/.chacha/settings.json 加载持久化旁路列表。"""
+        try:
+            if self._settings_path.exists():
+                data = json.loads(self._settings_path.read_text(encoding="utf-8"))
+                bypass = data.get("approval", {}).get("bypass", [])
+                if isinstance(bypass, list):
+                    return set(bypass)
+        except (json.JSONDecodeError, OSError):
+            pass
+        return set()
+
+    def _save_settings(self) -> None:
+        """将持久化旁路列表写入 ~/.chacha/settings.json。"""
+        self._settings_path.parent.mkdir(parents=True, exist_ok=True)
+        existing = {}
+        if self._settings_path.exists():
+            try:
+                existing = json.loads(self._settings_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                pass
+        existing.setdefault("approval", {})["bypass"] = sorted(self._persist_bypass)
+        self._settings_path.write_text(
+            json.dumps(existing, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+
+    def _is_bypassed(self, tool_name: str) -> bool:
+        """检查工具是否被旁路（会话级 || 持久化）。"""
+        combined = self._session_bypass | self._persist_bypass
+        return "*" in combined or tool_name in combined
+
+    def enable_bypass(self, categories: List[str], persist: bool = False) -> Set[str]:
+        """开启指定分类的审批旁路。返回实际旁路的工具名集合。"""
+        resolved: Set[str] = set()
+        for cat in categories:
+            cat = cat.strip().lower()
+            tools = self._category_map.get(cat, {cat})
+            resolved.update(tools)
+        if persist:
+            self._persist_bypass.update(resolved)
+            self._save_settings()
+        else:
+            self._session_bypass.update(resolved)
+        return resolved
+
+    def disable_bypass(self, categories: List[str], persist: bool = False) -> Set[str]:
+        """关闭指定分类的审批旁路。返回实际清除的工具名集合。"""
+        resolved: Set[str] = set()
+        for cat in categories:
+            cat = cat.strip().lower()
+            tools = self._category_map.get(cat, {cat})
+            resolved.update(tools)
+        if persist:
+            self._persist_bypass.difference_update(resolved)
+            self._save_settings()
+        else:
+            self._session_bypass.difference_update(resolved)
+        return resolved
+
+    def get_bypass_status(self) -> dict:
+        """返回当前旁路状态。"""
+        return {
+            "session": sorted(self._session_bypass),
+            "persistent": sorted(self._persist_bypass),
+            "effective": sorted(self._session_bypass | self._persist_bypass),
+        }
 
     def _check_blacklist(self, command: str) -> Optional[str]:
         """检查命令是否命中黑名单"""

@@ -24,6 +24,7 @@ def build_tools(root: Optional[Path] = None, memory_manager=None) -> List:
     from capabilities.builtins.diff_patcher import ApplyPatchTool
     from capabilities.sandbox import Sandbox
     from capabilities.builtins.git_tools import GitDiffTool, GitLogTool, GitStatusTool
+    from capabilities.builtins.approval_control import ApprovalControlTool
     from capabilities.builtins.memory_tool import (
         LoadMemoryTool, WriteTopicTool, ReadTopicTool,
     )
@@ -47,5 +48,6 @@ def build_tools(root: Optional[Path] = None, memory_manager=None) -> List:
         GitDiffTool(root=root),
         GitLogTool(root=root),
         GitStatusTool(root=root),
+        ApprovalControlTool(),
         Sandbox(),
     ]

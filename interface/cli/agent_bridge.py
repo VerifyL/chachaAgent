@@ -236,6 +236,7 @@ class AgentBridge:
                     parent_tool_executor=self._executor,
                     project_root=self._root,
                     telemetry=self._telemetry,
+                    policy_engine=policy,
                 )
 
         # 3. ContextManager — 注入记忆和技能
@@ -336,6 +337,7 @@ class AgentBridge:
                     parent_tool_executor=self._executor,
                     project_root=self._root,
                     telemetry=self._telemetry,
+                    policy_engine=policy,
                 )
 
     # ====== 发送消息（委托 ChatEngine） ======
