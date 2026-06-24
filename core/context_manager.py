@@ -44,7 +44,7 @@ DEFAULT_SYSTEM_PROMPT = (
     "load_memory to look up what was already said. Only use tools if the "
     "information is NOT in the current conversation.\n"
     "- When the user says 'remember' or asks you to save information, use "
-    "the write_topicmber and write_topic tools to persist it. Do not just acknowledge.\n\n"
+    "the remember and write_topic tools to persist it. Do not just acknowledge.\n\n"
     "## Topic auto-recording (CRITICAL — do NOT skip)\n"
     "After EVERY meaningful exchange that involves any of the following, "
     "you MUST call write_topic to persist it. This is as important as giving "

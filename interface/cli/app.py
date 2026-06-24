@@ -6,6 +6,7 @@ Enter 发送，Ctrl+J 换行，支持多行粘贴/编辑。
 
 import asyncio
 import sys
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -136,7 +137,6 @@ class ChachaCLI:
             await self._run_dialog(text)
 
     async def _run_dialog(self, text: str) -> None:
-        import time
         t0 = time.monotonic()
         tokens = 0
         errors: list[str] = []
