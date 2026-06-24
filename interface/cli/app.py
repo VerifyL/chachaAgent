@@ -16,6 +16,7 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.formatted_text import HTML
+
 from rich.console import Console
 from rich.table import Table
 from rich import box
@@ -26,6 +27,29 @@ from core.session_service import SessionService
 from core.cli_theme import load_theme, write_default_theme
 
 RICH_CONSOLE = Console()
+
+# ====== 版本号 ======
+
+
+def _get_version(project_root: Path) -> str:
+    """从 pyproject.toml 或包元数据读取版本号"""
+    # 优先读取 pyproject.toml（开发模式改了立刻生效）
+    pyproject = project_root / "pyproject.toml"
+    if pyproject.exists():
+        try:
+            import tomllib
+        except ImportError:
+            import tomli as tomllib  # Python < 3.11
+        with open(pyproject, "rb") as f:
+            data = tomllib.load(f)
+        return data["project"]["version"]
+    # Fallback：从已安装包读取
+    import importlib.metadata
+    try:
+        return importlib.metadata.version("chachaAgent")
+    except importlib.metadata.PackageNotFoundError:
+        return "0.0.0"
+
 
 # ====== 多行续写标记 ======
 CONTINUE_MARKER = "... "
@@ -44,6 +68,7 @@ class ChachaCLI:
         self._session: Optional[SessionService] = None
         self._sending = False
         self._debug = False
+        self._version = _get_version(self._project)
 
         # 主题
         write_default_theme()
@@ -99,7 +124,7 @@ class ChachaCLI:
         init_msg = await self.initialize()
 
         # 欢迎
-        self._print_system("ChachaAgent v0.2 — " + self._project.name)
+        self._print_system(f"ChachaAgent v{self._version} — " + self._project.name)
         self._print_system(init_msg)
         if self._session.project_init._rules:
             self._print_system("[cyan]📜 CHACHA.md 已加载[/]")
@@ -455,7 +480,7 @@ class ChachaCLI:
 
     def _status_text(self) -> str:
         if not self._bridge:
-            return "ChachaAgent v0.2"
+            return f"ChachaAgent v{self._version}"
         extra = ""
         if self._session and self._session.rounds:
             extra = f" | 💬 {self._session.total_tokens}T | 🔄 {self._session.rounds}轮"
