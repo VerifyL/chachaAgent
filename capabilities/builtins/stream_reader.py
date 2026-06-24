@@ -38,45 +38,80 @@ _BINARY_EXTS = frozenset({
     ".ttf", ".otf", ".woff", ".woff2", ".eot",
 })
 
-# ====== 行号索引缓存（会话级） ======
+# ====== 行号索引缓存（会话级，带 mtime 校验） ======
 
-_line_index: Dict[str, List[int]] = {}   # path → [0, 42, 89, 137, ...]
+# path:mtime → [0, 42, 89, ...]
+_line_index: Dict[str, List[int]] = {}
+# 定时清理计数器
+_cleanup_counter = 0
 
 
 def _ensure_index(path: str) -> List[int]:
-    """获取文件的行首字节偏移索引。首次访问时 mmap 构建，之后直接返回缓存。"""
+    """获取文件的行首字节偏移索引。
+    
+    缓存 key = ``{abspath}::{mtime}``，文件外部修改后自动重建。
+    """
+    global _cleanup_counter
     abspath = os.path.abspath(path)
-    if abspath in _line_index:
-        return _line_index[abspath]
+    try:
+        mtime = os.path.getmtime(abspath)
+    except OSError:
+        return [0]
 
-    offsets = [0]  # 第 1 行首字节 = 0
+    key = f"{abspath}::{mtime}"
+    if key in _line_index:
+        return _line_index[key]
+
+    offsets = [0]
     try:
         with open(abspath, "rb") as f:
             if f.seek(0, 2) == 0:
-                # 空文件
-                _line_index[abspath] = offsets
+                _line_index[key] = offsets
                 return offsets
             mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
             try:
-                idx = 0
-                for b in mm:
-                    if b == 0x0A:  # \n
+                for idx in range(len(mm)):
+                    if mm[idx] == 0x0A:
                         offsets.append(idx + 1)
-                    idx += 1
             finally:
                 mm.close()
     except (OSError, ValueError) as e:
         logger.warning("mmap 索引失败: %s → %s", abspath, e)
         raise
 
-    _line_index[abspath] = offsets
+    # 添加新条目前清理过期缓存
+    _cleanup_counter += 1
+    if _cleanup_counter >= 50:
+        _cleanup_counter = 0
+        _clean_stale(abspath)
+
+    _line_index[key] = offsets
     return offsets
 
 
 def _invalidate(path: str) -> None:
-    """使指定文件的索引失效（文件被修改后调用）。"""
+    """使指定文件的索引失效（文件被修改后调用，下次读取自动重建）。"""
     abspath = os.path.abspath(path)
-    _line_index.pop(abspath, None)
+    # 删除所有该路径的缓存（不同 mtime 的条目）
+    keys = [k for k in _line_index if k.startswith(abspath + "::")]
+    for k in keys:
+        _line_index.pop(k, None)
+
+
+def _clean_stale(exclude_path: str) -> None:
+    """清除非当前文件的过期缓存条目（保留 200 条）。"""
+    if len(_line_index) <= 200:
+        return
+    # 保留当前文件 + 最近的 199 条
+    current_keys = [k for k in _line_index if k.startswith(exclude_path + "::")]
+    other_keys = sorted(
+        [k for k in _line_index if not k.startswith(exclude_path + "::")],
+        reverse=True,
+    )[:199]
+    keep = set(current_keys + other_keys)
+    for k in list(_line_index.keys()):
+        if k not in keep:
+            _line_index.pop(k, None)
 
 
 def read_by_offset(

@@ -156,6 +156,21 @@ class SubAgentSpawner:
     def _build_context(self, definition: SubAgentDef) -> ContextManager:
         """构建子Agent 专用 ContextManager"""
         mgr = ContextManager()
+        # 注入内存索引（让子Agent 了解项目历史）
+        if hasattr(self, '_parent_tools') and self._parent_tools:
+            try:
+                from core.context.memory_manager import MemoryManager
+                from pathlib import Path
+                if self._project_root:
+                    mm = MemoryManager(project_root=Path(self._project_root))
+                    idx = mm.read()
+                    if idx:
+                        mgr.set_memory_index(idx)
+                    perm = mm.read_permanent_memory()
+                    if perm:
+                        mgr.set_permanent_memory(perm)
+            except Exception:
+                pass
         return mgr
 
     def _build_tools(self, definition: SubAgentDef) -> ToolExecutor:

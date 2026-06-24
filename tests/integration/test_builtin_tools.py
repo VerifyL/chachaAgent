@@ -8,9 +8,16 @@ from pathlib import Path
 
 import pytest
 
-from capabilities.builtins.memory_tool import LoadMemoryTool
-from cas.builtins.chunk_streamer import ReadFileTool, GrepTool
+from core.context.memory_manager import MemoryManager
+from capabilities.builtins.memory_tool import LoadMemoryTool, WriteTopicTool
+from capabilities.builtins.chunk_streamer import ReadFileTool, GrepTool
 from capabilities.builtins.code_patcher import EditFileTool
+
+
+@pytest.fixture
+def memory():
+    d = Path(tempfile.mkdtemp())
+    return MemoryManager(project_id="test", base_dir=d, session_id="session-001")
 
 
 @pytest.fixture
@@ -50,9 +57,11 @@ async def test_read_then_grep(project_root):
 # ====== 记忆链 ======
 
 @pytest.mark.asyncio
-async def test_write_topic_then_read():
+async def test_write_topic_then_read(memory):
     """写入主题记忆 → 读取确认"""
-    from capabilities.builtins.memory_tool import WriteTopicT    l = LoadMemoryTool()
+    writer = WriteTopicTool(memory_manager=memory)
+    await writer.execute(topic="project-decisions", content="pytest test content")
+    l = LoadMemoryTool(memory_manager=memory)
     result = await l.execute(query="pytest")
     assert "pytest" in result.lower()
 
@@ -64,15 +73,15 @@ async def test_read_large_file_line_range(project_root):
     (project_root / "large.py").write_text("\n".join([f"line {i}" for i in range(5000)]))
 
     reader = ReadFileTool(root=project_root)
-    result = await reader.execute(path="large.py", start_line=100, end_line=110)
+    result = await reader.execute(path="large.py", offset=100, limit=11)
     assert "line 99" in result or "line 100" in result or "line 109" in result or "line 110" in result
 
 
 # ====== 空操作 ======
 
 @pytest.mark.asyncio
-async def test_load_memory_empty():
-    l = LoadMemoryTool()
+async def test_load_memory_empty(memory):
+    l = LoadMemoryTool(memory_manager=memory)
     result = await l.execute(query="")
     assert isinstance(result, str)
     assert len(result) > 0

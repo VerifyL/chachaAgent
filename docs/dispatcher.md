@@ -54,5 +54,9 @@ dispatcher = Dispatcher(
     tool_executor=executor,
     telemetry=telemetry,
     project_id="b33a37744e81",
+    context_window=1_048_576,  # 自适应 KEEP_TOOL_RESULTS
 )
+
+# 计数器（子Agent 用）
+print(dispatcher.tool_calls_made)  # 本轮工具调用次数
 ```

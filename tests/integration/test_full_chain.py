@@ -150,7 +150,6 @@ async def test_memory_chain():
     tools = ToolExecutor(tools=[
         LoadMemoryTool(memory_manager=mgr),
     ])
-    ])
 
     dispatcher = Dispatcher(invoker, tools)
 

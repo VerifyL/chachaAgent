@@ -19,12 +19,15 @@ bash(command="pytest tests/ -v", timeout=120)  # 自定义超时
 ```
 LLM 调用 bash 工具
   → ToolExecutor 查找
-  → PolicyEngine 黑名单检查（如 rm -rf 拦截）
-  → HookOrchestrator pre_tool_execution
+  → PolicyEngine 审批（high 风险，需 y/N）
   → Sandbox.execute()
-    → subprocess.run(shell=True, timeout)
-    → ANSI 清洗
-    → 输出截断到 100K 字符
+    → shlex.split() → 检测是否含 |&;<> 等 shell 语法
+      → 不含：Popen(args=...) 直接 exec
+      → 含 heredoc/管道：Popen(command, shell=True)
+    → 资源限制：60s CPU / 256MB 内存
+    → start_new_session 隔离进程组
+    → asyncio.to_thread(proc.communicate)
+    → ANSI 清洗 + 100K 输出截断
 ```
 
 ## 风险

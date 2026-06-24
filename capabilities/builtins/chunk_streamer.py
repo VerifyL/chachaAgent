@@ -51,7 +51,7 @@ class ReadFileTool(BaseTool):
     def __init__(self, root: Optional[Path] = None):
         self._root = Path(root).resolve() if root else Path.cwd().resolve()
 
-    async def execute(self, path: str, offset: int = 1, limit: int = 100,
+    async def execute(self, path: str, offset: int = 1, limit: int = 500,
                       symbol: str = "", context_lines: int = 0) -> str:
         # 符号跳转优先级最高
         if symbol:
@@ -87,71 +87,16 @@ class ReadFileTool(BaseTool):
         )
 
 
-# ====== 符号解析（跨语言） ======
+# ====== 符号解析（跨语言，使用共享模式） ======
 
-_LANG_PATTERNS = {
-    "go": [
-        (r"^func\s+(\w+)\s*\([^)]*\)", "func"),
-        (r"^type\s+(\w+)\s+struct", "struct"),
-        (r"^type\s+(\w+)\s+interface", "interface"),
-        (r"^func\s+\([^)]+\)\s+(\w+)\s*\([^)]*\)", "method"),
-    ],
-    "rust": [
-        (r"^\s*fn\s+(\w+)\s*\([^)]*\)", "fn"),
-        (r"^\s*struct\s+(\w+)", "struct"),
-        (r"^\s*enum\s+(\w+)", "enum"),
-        (r"^\s*trait\s+(\w+)", "trait"),
-        (r"^\s*impl\s+(\w+)", "impl"),
-        (r"^\s*fn\s+(\w+)\s*\(&?self[^)]*\)", "method"),
-    ],
-    "java": [
-        (r"(public|private|protected)?\s*(static|abstract|final)?\s*(class|interface|enum)\s+(\w+)", "type"),
-        (r"(public|private|protected)?\s*(static|final)?\s*\w+\s+(\w+)\s*\([^)]*\)", "method"),
-    ],
-    "kotlin": [
-        (r"^(class|interface|object|enum class)\s+(\w+)", "type"),
-        (r"^fun\s+(\w+)\s*\([^)]*\)", "fun"),
-    ],
-    "typescript": [
-        (r"^(export\s+)?(class|interface|type|enum)\s+(\w+)", "type"),
-        (r"^(export\s+)?(function|async function)\s+(\w+)", "func"),
-        (r"^(export\s+)?(const)\s+(\w+)\s*[:=]\s*\(?[^)]*\)?\s*=>", "const"),
-    ],
-    "javascript": [
-        (r"^(class)\s+(\w+)", "class"),
-        (r"^(function|async function)\s+(\w+)", "func"),
-        (r"^(const)\s+(\w+)\s*[:=]\s*\(?[^)]*\)?\s*=>", "const"),
-    ],
-    "swift": [
-        (r"^(class|struct|enum|protocol)\s+(\w+)", "type"),
-        (r"^func\s+(\w+)\s*\([^)]*\)", "func"),
-    ],
-    "ruby": [
-        (r"^(class|module)\s+(\w+)", "type"),
-        (r"^def\s+(\w+)", "def"),
-    ],
-    "php": [
-        (r"^(class|interface|trait|abstract class|final class)\s+(\w+)", "type"),
-        (r"function\s+(\w+)\s*\(", "func"),
-    ],
-    "scala": [
-        (r"^(class|object|trait|case class)\s+(\w+)", "type"),
-        (r"^def\s+(\w+)\s*\([^)]*\)", "def"),
-    ],
-}
+from capabilities.builtins.lang_patterns import (
+    LANG_MAP, LANG_PATTERNS, get_lang, resolve_regex, resolve_text,
+)
 
 
 def _resolve_symbol(root: Path, file_path: Path, symbol: str) -> int:
     """解析符号 → 行号（1-based），未找到返回 0。"""
     suffix = file_path.suffix.lower()
-    lang_map = {
-        ".py": "python", ".go": "go", ".rs": "rust",
-        ".java": "java", ".kt": "kotlin",
-        ".ts": "typescript", ".tsx": "typescript",
-        ".js": "javascript", ".jsx": "javascript",
-        ".swift": "swift", ".rb": "ruby",
-        ".php": "php", ".scala": "scala",
-    }
 
     try:
         content = str(file_path.read_text(encoding="utf-8", errors="replace"))
@@ -160,10 +105,11 @@ def _resolve_symbol(root: Path, file_path: Path, symbol: str) -> int:
 
     if suffix == ".py":
         return _resolve_python(content, symbol)
-    elif suffix in lang_map:
-        return _resolve_regex(content, symbol, _LANG_PATTERNS.get(lang_map[suffix], []))
+    lang = get_lang(suffix)
+    if lang and lang in LANG_PATTERNS:
+        return resolve_regex(content, symbol, LANG_PATTERNS[lang])
     else:
-        return _resolve_text(content, symbol)
+        return resolve_text(content, symbol)
 
 
 def _resolve_python(source: str, symbol: str) -> int:
@@ -183,31 +129,6 @@ def _resolve_python(source: str, symbol: str) -> int:
             for target in node.targets:
                 if isinstance(target, ast.Name) and target.id == symbol:
                     return node.lineno
-    return 0
-
-
-def _resolve_regex(content: str, symbol: str, patterns: list) -> int:
-    """正则匹配符号行号。"""
-    lines = content.split("\n")
-    for lineno, line in enumerate(lines, 1):
-        stripped = line.strip()
-        if not stripped or stripped.startswith(("//", "#", "/*", "*", "///")):
-            continue
-        for regex, _kind in patterns:
-            m = re.search(regex, stripped)
-            if m:
-                for g in m.groups():
-                    if g == symbol:
-                        return lineno
-    return 0
-
-
-def _resolve_text(content: str, symbol: str) -> int:
-    """纯文本搜索符号（适用于 Markdown/配置等）。"""
-    lines = content.split("\n")
-    for lineno, line in enumerate(lines, 1):
-        if symbol in line:
-            return lineno
     return 0
 
 

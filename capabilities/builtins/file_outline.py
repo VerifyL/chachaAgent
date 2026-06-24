@@ -70,15 +70,7 @@ class FileOutlineTool(BaseTool):
 
         # 3. 按扩展名分发
         suffix = raw.suffix.lower()
-        lang_map = {
-            ".py": "python", ".go": "go", ".rs": "rust",
-            ".java": "java", ".kt": "kotlin",
-            ".ts": "typescript", ".tsx": "typescript",
-            ".js": "javascript", ".jsx": "javascript",
-            ".swift": "swift", ".rb": "ruby",
-            ".php": "php", ".scala": "scala",
-        }
-        lang = lang_map.get(suffix)
+        lang = LANG_MAP.get(suffix)
         if lang:
             outline = _outline_regex(raw, suffix, lang)
             if outline:
@@ -244,61 +236,9 @@ def _outline_text(path: Path, size_str: str) -> str:
     return "\n".join(parts)
 
 
-# ====== 多语言支持（正则级） ======
+# ====== 多语言支持（使用共享模式 + 自有输出模板） ======
 
-_LANG_PATTERNS = {
-    "go": [
-        (r"^func\s+(\w+)\s*\([^)]*\)", "func {1}"),
-        (r"^type\s+(\w+)\s+struct", "struct {1}"),
-        (r"^type\s+(\w+)\s+interface", "interface {1}"),
-        (r"^func\s+\([^)]+\)\s+(\w+)\s*\([^)]*\)", "  func {1}"),
-    ],
-    "rust": [
-        (r"^\s*fn\s+(\w+)\s*\([^)]*\)", "fn {1}"),
-        (r"^\s*struct\s+(\w+)", "struct {1}"),
-        (r"^\s*enum\s+(\w+)", "enum {1}"),
-        (r"^\s*trait\s+(\w+)", "trait {1}"),
-        (r"^\s*impl\s+(\w+)", "impl {1}"),
-        (r"^\s*fn\s+(\w+)\s*\(&?self[^)]*\)", "  fn {1}"),
-    ],
-    "java": [
-        (r"(public|private|protected)?\s*(static|abstract|final)?\s*(class|interface|enum)\s+(\w+)",
-         r"\3 {4}"),
-        (r"(public|private|protected)?\s*(static|final)?\s*\w+\s+(\w+)\s*\([^)]*\)",
-         r"  {3}()"),
-    ],
-    "kotlin": [
-        (r"^(class|interface|object|enum class)\s+(\w+)", r"{1} {2}"),
-        (r"^fun\s+(\w+)\s*\([^)]*\)", "fun {1}"),
-    ],
-    "typescript": [
-        (r"^(export\s+)?(class|interface|type|enum)\s+(\w+)", r"\2 {3}"),
-        (r"^(export\s+)?(function|async function)\s+(\w+)", r"\2 {3}"),
-        (r"^(export\s+)?(const)\s+(\w+)\s*[:=]\s*\(?[^)]*\)?\s*=>", r"\2 {3}"),
-    ],
-    "javascript": [
-        (r"^(class)\s+(\w+)", r"{1} {2}"),
-        (r"^(function|async function)\s+(\w+)", r"{1} {2}"),
-        (r"^(const)\s+(\w+)\s*[:=]\s*\(?[^)]*\)?\s*=>", r"\1 {2}"),
-        (r"^(module\.exports|export default)", "export"),
-    ],
-    "swift": [
-        (r"^(class|struct|enum|protocol)\s+(\w+)", r"{1} {2}"),
-        (r"^func\s+(\w+)\s*\([^)]*\)", "func {1}"),
-    ],
-    "ruby": [
-        (r"^(class|module)\s+(\w+)", r"{1} {2}"),
-        (r"^def\s+(\w+)", "def {1}"),
-    ],
-    "php": [
-        (r"^(class|interface|trait|abstract class|final class)\s+(\w+)", r"{1} {2}"),
-        (r"function\s+(\w+)\s*\(", "  function {1}"),
-    ],
-    "scala": [
-        (r"^(class|object|trait|case class)\s+(\w+)", r"{1} {2}"),
-        (r"^def\s+(\w+)\s*\([^)]*\)", "def {1}"),
-    ],
-}
+from capabilities.builtins.lang_patterns import LANG_MAP, LANG_PATTERNS, get_lang
 
 
 def _outline_regex(path: Path, suffix: str, lang: str) -> Optional[str]:
@@ -309,7 +249,7 @@ def _outline_regex(path: Path, suffix: str, lang: str) -> Optional[str]:
         return None
     lines = content.split("\n")
     total = len(lines)
-    patterns = _LANG_PATTERNS.get(lang)
+    patterns = LANG_PATTERNS.get(lang)
     if not patterns:
         return None
 
@@ -321,32 +261,24 @@ def _outline_regex(path: Path, suffix: str, lang: str) -> Optional[str]:
         stripped = line.strip()
         if not stripped or stripped.startswith(("//", "#", "/*", "*", "///")):
             continue
-        for regex, template in patterns:
+        for regex, kind in patterns:
             m = re.search(regex, stripped)
             if m:
-                label = _apply_template(template, m)
-                # 去重
-                dedup_key = label.strip()
+                # 取第一个非空匹配组作为符号名
+                name = ""
+                for g in m.groups():
+                    if g:
+                        name = g.strip()
+                        break
+                if not name:
+                    continue
+                dedup_key = f"{kind}:{name}"
                 if dedup_key not in seen:
                     seen.add(dedup_key)
-                    indent = "  " if label.startswith("  ") else ""
-                    parts.append(f"{indent}{label.strip()}  # L{lineno}")
+                    parts.append(f"  {kind} {name}  # L{lineno}")
                 break
 
     return "\n".join(parts) if len(parts) > 1 else None
-
-
-def _apply_template(template: str, m: re.Match) -> str:
-    """将模板中的 {N} 替换为匹配组。"""
-    result = template
-    for i in range(1, 10):
-        try:
-            val = m.group(i)
-        except (IndexError, ValueError):
-            break
-        if val:
-            result = result.replace(f"{{{i}}}", val.strip())
-    return result
 
 
 # ====== 辅助 ======

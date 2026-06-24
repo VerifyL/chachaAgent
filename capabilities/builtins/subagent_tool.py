@@ -10,6 +10,7 @@ LLM 自主调用:
 """
 
 import logging
+import uuid
 from typing import Any, Optional
 
 from capabilities.base import BaseTool
@@ -67,15 +68,19 @@ class SubAgentTool(BaseTool):
                 telemetry=self._telemetry,
             )
 
-        import uuid
         subagent_id = f"sub-{type}-{uuid.uuid4().hex[:8]}"
         result = await self._spawner.spawn(type, task)
+        # 缓存完整结果供 expand_subagent 展开
+        from capabilities.builtins.expand_subagent import ExpandSubAgentTool
+        ExpandSubAgentTool.cache_result(subagent_id, result.text)
+
+        preview = result.text[:500] + ("..." if len(result.text) > 500 else "")
         return (
             f"[子Agent: {result.agent_type}] [ID: {subagent_id}]\n"
             f"任务: {result.task}\n"
             f"状态: {result.status}\n"
             f"Token: {result.tokens_used} | 工具调用: {result.tool_calls_made}次\n"
             f"耗时: {result.duration_ms}ms\n\n"
-            f"{result.text}\n\n"
+            f"{preview}\n\n"
             f"[使用 expand_subagent(\"{subagent_id}\") 查看详情]"
         )

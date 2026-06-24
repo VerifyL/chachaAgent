@@ -18,6 +18,7 @@ def build_tools(root: Optional[Path] = None, memory_manager=None) -> List:
     from capabilities.builtins.depe_analyzer import DepsAnalyzerTool
     from capabilities.builtins.code_intel import CodeIntelTool
     from capabilities.builtins.subagent_tool import SubAgentTool
+    from capabilities.builtins.expand_subagent import ExpandSubAgentTool
     from capabilities.builtins.chunk_streamer import ReadFileTool, ReadFilesTool, GrepTool
     from capabilities.builtins.code_patcher import EditFileTool
     from capabilities.builtins.diff_patcher import ApplyPatchTool
@@ -34,6 +35,7 @@ def build_tools(root: Optional[Path] = None, memory_manager=None) -> List:
         DepsAnalyzerTool(root=root),
         CodeIntelTool(root=root),
         SubAgentTool(),
+        ExpandSubAgentTool(),
         ReadFileTool(root=root),
         ReadFilesTool(root=root),
         GrepTool(root=root),

@@ -82,14 +82,18 @@ class EditFileTool(BaseTool):
                         if old_string in prev + chunk:
                             found = True
                         prev = chunk[-len(old_string):] if len(old_string) > 0 else ""
+                content = "".join(chunks)
                 if not found:
-                    snippet = old_string[:80] + ("..." if len(old_string) > 80 else "")
+                    # 找不到时显示文件头部，帮助 LLM 修正
+                    lines = content.split("\n")
+                    context_lines = "\n".join(f"  {i+1}: {l}" for i, l in enumerate(lines[:15]))
                     return (
                         f"[Error] old_string not found. "
-                        f"File may have been modified, use read_file to check current content.\n"
-                        f"Search snippet: '{snippet}'"
+                        f"File starts with:\n"
+                        f"{context_lines}\n"
+                        f"  ... ({len(lines)} lines total)\n"
+                        f"Please verify the exact text with read_file and try again."
                     )
-                content = "".join(chunks)
             else:
                 content = full_path.read_text(encoding="utf-8")
         except Exception as e:

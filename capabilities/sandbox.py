@@ -78,14 +78,25 @@ class Sandbox(BaseTool):
             return "[error] Empty command"
 
         filtered_env = self._build_filtered_env()
-
-        popen_kwargs = {
-            'args': cmd_list,
-            'stdout': subprocess.PIPE,
-            'stderr': subprocess.PIPE,
-            'text': True,
-            'env': filtered_env,
-        }
+        # 检测 shell 语法：heredoc/管道/重定向/组合命令
+        needs_shell = any(ch in command for ch in "|&;<>")
+        if needs_shell:
+            popen_kwargs = {
+                'args': command,
+                'stdout': subprocess.PIPE,
+                'stderr': subprocess.PIPE,
+                'text': True,
+                'env': filtered_env,
+                'shell': True,
+            }
+        else:
+            popen_kwargs = {
+                'args': cmd_list,
+                'stdout': subprocess.PIPE,
+                'stderr': subprocess.PIPE,
+                'text': True,
+                'env': filtered_env,
+            }
         if sys.platform != 'win32':
             popen_kwargs['start_new_session'] = True
             popen_kwargs['preexec_fn'] = self._set_resource_limits
