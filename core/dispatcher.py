@@ -138,6 +138,8 @@ class Dispatcher:
                         break
                     elif chunk.type == "error":
                         yield {"type": "error", "message": chunk.content}
+            except GeneratorExit:
+                return
             except Exception as e:
                 llm_ok = False
                 msg = str(e)

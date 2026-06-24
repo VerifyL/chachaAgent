@@ -185,6 +185,8 @@ class ChatEngine:
                 max_rounds=200,
             ):
                 yield chunk
+        except GeneratorExit:
+            return
         except Exception as e:
             yield {"type": "error", "message": str(e)}
 

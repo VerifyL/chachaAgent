@@ -5,6 +5,8 @@ Enter 发送，Ctrl+J 换行，支持多行粘贴/编辑。
 """
 
 import asyncio
+import os
+import signal
 import sys
 import time
 from pathlib import Path
@@ -27,6 +29,9 @@ RICH_CONSOLE = Console()
 
 # ====== 多行续写标记 ======
 CONTINUE_MARKER = "... "
+
+# ====== Ctrl+C 中断标志 ======
+_interrupted = False
 
 
 class ChachaCLI:
@@ -97,7 +102,7 @@ class ChachaCLI:
         self._print_system(init_msg)
         if self._session.project_init._rules:
             self._print_system("[cyan]📜 CHACHA.md 已加载[/]")
-        self._print_system("Ctrl+N 新会话  Ctrl+S 保存  Ctrl+F 调试  Ctrl+B 会话列表  Ctrl+X 压缩  Ctrl+L 清屏  Ctrl+R 推理  Ctrl+D 退出  Ctrl+J 换行  /help 命令")
+        self._print_system("Ctrl+N 新会话  Ctrl+S 保存  Ctrl+F 调试  Ctrl+B 会话列表  Ctrl+X 压缩  Ctrl+L 清屏  Ctrl+R 推理  Ctrl+C 中断  Ctrl+D 退出  Ctrl+\\ 强退  Ctrl+J 换行  /help 命令")
         self._print_system("")
 
         # 输入循环
@@ -137,13 +142,27 @@ class ChachaCLI:
         else:
             await self._run_dialog(text)
 
+    def _enable_tty_signals(self):
+        """临时启用 ISIG（Ctrl+C 在 raw 模式下生成 SIGINT）。"""
+        try:
+            import termios
+            attrs = termios.tcgetattr(sys.stdin.fileno())
+            attrs[3] |= termios.ISIG
+            termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, attrs)
+        except Exception:
+            pass
+
     async def _run_dialog(self, text: str) -> None:
+        global _interrupted
+        self._enable_tty_signals()
+
         t0 = time.monotonic()
         tokens = 0
         errors: list[str] = []
         response_parts: list[str] = []
         tool_trace: list[dict] = []
         in_tools = False
+        in_reasoning = False
         usage: dict = {}
 
         self._print_user(text)
@@ -154,23 +173,40 @@ class ChachaCLI:
                 text, session_id=self._session.session_id,
                 project_id=self._bridge._project_id or "",
             ):
-                if chunk["type"] == "text":
+                # Ctrl+C 中断检查
+                if _interrupted:
+                    _interrupted = False
+                    raise KeyboardInterrupt()
+
+                if chunk["type"] == "reasoning":
+                    if self._show_reasoning:
+                        RICH_CONSOLE.print(f"[dim]{chunk['content']}[/]", end="")
+                        in_reasoning = True
+
+                elif chunk["type"] == "text":
+                    if in_reasoning:
+                        RICH_CONSOLE.print()  # 思考 → 回答 换行
+                        in_reasoning = False
                     response_parts.append(chunk["content"])
                     if in_tools:
-                        # 工具阶段后的最终文本 → 关闭工具块再流式
                         in_tools = False
                         RICH_CONSOLE.print(f"[{self._t['separator']}]" + "─" * 30 + "[/]")
                     RICH_CONSOLE.print(chunk["content"], end="")
+
                 elif chunk["type"] == "tool_call_start":
+                    if in_reasoning:
+                        RICH_CONSOLE.print()  # 思考 → 工具 换行
+                        in_reasoning = False
                     if not in_tools:
                         in_tools = True
-                        RICH_CONSOLE.print()  # 换行
+                        RICH_CONSOLE.print()
                         RICH_CONSOLE.print(
                             f"[{self._t['separator']}]" + "━" * 30 + "[/]"
                         )
                     tool_trace.append({
                         "tool": chunk["tool_name"], "t0": time.monotonic(),
                     })
+
                 elif chunk["type"] == "tool_exec_start":
                     if tool_trace:
                         t = tool_trace[-1]
@@ -180,23 +216,26 @@ class ChachaCLI:
                         RICH_CONSOLE.print(f"  [{self._t['tool_thinking']}]🔧 {chunk['tool_name']} — {args_text}[/]")
                     else:
                         RICH_CONSOLE.print(f"  [{self._t['tool_thinking']}]🔧 {chunk['tool_name']}[/]")
+
                 elif chunk["type"] == "tool_call_end":
                     if tool_trace:
                         t = tool_trace[-1]
                         t["ms"] = int((time.monotonic() - t["t0"]) * 1000)
+
                 elif chunk["type"] == "error":
                     errors.append(chunk["message"])
                     RICH_CONSOLE.print(f"[red]错误: {chunk['message']}[/]")
-                elif chunk["type"] == "reasoning":
-                    if self._show_reasoning:
-                        RICH_CONSOLE.print(f"[dim]{chunk['content']}[/]", end="")
+
                 elif chunk["type"] == "done":
                     tokens = chunk.get("tokens", 0)
                     usage = chunk.get("usage", {}) if chunk.get("usage") else usage
+
                 elif chunk["type"] == "compact":
                     self._print_system(f"🔄 自动压缩: {chunk['reason']}")
+
         except KeyboardInterrupt:
-            RICH_CONSOLE.print(f"\n⏹ 已中断")
+            RICH_CONSOLE.print(f"\n[{self._t['separator']}]" + "─" * 30 + "[/]")
+            RICH_CONSOLE.print(f"[yellow]⏹ 已中断[/]")
         except Exception as e:
             errors.append(str(e))
             RICH_CONSOLE.print(f"[red]异常: {e}[/]")
@@ -230,8 +269,6 @@ class ChachaCLI:
         RICH_CONSOLE.print()
         RICH_CONSOLE.print(f"[{self._t['audit']}]{audit}[/]")
         RICH_CONSOLE.print(f"[{self._t['separator']}]" + "─" * 40 + "[/]")
-
-        # Checkpoint 已在 ChatEngine.save_checkpoint() 中自动保存
 
     # ====== 命令 ======
 
@@ -408,6 +445,10 @@ class ChachaCLI:
             status = "开" if self._show_reasoning else "关"
             self._print_system(f"🧠 思考过程: {status}")
 
+        @kb.add("c-\\")
+        def _(event):
+            os._exit(0)
+
         return kb
 
     def _status_text(self) -> str:
@@ -494,7 +535,9 @@ class ChachaCLI:
                 ("Ctrl+X", "压缩上下文"),
                 ("Ctrl+L", "清屏"),
                 ("Ctrl+R", "切换推理显示"),
+                ("Ctrl+C", "中断回答"),
                 ("Ctrl+D", "退出程序"),
+                ("Ctrl+\\", "强制退出"),
                 ("Ctrl+J", "插入换行"),
             ],
         }
@@ -518,23 +561,21 @@ def main():
     project = sys.argv[1] if len(sys.argv) > 1 else "."
     cli = ChachaCLI(project)
 
-    # Python 3.12 的 asyncio.run() 自带 _on_sigint 会：
-    #  1. task.cancel() → 协程收到 CancelledError 而非 KeyboardInterrupt
-    #  2. raise KeyboardInterrupt → 事件循环层直接炸开
-    # 导致协程内部 except KeyboardInterrupt 永远捕获不到。
-    # 解决方案：手动管理事件循环，绕过 asyncio.run() 的 SIGINT 劫持。
+    # Ctrl+C → 中断标志（C 级 signal，绕过 asyncio 屏蔽）
+    # Ctrl+\ → 立即强制退出
+    def _on_sigint(_sig, _frame):
+        global _interrupted
+        _interrupted = True
+    signal.signal(signal.SIGINT, _on_sigint)
+    signal.signal(signal.SIGQUIT, lambda *_: os._exit(0))
+
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
         loop.run_until_complete(cli.run())
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, asyncio.CancelledError):
         pass
     finally:
-        # 模拟 asyncio.run() 的清理逻辑
-        try:
-            loop.run_until_complete(loop.shutdown_asyncgens())
-        except Exception:
-            pass
         try:
             loop.run_until_complete(loop.shutdown_default_executor())
         except Exception:

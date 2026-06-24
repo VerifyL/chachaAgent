@@ -122,6 +122,8 @@ class LLMInvoker:
             else:
                 async for chunk in self._client.stream(messages, tools):
                     yield chunk
+        except GeneratorExit:
+            return
         except (KeyboardInterrupt, asyncio.CancelledError):
             yield StreamChunk(type="error", content="用户中断")
 

@@ -330,6 +330,8 @@ class Orchestrator:
                     response_parts.append(chunk.get("content", ""))
 
                 yield chunk
+        except GeneratorExit:
+            return
         except Exception as e:
             yield {"type": "error", "message": str(e)}
 

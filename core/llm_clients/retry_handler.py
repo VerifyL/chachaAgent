@@ -41,6 +41,8 @@ class RetryHandler:
                 async for chunk in gen_fn(*args, **kwargs):
                     yield chunk
                 return
+            except GeneratorExit:
+                return
             except (KeyboardInterrupt, asyncio.CancelledError):
                 return
             except Exception as e:
