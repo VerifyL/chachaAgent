@@ -117,6 +117,7 @@ class CodeIntelTool(BaseTool):
         self._root = Path(root).resolve() if root else Path.cwd().resolve()
         self._index: Optional[Dict[str, ast.AST]] = None
         self._source_cache: Optional[Dict[str, List[str]]] = None
+        self._index_mtimes: Dict[str, float] = {}  # rel_path → st_mtime
 
     # ====== 公共入口 ======
 
@@ -126,9 +127,9 @@ class CodeIntelTool(BaseTool):
         custom_pattern: Optional[Dict[str, str]] = None,
         file_filter: Optional[str] = None,
     ) -> str:
-        # 构建/刷新索引（file_filter 变化时重建）
+        # 构建/刷新索引（file_filter 变化或文件 mtime 变化时重建）
         cache_key = file_filter or "__full__"
-        if self._index is None or getattr(self, "_filter_key", None) != cache_key:
+        if self._index is None or getattr(self, "_filter_key", None) != cache_key or self._is_index_stale():
             self._build_index(file_filter)
             self._filter_key = cache_key
 
@@ -163,6 +164,7 @@ class CodeIntelTool(BaseTool):
         """遍历项目所有 .py 文件，构建 AST 索引。"""
         self._index = {}
         self._source_cache = {}
+        self._index_mtimes = {}
         py_files: List[Path] = []
 
         if file_filter:
@@ -177,18 +179,35 @@ class CodeIntelTool(BaseTool):
 
         for fpath in py_files:
             try:
-                if fpath.stat().st_size > MAX_FILE_SIZE:
+                st = fpath.stat()
+                if st.st_size > MAX_FILE_SIZE:
                     continue
                 source = fpath.read_text(encoding="utf-8", errors="replace")
                 tree = _patch_parents(ast.parse(source))
                 rel = str(fpath.relative_to(self._root))
                 self._index[rel] = tree
                 self._source_cache[rel] = source.split("\n")
+                self._index_mtimes[rel] = st.st_mtime
             except (SyntaxError, UnicodeDecodeError, OSError) as e:
                 logger.debug("跳过 %s: %s", fpath, e)
                 continue
 
         logger.info("索引构建完成: %d 个文件", len(self._index))
+
+    def _is_index_stale(self) -> bool:
+        """检查已索引文件是否被外部修改（mtime 比对）。"""
+        if not self._index_mtimes:
+            return False
+        root = self._root
+        for rel_path, cached_mtime in self._index_mtimes.items():
+            fpath = root / rel_path
+            try:
+                if fpath.stat().st_mtime != cached_mtime:
+                    return True
+            except OSError:
+                # 文件被删除
+                return True
+        return False
 
     def _collect_py_files(self, directory: Path) -> List[Path]:
         """递归收集 .py 文件，跳过排除目录。"""
