@@ -45,6 +45,8 @@ class RetryHandler:
                 return
             except GeneratorExit:
                 return
+            except GeneratorExit:
+                return
             except (KeyboardInterrupt, asyncio.CancelledError):
                 return
             except Exception as e:

@@ -142,6 +142,8 @@ class Dispatcher:
                 return
             except GeneratorExit:
                 return
+            except GeneratorExit:
+                return
             except Exception as e:
                 llm_ok = False
                 msg = str(e)
@@ -216,6 +218,7 @@ class Dispatcher:
 
             # Phase 2: 并发执行所有工具（ToolExecutor 内部 Semaphore(5) 兜底）
             results = await asyncio.gather(*tasks, return_exceptions=True)
+
 
             # Phase 3: 按原始顺序处理结果（Circuit Breaker 顺序累加，行为不变）
             for i, (tc_info, arg_summary) in enumerate(_tc_infos):

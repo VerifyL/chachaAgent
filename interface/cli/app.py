@@ -32,6 +32,7 @@ CONTINUE_MARKER = "... "
 
 # ====== Ctrl+C 中断标志 ======
 _interrupted = False
+_in_approval = False  # input() 阻塞时允许抛 KeyboardInterrupt
 
 
 class ChachaCLI:
@@ -143,11 +144,12 @@ class ChachaCLI:
             await self._run_dialog(text)
 
     def _enable_tty_signals(self):
-        """临时启用 ISIG（Ctrl+C 在 raw 模式下生成 SIGINT）。"""
+        """临时切到 cook 模式：信号 + 换行翻译 + 回显"""
         try:
             import termios
             attrs = termios.tcgetattr(sys.stdin.fileno())
-            attrs[3] |= termios.ISIG
+            attrs[0] |= termios.ICRNL   # \r → \n 翻译
+            attrs[3] |= termios.ISIG | termios.ICANON | termios.ECHO
             termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, attrs)
         except Exception:
             pass
@@ -564,8 +566,11 @@ def main():
     # Ctrl+C → 中断标志（C 级 signal，绕过 asyncio 屏蔽）
     # Ctrl+\ → 立即强制退出（包括审批阻塞时）
     def _on_sigint(_sig, _frame):
-        global _interrupted
+        global _interrupted, _in_approval
         _interrupted = True
+        if _in_approval:
+            raise KeyboardInterrupt
+
     signal.signal(signal.SIGINT, _on_sigint)
     signal.signal(signal.SIGQUIT, lambda *_: os._exit(0))
 

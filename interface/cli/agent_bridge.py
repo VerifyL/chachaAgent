@@ -16,29 +16,13 @@ logger = logging.getLogger(__name__)
 
 
 def _interruptible_input(prompt: str) -> str:
-    sys.stdout.write(prompt)
-    sys.stdout.flush()
-    buf = []
-    while True:
-        try:
-            from interface.cli.app import _interrupted
-        except ImportError:
-            _interrupted = False
-        if _interrupted:
-            raise KeyboardInterrupt()
-        r, _, _ = select.select([sys.stdin], [], [], 0.1)
-        if r:
-            ch = sys.stdin.read(1)
-            if not ch:
-                raise EOFError()
-            if ch == '\n':
-                break
-            buf.append(ch)
-            sys.stdout.write(ch)
-            sys.stdout.flush()
-    sys.stdout.write('\n')
-    sys.stdout.flush()
-    return ''.join(buf)
+    """原生 input() + _in_approval 标志（signal handler 在审批时抛 KeyboardInterrupt）。"""
+    import interface.cli.app as _app
+    _app._in_approval = True
+    try:
+        return input(prompt)
+    finally:
+        _app._in_approval = False
 
 
 class AgentBridge:
@@ -219,7 +203,9 @@ class AgentBridge:
             default_hint = "[Y/n]" if default == "y" else "[y/N]"
             try:
                 answer = _interruptible_input(f"   是否执行？{default_hint}: ").strip().lower()
-            except (EOFError, KeyboardInterrupt):
+            except KeyboardInterrupt:
+                return False
+            except EOFError:
                 return False
             if not answer:
                 return default == "y"
@@ -318,7 +304,9 @@ class AgentBridge:
             default_hint = "[Y/n]" if default == "y" else "[y/N]"
             try:
                 answer = _interruptible_input(f"   是否执行？{default_hint}: ").strip().lower()
-            except (EOFError, KeyboardInterrupt):
+            except KeyboardInterrupt:
+                return False
+            except EOFError:
                 return False
             if not answer:
                 return default == "y"
