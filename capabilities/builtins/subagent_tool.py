@@ -50,7 +50,7 @@ class SubAgentTool(BaseTool):
         self._telemetry = None
 
     def configure(self, llm_invoker, parent_tool_executor,
-                  project_root=None, telemetry=None) -> None:
+                  project_root=None, telemetry=None, policy_engine=None) -> None:
         """由 AgentBridge.initialize() 调用，注入运行时依赖。"""
         self._llm = llm_invoker
         self._parent_executor = parent_tool_executor
