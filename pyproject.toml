@@ -28,7 +28,6 @@ dependencies = [
     "prompt-toolkit>=3.0",
     "rich>=13.0",
     "tomli>=2.0",
-    "openai>=1.0",
     "anthropic>=0.18",
     "ollama>=0.1",
     "lancedb>=0.3",
