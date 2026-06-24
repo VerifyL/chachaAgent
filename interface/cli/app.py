@@ -562,7 +562,7 @@ def main():
     cli = ChachaCLI(project)
 
     # Ctrl+C → 中断标志（C 级 signal，绕过 asyncio 屏蔽）
-    # Ctrl+\ → 立即强制退出
+    # Ctrl+\ → 立即强制退出（包括审批阻塞时）
     def _on_sigint(_sig, _frame):
         global _interrupted
         _interrupted = True

@@ -5,12 +5,40 @@ AgentBridge — CLI ↔ 核心的薄桥接层。消息历史 + 压缩托管给 C
 
 import logging
 import os
+import select
+import sys
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, List, Optional
 
 from core.chat_engine import ChatEngine
 
 logger = logging.getLogger(__name__)
+
+
+def _interruptible_input(prompt: str) -> str:
+    sys.stdout.write(prompt)
+    sys.stdout.flush()
+    buf = []
+    while True:
+        try:
+            from interface.cli.app import _interrupted
+        except ImportError:
+            _interrupted = False
+        if _interrupted:
+            raise KeyboardInterrupt()
+        r, _, _ = select.select([sys.stdin], [], [], 0.1)
+        if r:
+            ch = sys.stdin.read(1)
+            if not ch:
+                raise EOFError()
+            if ch == '\n':
+                break
+            buf.append(ch)
+            sys.stdout.write(ch)
+            sys.stdout.flush()
+    sys.stdout.write('\n')
+    sys.stdout.flush()
+    return ''.join(buf)
 
 
 class AgentBridge:
@@ -190,7 +218,7 @@ class AgentBridge:
                 default = "y"
             default_hint = "[Y/n]" if default == "y" else "[y/N]"
             try:
-                answer = input(f"   是否执行？{default_hint}: ").strip().lower()
+                answer = _interruptible_input(f"   是否执行？{default_hint}: ").strip().lower()
             except (EOFError, KeyboardInterrupt):
                 return False
             if not answer:
@@ -289,7 +317,7 @@ class AgentBridge:
                 default = "y"
             default_hint = "[Y/n]" if default == "y" else "[y/N]"
             try:
-                answer = input(f"   是否执行？{default_hint}: ").strip().lower()
+                answer = _interruptible_input(f"   是否执行？{default_hint}: ").strip().lower()
             except (EOFError, KeyboardInterrupt):
                 return False
             if not answer:

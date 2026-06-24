@@ -140,6 +140,8 @@ class Dispatcher:
                         yield {"type": "error", "message": chunk.content}
             except GeneratorExit:
                 return
+            except GeneratorExit:
+                return
             except Exception as e:
                 llm_ok = False
                 msg = str(e)
