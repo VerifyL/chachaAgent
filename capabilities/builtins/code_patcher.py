@@ -32,9 +32,11 @@ class EditFileTool(BaseTool):
 
     name = "edit_file"
     description = (
-        "精确替换文件内容。old_string 必须唯一匹配（避免误改），"
+        "精确替换文件内容，适合小范围修改（<50行）。"
+        "old_string 必须唯一匹配（避免误改），"
         "自动备份到 .chacha_agent/backups/。"
         "old_string='' 时可创建新文件。"
+        "大范围或多文件修改请使用 apply_patch。"
     )
     parameters = {
         "type": "object",
@@ -63,7 +65,11 @@ class EditFileTool(BaseTool):
         try:
             full_path.relative_to(self._root)
         except ValueError:
-            return "[错误] 访问被拒绝: 路径超出项目根目录"
+            # 允许写入 ~/.chacha/ 目录（用户工具、配置）
+            if Path.home() / ".chacha" in full_path.parents or full_path == Path.home() / ".chacha":
+                pass  # 放行
+            else:
+                return "[错误] 访问被拒绝: 路径超出项目根目录"
 
         # 文件不存在 + old_string 为空 → 创建新文件
         if not full_path.exists():

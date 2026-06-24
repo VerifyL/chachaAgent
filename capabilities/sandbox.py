@@ -130,7 +130,13 @@ class Sandbox(BaseTool):
         output = output.strip() or f"(exit={proc.returncode})"
 
         if len(output) > MAX_OUTPUT_CHARS:
-            output = output[:MAX_OUTPUT_CHARS] + "\n... [output truncated]"
+            cut = output[:MAX_OUTPUT_CHARS]
+            last_nl = cut.rfind("\n")
+            if last_nl > MAX_OUTPUT_CHARS // 2:
+                cut = cut[:last_nl]
+            remaining = len(output) - len(cut)
+            output = f"{cut}\n... [output truncated, {remaining} chars remaining. hint: use head/tail]"
+
 
         return output
 

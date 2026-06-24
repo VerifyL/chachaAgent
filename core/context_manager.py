@@ -292,7 +292,15 @@ class ContextManager:
             elif isinstance(event, ObservationEvent):
                 content = event.content
                 if event.truncated:
-                    content = content[:500] + f"\n...[截断，原始 {len(event.content)} 字符]"
+                    # 分级截断：保留更多可读内容
+                    max_chars = 8000
+                    if len(event.content) > max_chars:
+                        content = event.content[:max_chars] + (
+                            f"\n...[截断，原始 {len(event.content)} 字符，"
+                            f"可用 cache_key 续读]"
+                        )
+                    else:
+                        content = event.content
                 blocks.append(ContextBlock(
                     source=BlockSource.TOOL_RESULT,
                     role="tool",

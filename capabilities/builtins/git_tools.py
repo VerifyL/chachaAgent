@@ -152,7 +152,9 @@ class GitDiffTool(BaseTool):
             lines = output.split("\n")
             response_base["total_lines"] = len(lines)
             if len(lines) > _DEFAULT_MAX_DIFF_LINES:
-                response_base["output"] = "\n".join(lines[:_DEFAULT_MAX_DIFF_LINES])
+                response_base["output"] = "\n".join(lines[:_DEFAULT_MAX_DIFF_LINES]) + (
+                    f"\n... [截断: {_DEFAULT_MAX_DIFF_LINES}/{len(lines)} 行。hint: 用 path 参数过滤]"
+                )
                 response_base["truncated"] = True
                 response_base["shown_lines"] = _DEFAULT_MAX_DIFF_LINES
             else:
@@ -228,7 +230,7 @@ class GitDiffTool(BaseTool):
             lines = output.split("\n")
             response["total_lines"] = len(lines)
             if len(lines) > _DEFAULT_MAX_DIFF_LINES:
-                response["output"] = "\n".join(lines[:_DEFAULT_MAX_DIFF_LINES])
+                response["output"] = "\n".join(lines[:_DEFAULT_MAX_DIFF_LINES]) + f"\n... [截断: {_DEFAULT_MAX_DIFF_LINES}/{len(lines)} 行。hint: 用 path 参数过滤]"
                 response["truncated"] = True
                 response["shown_lines"] = _DEFAULT_MAX_DIFF_LINES
             else:

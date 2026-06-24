@@ -211,6 +211,9 @@ class PolicyEngine:
         self._settings_path = Path.home() / ".chacha" / "settings.json"
         self._persist_bypass: Set[str] = self._load_settings()
 
+        # 源码保护路径（自动发现安装路径）
+        self._PROTECTED_PATHS: List[str] = self._discover_protected_paths()
+
         # 分类名 -> 工具名映射
         self._category_map: Dict[str, Set[str]] = {
             "all":       {"*"},
@@ -305,7 +308,20 @@ class PolicyEngine:
         command_or_action: str = "",
         session_id: str = "",
         risk_factors: Optional[RiskFactors] = None,
+        parameters: Optional[Dict[str, Any]] = None,
     ) -> PolicyDecision:
+        # -1. 源码保护检查（最高优先级，不可旁路）
+        if parameters:
+            hit = self._targets_protected_path(tool_name, parameters)
+            if hit:
+                self._emit_metric(tool_name, "blocked")
+                return PolicyDecision(
+                    allowed=False,
+                    risk_level=RiskLevel.CRITICAL,
+                    risk_score=100.0,
+                    blocked_reason=f"chachaAgent 源码受保护，不可修改 ({hit})",
+                )
+
         # 0. 审批旁路检查（会话级 || 持久化）
         if self._is_bypassed(tool_name):
             self._emit_metric(tool_name, "bypassed")
@@ -422,6 +438,56 @@ class PolicyEngine:
         self._circuit_breaker.reset()
 
     # ====== 内部 ======
+
+    # ====== 源码保护 ======
+
+    def _discover_protected_paths(self) -> List[str]:
+        """发现受保护的 chachaagent 安装路径（仅搜索常见位置）。"""
+        paths: List[str] = ["site-packages/chachaagent"]  # 核心标记，始终存在
+        # 常见 Python 安装位置（避免全量递归家目录）
+        search_roots: List[Path] = []
+        home = Path.home()
+        search_roots.extend([
+            home / ".local",
+            home / ".pyenv",
+            home / "Library" / "Python",
+            Path("/usr/local/lib"),
+            Path("/usr/lib"),
+            Path("/opt/homebrew/lib"),
+        ])
+        for root in search_roots:
+            try:
+                for p in root.glob("**/site-packages/chachaagent"):
+                    if p.is_dir():
+                        paths.append(str(p))
+            except (OSError, PermissionError):
+                continue
+        # 已安装位置（开发模式下 spec.origin 指向 src 目录，不会进入此分支）
+        import importlib.util
+        try:
+            spec = importlib.util.find_spec("chachaagent")
+            if spec and spec.origin and "site-packages" in spec.origin:
+                paths.append(str(Path(spec.origin).parent))
+        except Exception:
+            pass
+        return paths
+
+    def _targets_protected_path(
+        self, tool_name: str, parameters: Dict[str, Any]
+    ) -> Optional[str]:
+        """检测工具参数是否命中 site-packages/chachaagent。严格子串匹配。"""
+        if tool_name == "edit_file":
+            target = str(parameters.get("path", ""))
+        elif tool_name == "apply_patch":
+            target = str(parameters.get("diff", ""))
+        elif tool_name == "bash":
+            target = str(parameters.get("command", ""))
+        else:
+            return None
+        for protected in self._PROTECTED_PATHS:
+            if protected and protected in target:
+                return protected
+        return None
 
     # ====== 审批旁路 ======
 

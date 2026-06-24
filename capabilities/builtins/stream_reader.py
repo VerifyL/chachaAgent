@@ -287,6 +287,7 @@ def read_by_offset(
         if nl > 0:
             content = content[:nl]
         lines_read = content.count("\n")
+        content += f"\n... [截断。续读: offset={next_offset}]"
         truncated = True
 
     rel = str(raw.relative_to(root) if raw.is_relative_to(root) else raw)

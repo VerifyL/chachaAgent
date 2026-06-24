@@ -120,7 +120,7 @@ class ToolExecutor:
         max_concurrent: int = 5,
         default_timeout: float = 60.0,
         max_retries: int = 2,
-        max_output_chars: int = 100_000,
+        max_output_chars: int = 200_000,
     ):
         self._tools: dict[str, Any] = {}
         self._tool_objects: list = list(tools or [])
@@ -142,6 +142,7 @@ class ToolExecutor:
         self._timeout = default_timeout
         self._max_retries = max_retries
         self._max_output_chars = max_output_chars
+        self._output_cache: Dict[str, tuple[str, float]] = {}  # cache_key → (full_output, expiry_ts)
 
     # ====== 公开接口 ======
 
@@ -176,6 +177,7 @@ class ToolExecutor:
             decision = self._policy.evaluate_tool(
                 tool_name, command_or_action=str(arguments.get("cmd", "")),
                 session_id=session_id,
+                parameters=arguments,
             )
             if not decision.allowed:
                 return ToolResult(
@@ -248,10 +250,24 @@ class ToolExecutor:
         # 3. 执行（带超时 + 重试）
         output, error, status = await self._execute_with_retry(tool_name, arguments)
 
-        # 4. 截断超长输出
+        # 4. 智能截断（在 \n 边界，不切断行）
         truncated = False
+        cache_key = ""
         if len(output) > self._max_output_chars:
-            output = output[:self._max_output_chars] + "\n... [truncated]"
+            # 在 \n 边界截断，避免切断行
+            cut = output[:self._max_output_chars]
+            last_nl = cut.rfind("\n")
+            if last_nl > self._max_output_chars // 2:
+                cut = cut[:last_nl]
+            remaining = len(output) - len(cut)
+            # 缓存完整输出，生成续读 key
+            import hashlib, time
+            cache_key = hashlib.md5(f"{tool_name}:{tool_use_id}:{time.time()}".encode()).hexdigest()[:12]
+            self._output_cache[cache_key] = (output, time.time())
+            self._cleanup_cache()
+            # 分页提示（根据工具类型给出具体建议）
+            hint = self._truncation_hint(tool_name, arguments, remaining)
+            output = f"{cut}\n... [截断，剩余 {remaining} 字符。续读: cache_key={cache_key}]\n{hint}"
             truncated = True
 
         duration = int((time.monotonic() - t0) * 1000)
@@ -360,6 +376,48 @@ class ToolExecutor:
                 return "", f"{type(e).__name__}: {e}", "error"
 
         return "", last_error or "unknown", "timeout"
+
+
+    # ====== 截断辅助 ======
+
+    @staticmethod
+    def _truncation_hint(tool_name: str, arguments: Dict[str, Any], remaining: int) -> str:
+        """根据工具类型生成分页/续读提示。"""
+        if tool_name in ("git_diff",):
+            return '[hint] 输出过大，可用 git_diff(path="...") 按文件过滤查看'
+        if tool_name == "git_log":
+            return '[hint] 可用 git_log(n=5, path="...") 缩小范围'
+        if tool_name == "bash":
+            return '[hint] 可用 bash("... | head -n N") 或 tail 缩小输出'
+        if tool_name == "grep":
+            offset = arguments.get("offset", 0)
+            limit = arguments.get("limit", 200)
+            return f"[hint] 可用 offset={offset + limit} 查看下一页"
+        if tool_name == "read_file":
+            offset = arguments.get("offset", 1)
+            limit = arguments.get("limit", 100)
+            return f"[hint] 可用 offset={offset + limit} 续读下一页"
+        return f"[hint] 可用 cache_key 续读完整输出"
+
+    def _get_cached_output(self, cache_key: str, offset: int = 0, limit: int = 500) -> str:
+        """获取缓存的完整输出（分页）。"""
+        entry = self._output_cache.get(cache_key)
+        if entry is None:
+            return "[错误] 缓存已过期或不存在，请重新执行原始工具调用"
+        full_output, _ = entry
+        chunk = full_output[offset:offset + limit]
+        has_more = offset + limit < len(full_output)
+        result = f"[cache_key={cache_key}] offset={offset} limit={limit}\n{chunk}"
+        if has_more:
+            result += f"\n... [还有 {len(full_output) - offset - limit} 字符，续读: offset={offset + limit}]"
+        return result
+
+    def _cleanup_cache(self) -> None:
+        """清理超过 5 分钟的过期缓存。"""
+        now = time.time()
+        expired = [k for k, (_, ts) in self._output_cache.items() if now - ts > 300]
+        for k in expired:
+            self._output_cache.pop(k, None)
 
     # ====== 审批辅助 ======
 

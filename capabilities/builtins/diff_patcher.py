@@ -29,10 +29,10 @@ class ApplyPatchTool(BaseTool):
 
     name = "apply_patch"
     description = (
-        "应用 unified diff 补丁到项目文件。"
+        "应用 unified diff 补丁，适合中大型修改（>50行或多文件）。"
         "支持多文件、多位置编辑，一次调用完成。"
         "diff 必须是 unified diff 格式（git diff / diff -u 输出）。"
-        "自动干跑检查，无误后再应用。"
+        "自动干跑检查，无误后再应用。小范围修改请使用 edit_file。"
     )
     parameters = {
         "type": "object",
