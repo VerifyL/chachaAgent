@@ -153,9 +153,33 @@ engine._circuit_breaker.on_success()  # HALF_OPEN → CLOSED
 
 ---
 
-## 5. 使用示例
+## 5. 源码保护（site-packages 写入拦截）
 
-### 5.1 基本评估
+`_targets_protected_path()` 拦截对 **任意** `site-packages` 目录下文件的写入操作，保护已安装的第三方库不被意外修改。
+
+### 5.1 保护范围
+
+| 受保护 | 不受保护 |
+|--------|----------|
+| `/usr/lib/python3/site-packages/requests/api.py` | `~/my-site-packages-backup/file.py` |
+| `~/.local/lib/site-packages/numpy/core.py` | `site-packages-backup/foo` |
+| `X:/Python/Lib/site-packages/flask/app.py` | 任意不含 `site-packages` 组件的路径 |
+
+**匹配规则**：`site-packages` 必须作为完整路径组件出现（正则：`(^|[/\\])site-packages($|[/\\])`），避免误杀 `my-site-packages-backup` 等。
+
+### 5.2 受影响的工具
+
+仅 `edit_file`、`apply_patch`、`bash` 三个写入类工具会触发检测。`path` / `diff` / `command` 参数被扫描，命中后直接返回 blocked。
+
+### 5.3 发现逻辑
+
+`_discover_protected_paths()` 搜索常见 Python 安装位置（如 `sys.prefix`、`~/.local`、Homebrew 等）下的 `site-packages` 目录，但核心标记 `"site-packages"` **始终存在**，确保即便未找到具体路径，模糊匹配仍然生效。
+
+---
+
+## 6. 使用示例
+
+### 6.1 基本评估
 
 ```python
 from core.policy_engine import PolicyEngine, RiskFactors
@@ -177,7 +201,7 @@ d = engine.evaluate_tool("shell", "rm -rf /", "s1")
 assert not d.allowed  # 被黑名单拦截
 ```
 
-### 5.2 自定义风险因子
+### 6.2 自定义风险因子
 
 ```python
 # 高风险操作（删除生产数据）
@@ -192,7 +216,7 @@ d = engine.evaluate_tool("shell", "DROP TABLE users", "s1", risk_factors=factors
 assert d.risk_level == RiskLevel.CRITICAL
 ```
 
-### 5.3 成本控制
+### 6.3 成本控制
 
 ```python
 # 每次 LLM 调用前
@@ -204,7 +228,7 @@ if not allowed:
 engine.reset_cost()
 ```
 
-### 5.4 自定义权限
+### 6.4 自定义权限
 
 ```python
 # 将某个 MCP 工具标记为 FREE
@@ -219,7 +243,7 @@ engine.clear_cache()
 
 ---
 
-## 6. 与 Orchestrator 的集成
+## 7. 与 Orchestrator 的集成
 
 ```python
 # ToolExecutor 执行前

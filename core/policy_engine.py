@@ -442,8 +442,8 @@ class PolicyEngine:
     # ====== 源码保护 ======
 
     def _discover_protected_paths(self) -> List[str]:
-        """发现受保护的 chachaagent 安装路径（仅搜索常见位置）。"""
-        paths: List[str] = ["site-packages/chachaagent"]  # 核心标记，始终存在
+        """发现受保护的 site-packages 安装路径（仅搜索常见位置）。"""
+        paths: List[str] = ["site-packages"]  # 核心标记，始终存在
         # 常见 Python 安装位置（避免全量递归家目录）
         search_roots: List[Path] = []
         home = Path.home()
@@ -457,12 +457,12 @@ class PolicyEngine:
         ])
         for root in search_roots:
             try:
-                for p in root.glob("**/site-packages/chachaagent"):
+                for p in root.glob("**/site-packages"):
                     if p.is_dir():
                         paths.append(str(p))
             except (OSError, PermissionError):
                 continue
-        # 已安装位置（开发模式下 spec.origin 指向 src 目录，不会进入此分支）
+        # 已安装位置
         import importlib.util
         try:
             spec = importlib.util.find_spec("chachaagent")
@@ -475,7 +475,12 @@ class PolicyEngine:
     def _targets_protected_path(
         self, tool_name: str, parameters: Dict[str, Any]
     ) -> Optional[str]:
-        """检测工具参数是否命中 site-packages/chachaagent。严格子串匹配。"""
+        """检测工具参数是否命中 site-packages 目录（路径组件模糊匹配）。
+        
+        匹配规则：site-packages 作为完整路径组件出现，前后为路径分隔符或字符串边界。
+        匹配示例：/usr/lib/site-packages/foo, site-packages/bar, ~/.local/.../site-packages
+        不匹配示例：my-site-packages-backup/foo, site-packages-backup/bar
+        """
         if tool_name == "edit_file":
             target = str(parameters.get("path", ""))
         elif tool_name == "apply_patch":
@@ -484,9 +489,9 @@ class PolicyEngine:
             target = str(parameters.get("command", ""))
         else:
             return None
-        for protected in self._PROTECTED_PATHS:
-            if protected and protected in target:
-                return protected
+        import re
+        if re.search(r'(?:^|[/\\])site-packages(?:$|[/\\])', target):
+            return "site-packages"
         return None
 
     # ====== 审批旁路 ======
