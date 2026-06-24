@@ -97,7 +97,7 @@ class ChachaCLI:
         self._print_system(init_msg)
         if self._session.project_init._rules:
             self._print_system("[cyan]📜 CHACHA.md 已加载[/]")
-        self._print_system("Ctrl+N 新会话  Ctrl+S 保存  Ctrl+F 调试  Ctrl+B 会话列表  Ctrl+X 压缩  Ctrl+L 清屏  Ctrl+D 退出  Ctrl+J 换行  /help 命令")
+        self._print_system("Ctrl+N 新会话  Ctrl+S 保存  Ctrl+F 调试  Ctrl+B 会话列表  Ctrl+X 压缩  Ctrl+L 清屏  Ctrl+R 推理  Ctrl+D 退出  Ctrl+J 换行  /help 命令")
         self._print_system("")
 
         # 输入循环
@@ -493,6 +493,7 @@ class ChachaCLI:
                 ("Ctrl+B", "会话列表"),
                 ("Ctrl+X", "压缩上下文"),
                 ("Ctrl+L", "清屏"),
+                ("Ctrl+R", "切换推理显示"),
                 ("Ctrl+D", "退出程序"),
                 ("Ctrl+J", "插入换行"),
             ],
