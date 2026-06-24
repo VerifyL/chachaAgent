@@ -186,6 +186,8 @@ class ChachaCLI:
                 elif chunk["type"] == "error":
                     errors.append(chunk["message"])
                     RICH_CONSOLE.print(f"[red]错误: {chunk['message']}[/]")
+                elif chunk["type"] == "reasoning":
+                    RICH_CONSOLE.print(f"[dim]{chunk['content']}[/]", end="")
                 elif chunk["type"] == "done":
                     tokens = chunk.get("tokens", 0)
                     usage = chunk.get("usage", {}) if chunk.get("usage") else usage
