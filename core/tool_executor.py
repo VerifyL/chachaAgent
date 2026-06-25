@@ -269,7 +269,7 @@ class ToolExecutor:
             cache_key = _hl.md5(f"{tool_name}:{tool_use_id}:{time.time()}".encode()).hexdigest()[:12]
             self._output_cache[cache_key] = (output, time.time())
             # 分页提示（根据工具类型给出具体建议）
-            hint = self._truncation_hint(tool_name, arguments, remaining)
+            hint = self._truncation_hint(tool_name, arguments, remaining, cache_key)
             output = f"{cut}\n... [截断，status={status}，剩余 {remaining} 字符。续读: cache_key={cache_key}]\n{hint}"
             truncated = True
 
@@ -385,10 +385,10 @@ class ToolExecutor:
     # ====== 截断辅助 ======
 
     @staticmethod
-    def _truncation_hint(tool_name: str, arguments: Dict[str, Any], remaining: int) -> str:
+    def _truncation_hint(tool_name: str, arguments: Dict[str, Any], remaining: int, cache_key: str = "") -> str:
         """根据工具类型生成分页/续读提示。"""
         if tool_name in ("git_diff",):
-            return '[hint] 输出过大，可用 git_diff(path="...") 按文件过滤查看'
+            return f"[hint] 输出过大，建议用 path 参数过滤；或用 read_cached_output(cache_key=\"{cache_key}\") 续读"
         if tool_name == "git_log":
             return '[hint] 可用 git_log(n=5, path="...") 缩小范围'
         if tool_name == "bash":

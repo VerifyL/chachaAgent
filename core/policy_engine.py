@@ -231,6 +231,7 @@ class PolicyEngine:
         "read_file", "read_files", "grep", "list_files", "file_outline",
         "depe_analyze", "code_intel", "project_overview",
         "git_diff", "git_log", "git_status",
+        "read_cached_output",   # 隐含的内部工具，不应让用户审批
     }
     """只读类工具：FREE 通行"""
 

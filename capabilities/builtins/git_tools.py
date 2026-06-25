@@ -19,8 +19,8 @@ from capabilities.builtins.git_context import GitContextProvider
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_MAX_DIFF_LINES = 150
 _DEFAULT_MAX_LOG_LINES = 30
+_DIFF_TIMEOUT = 18  # 原公式: max_status_lines/10 + 3，给 diff 充足执行时间
 
 
 class GitDiffTool(BaseTool):
@@ -61,7 +61,7 @@ class GitDiffTool(BaseTool):
         self._root = Path(root).resolve() if root else Path.cwd().resolve()
         self._provider = GitContextProvider(
             project_root=self._root,
-            max_status_lines=_DEFAULT_MAX_DIFF_LINES,
+            max_status_lines=150,
         )
 
     async def execute(
@@ -127,7 +127,7 @@ class GitDiffTool(BaseTool):
                 cmd,
                 cwd=str(self._root),
                 capture_output=True, text=True,
-                timeout=_DEFAULT_MAX_DIFF_LINES / 10 + 3,
+                timeout=_DIFF_TIMEOUT,
             )
             if result.returncode != 0:
                 return json.dumps({
@@ -149,17 +149,9 @@ class GitDiffTool(BaseTool):
                 response_base["output"] = ""
                 response_base["clean"] = True
                 return json.dumps(response_base, ensure_ascii=False)
-            lines = output.split("\n")
-            response_base["total_lines"] = len(lines)
-            if len(lines) > _DEFAULT_MAX_DIFF_LINES:
-                response_base["output"] = "\n".join(lines[:_DEFAULT_MAX_DIFF_LINES]) + (
-                    f"\n... [截断: {_DEFAULT_MAX_DIFF_LINES}/{len(lines)} 行。hint: 用 path 参数过滤]"
-                )
-                response_base["truncated"] = True
-                response_base["shown_lines"] = _DEFAULT_MAX_DIFF_LINES
-            else:
-                response_base["output"] = output
-                response_base["truncated"] = False
+            response_base["total_lines"] = len(output.split("\n"))
+            response_base["output"] = output
+            response_base["truncated"] = False
             return json.dumps(response_base, ensure_ascii=False)
         except subprocess.TimeoutExpired:
             return json.dumps({"error": "command_timeout"}, ensure_ascii=False)
@@ -206,7 +198,7 @@ class GitDiffTool(BaseTool):
             result = subprocess.run(
                 cmd,
                 capture_output=True, text=True,
-                timeout=_DEFAULT_MAX_DIFF_LINES / 10 + 3,
+                timeout=_DIFF_TIMEOUT,
             )
             # diff 返回码：0=无差异，1=有差异，>1=错误
             if result.returncode > 1:
@@ -227,15 +219,9 @@ class GitDiffTool(BaseTool):
             if not output.strip():
                 response["output"] = ""
                 return json.dumps(response, ensure_ascii=False)
-            lines = output.split("\n")
-            response["total_lines"] = len(lines)
-            if len(lines) > _DEFAULT_MAX_DIFF_LINES:
-                response["output"] = "\n".join(lines[:_DEFAULT_MAX_DIFF_LINES]) + f"\n... [截断: {_DEFAULT_MAX_DIFF_LINES}/{len(lines)} 行。hint: 用 path 参数过滤]"
-                response["truncated"] = True
-                response["shown_lines"] = _DEFAULT_MAX_DIFF_LINES
-            else:
-                response["output"] = output
-                response["truncated"] = False
+            response["total_lines"] = len(output.split("\n"))
+            response["output"] = output
+            response["truncated"] = False
             return json.dumps(response, ensure_ascii=False)
         except subprocess.TimeoutExpired:
             return json.dumps({"error": "command_timeout"}, ensure_ascii=False)

@@ -40,8 +40,9 @@ class ProjectInit:
     def build_system_prompt(self) -> str:
         """构建系统提示词（CHACHA.md 自动注入为宪法）。"""
         prompt = (
-            "你是 ChachaAgent。当前项目: " + self._root.name + "。\n"
-            "使用提供的工具操作文件和记忆。回复简洁直接，中文优先。"
+            "你是 ChachaAgent。当前项目根目录: " + str(self._root) + "。\n"
+            "使用提供的工具操作文件和记忆。回复简洁直接，中文优先。\n"
+            "所有文件路径均相对于此根目录。"
         )
         if self._rules:
             prompt += f"\n\n--- 项目宪法 (CHACHA.md) ---\n{self._rules}"
