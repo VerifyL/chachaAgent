@@ -252,7 +252,7 @@ class Dispatcher:
 
                 # blocked / pending_approval → 转为错误消息
                 if result.status in ("blocked", "pending_approval"):
-                    result.output = f"[{result.status}] {result.error or '工具执行被阻止'}"
+                    result.output = result.error or '工具执行被阻止'
 
                 # Dynamic circuit breaker: same (tool+args) consecutive failures
                 call_key = f"{tc_info['name']}:{arg_summary}"
@@ -279,7 +279,7 @@ class Dispatcher:
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc_info["id"],
-                    "content": result.output,
+                    "content": f"[status={result.status}] {result.output}",
                 })
 
             # Stage 1: 缓存旧工具结果
@@ -351,7 +351,7 @@ class Dispatcher:
                 )
                 # blocked / pending_approval → 转为错误消息
                 if result.status in ("blocked", "pending_approval"):
-                    result.output = f"[{result.status}] {result.error or '工具执行被阻止'}"
+                    result.output = result.error or '工具执行被阻止'
 
                 # Dynamic circuit breaker: same (tool+args) consecutive failures
                 call_key = f"{tc.name}:{json.dumps(tc.arguments, sort_keys=True)}"
@@ -370,7 +370,7 @@ class Dispatcher:
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.id,
-                    "content": result.output,
+                    "content": f"[status={result.status}] {result.output}",
                 })
 
             # Stage 1: 缓存旧工具结果

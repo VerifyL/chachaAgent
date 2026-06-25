@@ -173,7 +173,7 @@ class Orchestrator:
                         status="success",
                         error=None,
                         truncated=False,
-                        cache_key='',
+                        cache_key=getattr(chunk, 'cache_key', ''),
                         duration_ms=0,
                     ))
                 elif isinstance(chunk, TextEvent):

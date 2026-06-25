@@ -122,13 +122,6 @@ class AtomicWriter:
         # 3. 验证
         verified = self._verify(path, content)
 
-        # 4. 标记强制重建行索引（消除 _invalidate→rename 窗口期）
-        try:
-            from capabilities.builtins.stream_reader import _mark_for_rebuild
-            _mark_for_rebuild(str(path))
-        except Exception:
-            pass
-
         preview = content.strip()[:PREVIEW_LENGTH]
         if len(content.strip()) > PREVIEW_LENGTH:
             preview += "..."

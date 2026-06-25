@@ -118,7 +118,7 @@ class LLMResponse(BaseModel):
     tool_calls: List[ToolCall] = Field(default_factory=list)
     finish_reason: str = "stop"            # stop | tool_calls | length | content_filter
     error: Optional[str] = None
-    usage: Dict[str, int] = Field(default_factory=dict)  # {input, output, total}
+    usage: Dict[str, Any] = Field(default_factory=dict)  # {input, output, total, model, ...}
     duration_ms: int = 0
 
 

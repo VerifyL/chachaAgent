@@ -250,6 +250,10 @@ class ToolExecutor:
         # 3. 执行（带超时 + 重试）
         output, error, status = await self._execute_with_retry(tool_name, arguments)
 
+        # 错误透传：output 为空时把 error 注入，避免 LLM 误判为"文件空"
+        if not output and error:
+            output = f"[Tool Error] {error}"
+
         # 4. 智能截断（在 \n 边界，不切断行）
         truncated = False
         cache_key = ""
@@ -266,7 +270,7 @@ class ToolExecutor:
             self._output_cache[cache_key] = (output, time.time())
             # 分页提示（根据工具类型给出具体建议）
             hint = self._truncation_hint(tool_name, arguments, remaining)
-            output = f"{cut}\n... [截断，剩余 {remaining} 字符。续读: cache_key={cache_key}]\n{hint}"
+            output = f"{cut}\n... [截断，status={status}，剩余 {remaining} 字符。续读: cache_key={cache_key}]\n{hint}"
             truncated = True
 
         duration = int((time.monotonic() - t0) * 1000)
@@ -414,9 +418,9 @@ class ToolExecutor:
 
 
     def _cleanup_cache(self) -> None:
-        """清理超过 2 分钟的过期缓存。"""
+        """清理超过 10 分钟的过期缓存。"""
         now = time.time()
-        expired = [k for k, (_, ts) in self._output_cache.items() if now - ts > 120]
+        expired = [k for k, (_, ts) in self._output_cache.items() if now - ts > 600]
         for k in expired:
             self._output_cache.pop(k, None)
 

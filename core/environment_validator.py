@@ -32,7 +32,31 @@ def validate_host_environment() -> bool:
         print("        ChaChaAgent 依赖 Git 进行版本操作和审计追踪。")
         return False
 
-    # 3. 创建运行时根目录及子目录
+    # 3. ripgrep (rg) 可用性检查
+    rg_available = False
+    try:
+        subprocess.run(
+            ["rg", "--version"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=True,
+            shell=False
+        )
+        rg_available = True
+    except (subprocess.SubprocessError, FileNotFoundError):
+        pass
+
+    if not rg_available:
+        print("[WARN] 未检测到 ripgrep (rg) 命令。大文件搜索将降级为 Python 逐行扫描，可能较慢。")
+        print("       安装方法：")
+        print("         macOS:      brew install ripgrep")
+        print("         Ubuntu:     sudo apt install ripgrep")
+        print("         Fedora:     sudo dnf install ripgrep")
+        print("         Windows:    scoop install ripgrep  |  choco install ripgrep")
+        print("         Cargo:      cargo install ripgrep")
+        print("         Python:     pip install rxp (轻量版，功能受限)")
+
+    # 4. 创建运行时根目录及子目录
     runtime_root = Path("./.chacha_agent")
     try:
         runtime_root.mkdir(exist_ok=True)

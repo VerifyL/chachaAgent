@@ -191,10 +191,14 @@ class AgentBridge:
             """CLI 交互式审批回调"""
             print(f"\n⚠️  工具 '{req.tool_name}' 需要审批")
             print(f"   风险等级: {req.risk_level} (分数: {req.risk_score:.0f})")
-            # 展示关键参数（bash 的 command、read_file 的 path 等）
-            args_str = " ".join(
-                f"{k}={str(v)[:200]}" for k, v in req.arguments.items()
-            )
+            # 展示关键参数（大值显示长度+摘要，避免 diff/new_string 被硬截断）
+            arg_parts = []
+            for k, v in req.arguments.items():
+                s = str(v)
+                if len(s) > 500:
+                    s = f"{s[:200]}... [{len(s)} chars] ...{s[-100:]}"
+                arg_parts.append(f"{k}={s}")
+            args_str = " ".join(arg_parts)
             if args_str:
                 print(f"   参数: {args_str}")
             # edit_file → 展示 diff
@@ -295,10 +299,14 @@ class AgentBridge:
             """CLI 交互式审批回调"""
             print(f"\n⚠️  工具 '{req.tool_name}' 需要审批")
             print(f"   风险等级: {req.risk_level} (分数: {req.risk_score:.0f})")
-            # 展示关键参数（bash 的 command、read_file 的 path 等）
-            args_str = " ".join(
-                f"{k}={str(v)[:200]}" for k, v in req.arguments.items()
-            )
+            # 展示关键参数（大值显示长度+摘要，避免 diff/new_string 被硬截断）
+            arg_parts = []
+            for k, v in req.arguments.items():
+                s = str(v)
+                if len(s) > 500:
+                    s = f"{s[:200]}... [{len(s)} chars] ...{s[-100:]}"
+                arg_parts.append(f"{k}={s}")
+            args_str = " ".join(arg_parts)
             if args_str:
                 print(f"   参数: {args_str}")
             if req.diff:
