@@ -30,6 +30,7 @@ class LoadMemoryTool(BaseTool):
     }
     risk = "low"
     requires_approval = False
+    no_truncate = True
 
     def __init__(self, memory_manager: Optional[MemoryManager] = None):
         self._mgr = memory_manager
@@ -80,6 +81,7 @@ class WriteTopicTool(BaseTool):
     }
     risk = "low"
     requires_approval = False
+    no_truncate = True
 
     def __init__(self, memory_manager=None):
         self._mgr = memory_manager
@@ -113,6 +115,7 @@ class ReadTopicTool(BaseTool):
     }
     risk = "low"
     requires_approval = False
+    no_truncate = True
 
     def __init__(self, memory_manager=None):
         self._mgr = memory_manager

@@ -101,6 +101,21 @@ class ApplyPatchTool(BaseTool):
             )
 
             if check.returncode != 0:
+                # 检查是否已经应用过（幂等检测）
+                reverse_cmd = [
+                    "patch", "-p1", "--dry-run", "--force",
+                    "--ignore-whitespace", "--reverse",
+                    "-i", patch_file, "-d", str(self._root),
+                ]
+                reverse_check = subprocess.run(
+                    reverse_cmd, capture_output=True, text=True, timeout=30,
+                )
+                if reverse_check.returncode == 0:
+                    return json.dumps({
+                        "error": "patch_already_applied",
+                        "message": "补丁内容已在文件中存在（可能已被 edit_file 等其他操作完成），无需重复应用",
+                    }, ensure_ascii=False)
+
                 return json.dumps({
                     "error": "patch_check_failed",
                     "message": "补丁无法干净应用（已执行 --dry-run 检查）",

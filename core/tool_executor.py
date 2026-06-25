@@ -257,7 +257,7 @@ class ToolExecutor:
         # 4. 智能截断（在 \n 边界，不切断行）
         truncated = False
         cache_key = ""
-        if len(output) > self._max_output_chars:
+        if len(output) > self._max_output_chars and not getattr(tool_fn, 'no_truncate', False):
             # 在 \n 边界截断，避免切断行
             cut = output[:self._max_output_chars]
             last_nl = cut.rfind("\n")

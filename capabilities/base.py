@@ -23,6 +23,7 @@ class BaseTool(ABC):
     parameters: Dict[str, Any] = {}
     risk: str = "low"          # low | medium | high
     requires_approval: bool = False  # 是否需要用户确认
+    no_truncate: bool = False  # 设为 True 时 ToolExecutor 不截断该工具的输出
 
     # ====== 子类实现 ======
 
