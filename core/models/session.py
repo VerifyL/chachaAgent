@@ -67,6 +67,7 @@ class ObservationEvent(BaseEvent):
     status: Literal["success", "error"]
     error: Optional[str] = None
     truncated: bool = False
+    cache_key: Optional[str] = None
     duration_ms: Optional[int] = None
 
 

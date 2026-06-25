@@ -176,25 +176,14 @@ load_memory(query="Python 配置")  # → 搜索相关记忆
 
 ## 注册方式
 
-### 两层加载（后覆盖先）
+所有 21 个工具在 `capabilities/registry.py` 的 `build_tools()` 中硬编码注册，`project_init.py`、`agent_bridge.py`、`subagent/spawner.py` 共用同一来源。
 
 ```python
 from capabilities.registry import build_tools
 
 tools = build_tools(root=project_root, memory_manager=manager)
-# 第一层：自动包含以上全部 21 个内置工具
-# 第二层：扫描 ~/.chacha/tools/*.py，同名工具覆盖内置
 executor = ToolExecutor(tools=tools)
 ```
-
-### 用户自定义工具
-
-将 `.py` 文件放入 `~/.chacha/tools/`，其中任何具备 `name` 属性的类会被自动加载为工具。规则：
-
-- **命名**：排除 `_` 和 `.` 开头的文件
-- **识别**：`isinstance(attr, type) and hasattr(attr, "name")` 的类
-- **覆盖**：与内置工具同名时，用户工具覆盖内置（后加载优先）
-- **自动创建**：`~/.chacha/tools/` 不存在时首次运行时自动创建
 
 ### 执行流水线
 

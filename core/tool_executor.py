@@ -96,6 +96,7 @@ class ToolResult:
     error: Optional[str] = None    # 错误详情
     duration_ms: int = 0           # 耗时（毫秒）
     truncated: bool = False        # 输出是否被截断
+    cache_key: str = ""             # 截断时的缓存 key（供 read_cached_output 续读）
 
 
 # ========================= 工具执行器 =========================
@@ -305,6 +306,7 @@ class ToolExecutor:
             tool_use_id=tool_use_id, tool_name=tool_name,
             status=status, output=output, error=error,
             duration_ms=duration, truncated=truncated,
+            cache_key=cache_key,
         )
 
     async def execute_batch(
@@ -413,9 +415,9 @@ class ToolExecutor:
         return result
 
     def _cleanup_cache(self) -> None:
-        """清理超过 5 分钟的过期缓存。"""
+        """清理超过 2 分钟的过期缓存。"""
         now = time.time()
-        expired = [k for k, (_, ts) in self._output_cache.items() if now - ts > 300]
+        expired = [k for k, (_, ts) in self._output_cache.items() if now - ts > 120]
         for k in expired:
             self._output_cache.pop(k, None)
 

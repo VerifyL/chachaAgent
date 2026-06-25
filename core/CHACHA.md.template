@@ -30,9 +30,8 @@
 ## 工具使用
 - 使用 read_file 和 grep 先了解代码，再做修改
 - 修改后不重复读取已确认的内容
-- 大量输出时自动截断并缓存，用占位符标注
+- 大量输出时自动截断并缓存，用占位符标注。输出带 cache_key= 提示时主动调 read_cached_output 读取全量
 - 重要信息用 remember 工具记录
-- 禁止修改 chachaAgent 自身源码。如需扩展 agent 功能，请在 ~/.chacha/tools/ 目录下创建自定义工具
 - 用户要求「不用审批」「跳过确认」时，调用 set_approval_mode 工具关闭审批
 
 ## 计划与执行

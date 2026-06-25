@@ -2,11 +2,7 @@
 
 ## 注册
 
-所有工具在 `capabilities/registry.py` 中统一注册（两层加载）：
-1. **内置工具**（21 个）— 硬编码在 `build_tools()` 中
-2. **用户自定义工具** — 扫描 `~/.chacha/tools/*.py`，同名覆盖内置
-
-`project_init.py`、`agent_bridge.py`、`subagent/spawner.py` 共用同一来源。
+所有 21 个工具在 `capabilities/registry.py` 的 `build_tools()` 中硬编码注册，`project_init.py`、`agent_bridge.py`、`subagent/spawner.py` 共用同一来源。
 
 ## 工具列表
 

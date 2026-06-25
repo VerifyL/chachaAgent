@@ -165,6 +165,7 @@ class Orchestrator:
                         status=r.status,
                         error=r.error,
                         truncated=r.truncated,
+                        cache_key=r.cache_key,
                         duration_ms=r.duration_ms,
                     ))
             else:
@@ -324,6 +325,7 @@ class Orchestrator:
                         status=chunk.get("status", "success"),
                         error=chunk.get("error"),
                         truncated=chunk.get("truncated", False),
+                        cache_key=chunk.get("cache_key", ""),
                         duration_ms=chunk.get("duration_ms", 0),
                     ))
                 elif chunk.get("type") == "text":

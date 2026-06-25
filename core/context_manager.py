@@ -297,7 +297,7 @@ class ContextManager:
                     if len(event.content) > max_chars:
                         content = event.content[:max_chars] + (
                             f"\n...[截断，原始 {len(event.content)} 字符，"
-                            f"可用 cache_key 续读]"
+                            f"可用 cache_key={event.cache_key} 继续读取]"
                         )
                     else:
                         content = event.content
