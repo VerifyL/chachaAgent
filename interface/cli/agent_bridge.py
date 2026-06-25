@@ -405,19 +405,37 @@ class AgentBridge:
         self._model = arg
         # 更新上下文窗口推断
         self._engine._context_window = ChatEngine.infer_context_window(arg)
+        self._rebuild_llm_client()
         return f"模型切换为: {arg} (窗口 {self._engine._context_window // 1000}K)"
 
     def _cmd_url(self, arg: str) -> str:
         if not arg:
             return f"当前 API URL: {self._base_url}"
         self._base_url = arg
+        self._rebuild_llm_client()
         return f"API URL 切换为: {arg}"
 
     def _cmd_key(self, arg: str) -> str:
         if not arg:
             return f"当前 Key: {self.api_key}"
         self._api_key = arg
+        self._rebuild_llm_client()
         return "Key 已更新"
+
+    def _rebuild_llm_client(self) -> None:
+        """当 model/url/key 变更后，重建 OpenAIClient 并注入到 LLMInvoker。
+
+        LLMInvoker 被 Engine 和 Dispatcher 以引用方式持有，
+        因此更新 self._invoker._client 即可全局生效，无需重建 Dispatcher。
+        """
+        if not self._invoker:
+            return
+        from core.llm_clients.openai_client import OpenAIClient
+        self._invoker._client = OpenAIClient(
+            api_key=self._api_key,
+            model=self._model,
+            base_url=self._base_url,
+        )
 
     async def _cmd_memory(self, arg: str) -> str:
         try:
