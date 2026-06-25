@@ -98,5 +98,5 @@ class ListFilesTool(BaseTool):
 
         _walk(search_root, 0, "")
         if _count[0] >= _MAX_ENTRIES:
-            lines.append(f"... [达到上限 {_MAX_ENTRIES} 条]")
+            lines.append(f"... [达到上限 {_MAX_ENTRIES} 条，使用 pattern 或 max_depth 缩小范围]")
         return "\n".join(lines)

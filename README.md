@@ -6,19 +6,21 @@
 
 ChaChaAgent 是一个可扩展的通用 AI Agent 框架，提供从模型调用、上下文管理到工具执行的全链路编排。采用**微内核控制平面**设计，核心编排层与能力插件层解耦。
 
-**当前实现状态 (v0.3):**
+**当前实现状态 (v3.1.4):**
 - ✅ CLI 前端 (prompt_toolkit + Rich) — 完整可用
 - ✅ `Orchestrator.run_stream()` 统一编排入口 — 13 步流水线 (Hook/Policy/Gateway/并发工具)
 - ✅ OpenAI / DeepSeek 兼容 API 流式调用 — 含 reasoning_content 支持
-- ✅ 17 个内置工具 — 文件读写、代码搜索、Git、沙箱 bash、记忆、子Agent
+- ✅ 21 个内置工具 — 文件读写、代码搜索、依赖分析、Git、沙箱 bash、记忆、子Agent、审批控制
 - ✅ 安全策略引擎 — 加权风险评估 + 命令黑名单 + 成本熔断 + CLI 交互式审批
 - ✅ 钩子系统 — 内置 Python 钩子 + 外部 ShellCommand，YAML 声明式规则
 - ✅ 记忆系统 — 每日记忆 / 永久记忆 / Topic 主题 / Session 隔离 / Dream 整合
 - ✅ JSON-RPC 2.0 网关 — 异步消息总线，背压控制，全局事件监听
 - ✅ 遥测系统 — 结构化日志 + 指标收集 (counter/gauge/histogram) + Span 追踪
+- ✅ 模型路由 — priority/cost/random 三策略 + 故障隔离 + 降级链
+- ✅ 用量追踪 — 按模型统计 token 消耗和成本
 - 🚧 Web 前端 — 目录已创建，待实现
 - 🚧 多模态 — 配置模型已预留，待实现
-- 🚧 Anthropic / Ollama 客户端 — 待实现（当前仅 OpenAI 兼容）
+- 🚧 Anthropic 客户端 — 待实现（当前仅 OpenAI 兼容）
 - 🚧 Code-RAG 引擎 — 骨架已创建，待实现
 - 🚧 MCP 客户端 — 骨架已创建，待实现，缺少 stdio 通信
 

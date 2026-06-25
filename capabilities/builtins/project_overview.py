@@ -56,7 +56,13 @@ class ProjectOverviewTool(BaseTool):
     )
     parameters = {
         "type": "object",
-        "properties": {},
+        "properties": {
+            "max_items": {
+                "type": "integer",
+                "description": "目录树最多显示条目数，默认 200",
+                "default": 200
+            },
+        },
     }
     risk = "low"
     requires_approval = False
@@ -64,9 +70,13 @@ class ProjectOverviewTool(BaseTool):
     def __init__(self, root: Optional[Path] = None):
         self._root = root or Path.cwd()
 
-    async def execute(self) -> str:
+    async def execute(self, max_items: int = 200) -> str:
+        """执行项目概览，max_items 控制目录树最多显示条目数（默认 200，最大 1000）。"""
         lines: list[str] = []
         root = self._root.resolve()
+
+        # 硬上限 1000，防止极端情况
+        max_items = min(max(max_items, 1), 1000)
 
         # 0. git 状态映射（用于文件标注）
         git_status = _get_git_status_map(root)
@@ -88,20 +98,20 @@ class ProjectOverviewTool(BaseTool):
 
         # 3. 目录结构（排除 .venv, __pycache__, node_modules, .git）
         skip_dirs = {".venv", "__pycache__", "node_modules", ".git", ".idea", ".codebuddy"}
-        lines.append("目录结构 (M=已修改 A=已暂存 ??=未跟踪):")
-        lines.extend(_tree(root, prefix="  ", max_items=80, skip_dirs=skip_dirs,
+        lines.append(f"目录结构 (M=已修改 A=已暂存 ??=未跟踪, 最多 {max_items} 条目):")
+        lines.extend(_tree(root, prefix="  ", max_items=max_items, skip_dirs=skip_dirs,
                            git_status=git_status, root=root))
 
         return "\n".join(lines)
 
 
-def _tree(path: Path, prefix: str = "", max_items: int = 80,
+def _tree(path: Path, prefix: str = "", max_items: int = 200,
           skip_dirs: set = None, _count: list = None,
           git_status: Dict[str, str] = None, root: Path = None) -> list[str]:
     if _count is None:
         _count = [0]
     if _count[0] >= max_items:
-        return ["  ... (截断)"]
+        return [f"  ... (达到 {max_items} 条上限，使用 max_items 参数增加)"]
     skip_dirs = skip_dirs or {".venv", "__pycache__", "node_modules", ".git"}
     git_status = git_status or {}
     lines: list[str] = []

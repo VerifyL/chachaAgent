@@ -174,7 +174,7 @@ def _read_by_offset(
         if nl > 0:
             content = content[:nl]
         lines_read = content.count("\n")
-        content += f"\n... [截断。续读: offset={next_offset}]"
+        content += f"\n... [截断。使用 offset={next_offset} 续读，或用 search 关键词缩小范围]"
         truncated = True
 
     rel = str(raw.relative_to(root) if raw.is_relative_to(root) else raw)
@@ -362,7 +362,7 @@ def _paginate_grep_output(output: str, pattern: str, offset: int, limit: int) ->
         nl = result.rfind("\n")
         if nl > 0:
             result = result[:nl]
-        result += "\n... [输出截断]"
+        result += "\n... [输出截断，请缩小 grep 模式或减少 context_lines]"
 
     header = f'[grep] 模式: "{pattern}" | 共 {total} 条匹配 | offset={offset} limit={limit}'
     remaining = total - (offset + limit)
@@ -408,7 +408,7 @@ def _python_grep(pattern, search_root, include_glob, offset, limit, context_line
         nl = output.rfind("\n")
         if nl > 0:
             output = output[:nl]
-        output += "\n... [输出截断]"
+        output += "\n... [输出截断，使用更精确的搜索词或减少 context_lines]"
     
     header = f'[grep] 模式: "{pattern}" | 共 {total} 条匹配 | offset={offset} limit={limit}'
     remaining = total - (offset + limit)
@@ -726,7 +726,7 @@ class ReadFilesTool(BaseTool):
 
             if total_chars + len(block) > MAX_OUTPUT_CHARS:
                 remaining = MAX_OUTPUT_CHARS - total_chars
-                block = block[:remaining] + "\n... [输出截断]"
+                block = block[:remaining] + "\n... [输出截断，减少一次读取的文件数量]"
                 parts.append(block)
                 parts.append(f"... [还有 {len(paths) - len(parts)} 个文件未读取]")
                 break

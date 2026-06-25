@@ -14,15 +14,15 @@
 ### 调用模式（CLI 集成）
 
 ```
-ChatEngine.send_message()
+Orchestrator.run_stream()
   │
   ├─ ContextManager.assemble() → telemetry.agent.record_context()
   ├─ Dispatcher.dispatch_stream()
-  │    ├─ LLMInvoker → telemetry.agent.record_llm_call()
-  │    ├─ ToolExecutor → telemetry.agent.record_tool_call() + audit.jsonl
-  │    └─ ChatEngine → debug.jsonl ("LLM 调用", "本轮完成")
+  │    ├─ LLMInvoker.stream() → telemetry.agent.record_llm_call()
+  │    ├─ ToolExecutor.execute() → telemetry.agent.record_tool_call() + audit.jsonl
+  │    └─ debug.jsonl ("LLM 调用", "本轮完成")
   │
-  └─ SessionService.add_round() → telemetry.agent.record_session()
+  └─ _save_round_memory() → telemetry.agent.record_session()
 ```
 
 ---

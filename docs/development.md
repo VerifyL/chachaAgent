@@ -31,13 +31,16 @@ pip install -e ".[dev,build]"
 ChachaAgent 通过 `chachaConfig.toml` 配置模型提供商，支持 OpenAI / DeepSeek / Ollama 等兼容 API。
 
 ```toml
+[model.providers.default]
+provider = "openai"
+api_key = "sk-..."
+base_url = "https://api.deepseek.com"
+default_model = "deepseek-chat"
+
 [model]
-provider = "openai"           # openai | anthropic | ollama
-model = "deepseek-chat"       # 模型名称
-api_key = "sk-..."            # API Key（或设置环境变量 OPENAI_API_KEY）
-base_url = ""                 # 兼容 API 地址（空=使用默认）
-temperature = 0.7
-max_tokens = 4096
+router_strategy = "priority"
+retry_max_attempts = 3
+retry_backoff_factor = 1.0
 ```
 
 **环境变量**：`OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `OLLAMA_HOST` 可替代配置文件中的 API Key。

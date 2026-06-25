@@ -1,7 +1,6 @@
 # 模型管理指南
 
-当前 v0.2 只实现了 OpenAI 兼容客户端 + 重试处理器。
-标记 🚧 的模块仅骨架占位，待实现。
+当前 v3.1 实现了 OpenAI 兼容客户端 + 重试处理器 + 模型工厂 + 路由 + 用量追踪。
 
 ## 模块状态
 
@@ -10,9 +9,9 @@
 | OpenAI 客户端 | core/llm_clients/openai_client.py | ✅ OpenAI / DeepSeek / Ollama 兼容 |
 | 重试处理器 | core/llm_clients/retry_handler.py | ✅ 指数退避 + 429 感知 + 认证不重试 |
 | LLM 调用器 | core/llm_invoker.py | ✅ 编排流式调用 + tool_call 解析 |
-| 模型工厂 | core/llm_clients/factory.py | 🚧 骨架 |
-| 模型路由器 | core/llm_clients/router.py | 🚧 骨架 |
-| 用量追踪器 | core/llm_clients/usage_tracker.py | 🚧 骨架 |
+| 模型工厂 | core/llm_clients/factory.py | ✅ OpenAI/DeepSeek/Ollama |
+| 模型路由器 | core/llm_clients/router.py | ✅ priority/cost/random + 故障隔离 |
+| 用量追踪器 | core/llm_clients/usage_tracker.py | ✅ 按模型累积统计 |
 
 ## 当前使用方式
 

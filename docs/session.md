@@ -30,7 +30,7 @@ class Attachment(BaseModel):
 | 阶段 | 动作 | 角色 |
 |------|------|------|
 | 创建 | 用户上传文件或 Agent 从工具结果获取图片 | `MessageEvent` 构造者（`orchestrator` 或 `interface` 层） |
-| 读取 | 展示给用户、传递给多模态 LLM | `interface/cli`、`interface/web`、`core/llm_clients/vision_client.py` |
+| 读取 | 展示给用户、传递给多模态 LLM | `interface/cli`、`interface/web` |
 | 修改 | 不允许修改（设计为不可变） | 无 |
 | 销毁 | 会话结束时随 `ConversationState` 一起销毁 | GC 自动回收 |
 

@@ -1,6 +1,6 @@
 # ChachaAgent 架构设计文档
 
-> **当前版本 v0.3** — 架构统一：`Orchestrator.run_stream()` 成为唯一编排入口（13 步流水线），
+> **当前版本 v3.1.4** — 架构统一：`Orchestrator.run_stream()` 成为唯一编排入口（13 步流水线），
 > Dispatcher 工具执行并发化，ChatEngine 降级为消息存储层。
 > 各模块详细文档：session.md | config.md | audit.md | hook.md | context.md | configuration.md
 
@@ -39,9 +39,9 @@ core/                             核心编排层 (微内核控制平面)
   ├── llm_clients/               LLM 客户端适配器
   │   ├── openai_client.py ✅    OpenAI/DeepSeek 兼容流式适配器
   │   ├── retry_handler.py ✅    指数退避重试
-  │   ├── factory.py       🚧   模型工厂 (骨架)
-  │   ├── router.py        🚧   模型路由 (骨架)
-  │   └── usage_tracker.py 🚧   用量追踪 (骨架)
+  │   ├── factory.py       ✅   模型工厂 (OpenAI/DeepSeek/Ollama)
+  │   ├── router.py        ✅   模型路由 (priority/cost/random + 故障标记)
+  │   └── usage_tracker.py ✅   用量追踪 (per-model/per-session)
   ├── context/                   记忆与上下文子系统
   │   ├── memory_manager.py    ✅  记忆文件 I/O (每日/永久/Topic/Session)
   │   ├── context_compressor.py ✅  混合压缩 (FROZEN→TRIMMED→SUMMARIZED→CONSOLIDATED)
