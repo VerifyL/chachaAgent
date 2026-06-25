@@ -1,60 +1,44 @@
 """
 tests/unit/test_orchestrator.py
-单元测试：core/orchestrator.py Orchestrator (v2.0)
+单元测试：core/orchestrator.py Orchestrator (v2.1)
 
-覆盖：
-  - _save_round_memory 只保存 user+assistant
-  - _end_session_cleanup 清理 tool_cache
-  - DreamPipeline 会话计数和触发
-  - OrchResponse 数据结构
+v2.1: run() / OrchResponse 已删除，仅保留 run_stream 路径。
 """
 
-from pathlib import Path
-
 import pytest
+from core.orchestrator import Orchestrator
+from core.models.stream_event import TextEvent, DoneEvent
 
-from core.orchestrator import Orchestrator, OrchResponse
-from core.context_manager import ContextManager
 
-
-# ====== Mock 实现 ======
-
-class MockLLMInvoker:
+class MockEngine:
     def __init__(self):
-        self.calls = []
+        self._messages = []
+        self._context_window = 128000
+        self._checkpoint_dir = None
+        self._compress_cfg = {}
 
-    async def invoke(self, messages, tools=None, session_id=""):
-        self.calls.append(messages)
-        from core.llm_invoker import LLMResponse
-        return LLMResponse(text="Hello, world!", finish_reason="stop")
+    def save_checkpoint(self):
+        pass
 
 
 class MockMemoryManager:
-    def __init__(self, project_id="test", session_id=""):
-        self._project_id = project_id
-        self._session_id = session_id
+    def __init__(self):
         self.remembered = []
         self.cleaned_up = False
 
     def remember(self, content, date_str=None):
         self.remembered.append(content)
-        return Path("/fake/path")
+        from pathlib import Path
+        return Path("/fake")
 
     def cleanup_tool_cache(self):
         self.cleaned_up = True
-        return 5
-
-    def read_permanent_memory(self):
-        return ""
-
-    def read(self):
-        return ""
+        return 3
 
 
 class MockDreamPipeline:
     def __init__(self):
         self.session_count = 0
-        self.last_run = False
 
     def record_session(self):
         self.session_count += 1
@@ -63,97 +47,77 @@ class MockDreamPipeline:
         return self.session_count >= 10
 
     async def run(self, memory_manager):
-        self.last_run = True
         return "MEMORY.md", "CHACHA_MEMORY.md"
 
 
-# ====== 基本 ======
+class MockDispatcher:
+    """最小 dispatcher，返回几个文本 chunk 然后结束。"""
+    def __init__(self):
+        self.calls = []
+
+    async def dispatch_stream(self, messages, session_id, max_rounds=200):
+        self.calls.append((messages, session_id))
+        yield TextEvent(content="mock reply")
+        yield DoneEvent(text="mock reply", tokens=0, usage={})
+
+
+# ====== run_stream 基本 ======
 
 @pytest.mark.asyncio
-async def test_text_only_task():
-    orch = Orchestrator(
-        context_manager=ContextManager(),
-        llm_invoker=MockLLMInvoker(),
-    )
-    resp = await orch.run("你好", session_id="s1")
-    assert "Hello" in resp.text
-    assert resp.iterations == 1
-    assert resp.error is None
-
-
-@pytest.mark.asyncio
-async def test_empty_llm_invoker():
+async def test_run_stream_requires_engine():
+    """未 set_engine 时抛出 RuntimeError。"""
     orch = Orchestrator()
-    resp = await orch.run("hello", session_id="s1")
-    assert "No LLM invoker" in (resp.error or "")
+    with pytest.raises(RuntimeError, match="run_stream 需要 ChatEngine"):
+        async for _ in orch.run_stream("hello", session_id="s1"):
+            pass
 
-
-# ====== v2.0: 会话记忆保存 ======
 
 @pytest.mark.asyncio
-async def test_save_round_memory():
-    memory = MockMemoryManager(project_id="test", session_id="session-001")
-    orch = Orchestrator(
-        context_manager=ContextManager(),
-        llm_invoker=MockLLMInvoker(),
-        memory_manager=memory,
-    )
+async def test_run_stream_yields_chunks():
+    """有 engine + dispatcher 时正常产出 chunk。"""
+    engine = MockEngine()
+    disp = MockDispatcher()
+    orch = Orchestrator(dispatcher=disp)
+    orch.set_engine(engine)
 
-    resp = await orch.run("帮我分析代码", session_id="session-001", project_id="test")
-    assert "Hello" in resp.text
-    assert len(memory.remembered) >= 1
-    entry = memory.remembered[0]
-    assert "Q:" in entry
-    assert "A:" in entry
-    assert "帮我分析代码" in entry
-    assert "Hello" in entry
+    chunks = []
+    async for c in orch.run_stream("hello", session_id="s1"):
+        chunks.append(c)
+
+    texts = [c.content for c in chunks if isinstance(c, TextEvent)]
+    assert "mock reply" in texts
+    assert len(disp.calls) == 1
 
 
-# ====== v2.0: 会话结束清理 ======
+# ====== 会话结束清理 ======
 
 @pytest.mark.asyncio
-async def test_end_session_cleanup():
-    memory = MockMemoryManager(project_id="test", session_id="session-001")
-    orch = Orchestrator(
-        context_manager=ContextManager(),
-        llm_invoker=MockLLMInvoker(),
-        memory_manager=memory,
-    )
+async def test_end_session_cleanup_via_run_stream():
+    """run_stream 正常结束后调用 cleanup_tool_cache。"""
+    memory = MockMemoryManager()
+    engine = MockEngine()
+    disp = MockDispatcher()
+    orch = Orchestrator(memory_manager=memory, dispatcher=disp)
+    orch.set_engine(engine)
 
-    await orch.run("hello", session_id="session-001", project_id="test")
+    async for _ in orch.run_stream("hello", session_id="s-clean"):
+        pass
+
     assert memory.cleaned_up is True
 
 
-# ====== v2.0: DreamPipeline ======
+# ====== DreamPipeline ======
 
 @pytest.mark.asyncio
-async def test_dream_record_session_called():
+async def test_dream_record_session_via_run_stream():
+    """run_stream 正常结束后 DreamPipeline.record_session 被调用。"""
     dream = MockDreamPipeline()
-    orch = Orchestrator(
-        context_manager=ContextManager(),
-        llm_invoker=MockLLMInvoker(),
-        dream_pipeline=dream,
-    )
+    engine = MockEngine()
+    disp = MockDispatcher()
+    orch = Orchestrator(dream_pipeline=dream, dispatcher=disp)
+    orch.set_engine(engine)
 
-    await orch.run("hello", session_id="s1")
+    async for _ in orch.run_stream("hello", session_id="s1"):
+        pass
+
     assert dream.session_count == 1
-
-
-# ====== OrchResponse ======
-
-def test_orch_response_defaults():
-    resp = OrchResponse()
-    assert resp.text == ""
-    assert resp.iterations == 0
-    assert resp.total_tokens == 0
-    assert resp.error is None
-
-
-def test_orch_response_with_data():
-    resp = OrchResponse(
-        text="结果", session_id="s1",
-        iterations=3, total_tokens=1500, duration_ms=2000,
-    )
-    assert resp.text == "结果"
-    assert resp.iterations == 3
-    assert resp.duration_ms == 2000

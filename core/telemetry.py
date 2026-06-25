@@ -316,9 +316,37 @@ class Telemetry:
                          audit=self._config.enable_audit)
 
     def stop(self) -> None:
-        # 导出最终指标摘要到 debug 日志
-        summary = self.metrics.summary()
-        self.logger.info("Telemetry 已停止", metrics_summary=summary)
+        """停止遥测，导出最终指标摘要"""
+        if self.logger and self.metrics:
+            summary = self.metrics.summary()
+            self.logger.info("Telemetry 已停止", metrics_summary=summary)
+
+    def toggle(self, enable: bool) -> None:
+        """运行时热切换遥测开关。
+
+        子系统持有 Telemetry 对象引用，运行时检查 logger/metrics/agent，
+        因此翻转 enabled + 重建/清空内部组件即可实现热切换，无需重建 Dispatcher/ToolExecutor。
+
+        Args:
+            enable: True=开启遥测, False=关闭遥测
+        """
+        if enable and not self.enabled:
+            self.enabled = True
+            self._config.enabled = True
+            self.logger = StructuredLogger(self._config)
+            self.metrics = MetricsCollector()
+            self.tracer = Tracer()
+            self.agent = AgentMetrics(self.metrics)
+            self.logger.info("Telemetry 运行时开启")
+        elif not enable and self.enabled:
+            if self.logger:
+                self.logger.info("Telemetry 运行时关闭")
+            self.enabled = False
+            self._config.enabled = False
+            self.logger = None
+            self.metrics = None
+            self.tracer = None
+            self.agent = None
 
     def prometheus_export(self) -> str:
         """导出 Prometheus 格式的指标文本"""
@@ -330,3 +358,108 @@ class Telemetry:
     def hash_id(self, value: str) -> str:
         """生成匿名化 ID（用于错误报告）"""
         return hashlib.sha256(value.encode()).hexdigest()[:12]
+
+    # ====== 查询接口（供 CLI 仪表盘使用） ======
+
+    def snapshot(self) -> Dict[str, Any]:
+        """完整遥测快照，包含指标摘要、运行时间、配置信息。
+
+        供 /telemetry 命令使用，返回结构化 dict 由 CLI 渲染为 Rich 表格。
+        """
+        if not self.enabled or not self.metrics:
+            return {"enabled": False}
+        return {
+            "enabled": True,
+            "log_level": self._config.log_level,
+            "log_dir": str(self._config.log_dir),
+            "audit_enabled": self._config.enable_audit,
+            "metrics": self.metrics.summary(),
+            "uptime_seconds": time.time() - self.metrics._start_time,
+        }
+
+    def read_logs(self, log_type: str = "debug", n: int = 10,
+                  level: Optional[str] = None,
+                  filter_text: Optional[str] = None) -> List[Dict[str, Any]]:
+        """读取最近 N 条日志，支持按级别/关键词过滤。
+
+        Args:
+            log_type: "debug" 或 "audit"
+            n: 返回最近 N 条
+            level: 按级别过滤（DEBUG/INFO/WARNING/ERROR/CRITICAL）
+            filter_text: 按关键词过滤（搜索整条 JSON）
+
+        Returns:
+            日志条目列表（最近 N 条在后）
+        """
+        if not self._config:
+            return []
+        path = Path(self._config.log_dir) / f"{log_type}.jsonl"
+        if not path.exists():
+            return []
+        lines: List[Dict[str, Any]] = []
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if level and entry.get("level", "").upper() != level.upper():
+                        continue
+                    if filter_text and filter_text.lower() not in json.dumps(
+                        entry, ensure_ascii=False, default=str
+                    ).lower():
+                        continue
+                    lines.append(entry)
+        except Exception:
+            return []
+        return lines[-n:] if n > 0 else lines
+
+    def list_spans(self) -> List[Dict[str, Any]]:
+        """列出所有 Span，按耗时降序排列。
+
+        供 /trace 命令使用。
+        """
+        if not self.tracer:
+            return []
+        spans = []
+        for sid, span in self.tracer._spans.items():
+            spans.append({
+                "span_id": span.span_id[:8],
+                "trace_id": span.trace_id[:16],
+                "parent": span.parent_span_id[:8] if span.parent_span_id else "-",
+                "operation": span.operation,
+                "duration_ms": round(span.duration_ms, 1),
+                "error": span.error,
+                "tags": span.tags,
+            })
+        return sorted(spans, key=lambda s: s["duration_ms"], reverse=True)
+
+    def cost_summary(self) -> Dict[str, Any]:
+        """成本汇总：按模型拆分 + 累计总成本。
+
+        供 /cost 命令使用。
+        """
+        if not self.metrics:
+            return {"total_cost_usd": 0.0, "by_model": {}}
+        counters = self.metrics.counters
+        by_model: Dict[str, float] = {}
+        for key, val in counters.items():
+            if key.startswith("chacha_cost_total_usd"):
+                cost = val / 1000.0  # counter 存储时 *1000，恢复实际成本
+                if "{" in key:
+                    tags_part = key.split("{", 1)[1].rstrip("}")
+                    for pair in tags_part.split(","):
+                        k, v = pair.split("=", 1)
+                        if k.strip() == "model":
+                            model = v.strip('"')
+                            by_model[model] = by_model.get(model, 0.0) + cost
+                            break
+        cumulative = self.metrics.gauges.get("chacha_cost_cumulative_usd", 0.0)
+        return {
+            "total_cost_usd": round(cumulative, 6),
+            "by_model": {m: round(c, 6) for m, c in sorted(by_model.items())},
+        }

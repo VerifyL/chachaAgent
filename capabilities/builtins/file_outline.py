@@ -184,22 +184,28 @@ def _outline_python(path: Path) -> str:
 
 
 def _outline_markup(path: Path) -> str:
-    """Markdown/文本文件：统计标题和长度。"""
+    """Markdown/文本文件：统计标题和长度，含行号。"""
     try:
         content = path.read_text(encoding="utf-8", errors="replace")
     except Exception as e:
         return f"[错误] 读取失败: {e}"
     lines = content.split("\n")
-    headings = [l.strip() for l in lines if l.strip().startswith("#")]
-    info = f"{path.name} | {len(lines)}行 | {len(content)}字符 | {len(headings)}个标题"
+    headings = []
+    for i, l in enumerate(lines, 1):
+        stripped = l.strip()
+        if stripped.startswith("#"):
+            headings.append((i, stripped))
+    info = f"{path.name} | {len(lines)}行 | {len(content)}字符"
     parts = [f"[文件] {info}"]
     if headings:
         parts.append(f"标题 ({len(headings)}):")
-        for h in headings[:20]:
-            parts.append(f"  {h}")
+        for lineno, h in headings[:20]:
+            parts.append(f"  {h}  ← L{lineno}")
         if len(headings) > 20:
             parts.append(f"  ... +{len(headings)-20}个")
-    return "\n".join(parts)
+        return "\n".join(parts)
+    # 无标题 → 降级为段落分段
+    return _outline_text(path, f"{len(content)}字符")
 
 
 def _outline_config(path: Path) -> str:
@@ -222,17 +228,52 @@ def _outline_config(path: Path) -> str:
 
 
 def _outline_text(path: Path, size_str: str) -> str:
-    """通用文本文件：只读前 20 行预览。"""
+    """通用文本文件：空行分段 + 段首预览 + 行号范围，作为浏览地图。"""
     try:
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            lines = [f.readline() for _ in range(20)]
+        content = path.read_text(encoding="utf-8", errors="replace")
     except Exception as e:
         return f"[错误] 读取失败: {e}"
-    info = f"{path.name} | {size_str} | 预览前 20 行"
-    parts = [f"[文件] {info}"]
+
+    lines = content.split("\n")
+    total = len(lines)
+
+    # 按空行分段
+    paragraphs = []  # [(start_lineno, end_lineno, first_line)]
+    para_start = 1
     for i, line in enumerate(lines, 1):
-        if line:
-            parts.append(f"  {i}: {line.rstrip()[:100]}")
+        stripped = line.strip()
+        if stripped == "" and para_start is not None:
+            # 段落结束
+            end = i - 1
+            if end >= para_start:
+                first = lines[para_start - 1].strip()[:120]
+                paragraphs.append((para_start, end, first))
+            para_start = None
+        elif stripped != "" and para_start is None:
+            para_start = i
+
+    # 最后一段
+    if para_start is not None and para_start <= total:
+        first = lines[para_start - 1].strip()[:120]
+        paragraphs.append((para_start, total, first))
+
+    info = f"{path.name} | {total}行 | {size_str}"
+    parts = [f"[文件] {info}"]
+
+    if not paragraphs:
+        parts.append("(空文件)")
+        return "\n".join(parts)
+
+    max_display = 40
+    parts.append(f"段落结构 (按空行分隔, 共 {len(paragraphs)} 段):")
+    for idx, (start, end, first) in enumerate(paragraphs[:max_display]):
+        range_str = f"L{start}" if start == end else f"L{start}-{end}"
+        preview = first if first else "(空)"
+        parts.append(f"  段{idx+1:2d}  ← {range_str:<10} \"{preview}\"")
+
+    if len(paragraphs) > max_display:
+        parts.append(f"  ... +{len(paragraphs) - max_display}段，用 read_file 分页浏览")
+
     return "\n".join(parts)
 
 

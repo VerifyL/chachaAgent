@@ -233,18 +233,14 @@ def read_by_offset(
     # 5. 行号 → 字节范围
     start_idx = max(0, offset - 1)
     if start_idx >= len(idx):
-        # offset 超出文件末尾
+        # offset 超出文件末尾 → 显式报错，避免 LLM 盲猜
         rel = str(raw.relative_to(root) if raw.is_relative_to(root) else raw)
         return json.dumps({
+            "error": "offset_out_of_range",
+            "message": f"offset {offset} 超出文件行数范围（共 {total_lines} 行），请调小 offset",
             "file": rel,
-            "offset": offset,
-            "lines_read": 0,
-            "next_offset": offset,
             "total_lines": total_lines,
             "total_bytes": fsize,
-            "has_more": False,
-            "truncated": False,
-            "content": "",
         }, ensure_ascii=False)
 
     byte_start = idx[start_idx]
@@ -291,6 +287,11 @@ def read_by_offset(
         truncated = True
 
     rel = str(raw.relative_to(root) if raw.is_relative_to(root) else raw)
+
+    # 嵌入人类可读元数据到 content 首行，避免 LLM 忽略 JSON 元数据
+    end_line = offset + lines_read - 1
+    content = f"[第 {offset}-{end_line} 行 / 共 {total_lines} 行]\n\n{content}"
+
     result = {
         "file": rel,
         "offset": offset,

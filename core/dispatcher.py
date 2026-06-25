@@ -27,10 +27,34 @@ import time
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, List, Optional
 
-from core.llm_invoker import LLMResponse
+from core.models.stream_event import (
+    TextEvent,
+    ReasoningEvent,
+    ToolCallStartEvent,
+    ToolCallEndEvent,
+    ToolExecStartEvent,
+    ToolExecEndEvent,
+    DoneEvent,
+    ErrorEvent,
+    CompactEvent,
+    StreamEvent,
+)
+
+from core.llm_invoker import (
+    LLMResponse,
+    ToolCall,
+    TextChunk,
+    ReasoningChunk,
+    ToolCallStartChunk,
+    ToolCallDeltaChunk,
+    ToolCallEndChunk,
+    DoneChunk,
+    ErrorChunk,
+)
 from core.tool_executor import ToolResult
 
-logger = logging.getLogger(__name__)
+
+
 
 MAX_TOOL_ROUNDS = 200          # 防止无限工具循环
 KEEP_TOOL_RESULTS = 8
@@ -82,7 +106,7 @@ class Dispatcher:
         messages: List[Dict[str, Any]],
         session_id: str,
         max_rounds: int = MAX_TOOL_ROUNDS,
-    ) -> AsyncIterator[Dict[str, Any]]:
+    ) -> AsyncIterator[StreamEvent]:
         """流式 LLM + 工具循环。"""
         schemas = self._tools.get_schemas()
         rounds = 0
@@ -105,43 +129,35 @@ class Dispatcher:
                     tools=schemas if schemas else None,
                     session_id=session_id,
                 ):
-                    if chunk.type == "text":
+                    if isinstance(chunk, TextChunk):
                         text_parts.append(chunk.content)
-                        yield {"type": "text", "content": chunk.content}
-                    elif chunk.type == "reasoning":
+                        yield TextEvent(content=chunk.content)
+                    elif isinstance(chunk, ReasoningChunk):
                         reasoning_parts.append(chunk.content)
-                        yield {"type": "reasoning", "content": chunk.content}
-                    elif chunk.type == "tool_call_start":
+                        yield ReasoningEvent(content=chunk.content)
+                    elif isinstance(chunk, ToolCallStartChunk):
                         has_tool_calls = True
                         tool_calls_building[chunk.tool_index] = {
                             "id": chunk.tool_id,
                             "name": chunk.tool_name,
                             "args": "",
                         }
-                        yield {
-                            "type": "tool_call_start",
-                            "tool_name": chunk.tool_name,
-                            "tool_index": chunk.tool_index,
-                        }
-                    elif chunk.type == "tool_call_delta":
+                        yield ToolCallStartEvent(
+                            tool_name=chunk.tool_name,
+                            tool_index=chunk.tool_index,
+                        )
+                    elif isinstance(chunk, ToolCallDeltaChunk):
                         if chunk.tool_index in tool_calls_building:
                             tool_calls_building[chunk.tool_index]["args"] += chunk.tool_args_delta
-                    elif chunk.type == "tool_call_end":
-                        yield {
-                            "type": "tool_call_end",
-                            "tool_index": chunk.tool_index,
-                        }
-                    elif chunk.type == "done":
+                    elif isinstance(chunk, ToolCallEndChunk):
+                        yield ToolCallEndEvent(tool_index=chunk.tool_index)
+                    elif isinstance(chunk, DoneChunk):
                         if chunk.usage:
                             llm_tokens = chunk.usage.get("total", 0)
                             llm_usage = chunk.usage
                         break
-                    elif chunk.type == "error":
-                        yield {"type": "error", "message": chunk.content}
-            except GeneratorExit:
-                return
-            except GeneratorExit:
-                return
+                    elif isinstance(chunk, ErrorChunk):
+                        yield ErrorEvent(message=chunk.error)
             except GeneratorExit:
                 return
             except Exception as e:
@@ -149,7 +165,7 @@ class Dispatcher:
                 msg = str(e)
                 if "401" in msg or "403" in msg:
                     msg = _API_KEY_RE.sub(lambda m: m.group(1) + "***", msg)
-                yield {"type": "error", "message": msg}
+                yield ErrorEvent(message=msg)
                 return
             finally:
                 # LLM 调用遥测
@@ -166,7 +182,7 @@ class Dispatcher:
             if not has_tool_calls:
                 final_text = "".join(text_parts)
                 messages.append({"role": "assistant", "content": final_text})
-                yield {"type": "done", "text": "".join(text_parts), "tokens": llm_tokens, "usage": llm_usage}
+                yield DoneEvent(text="".join(text_parts), tokens=llm_tokens, usage=llm_usage)
                 return
 
             # 执行工具
@@ -206,7 +222,7 @@ class Dispatcher:
                     args = {}
                 self.tool_calls_made += 1
                 arg_summary = _tool_args_summary(tc_info["name"], args)
-                yield {"type": "tool_exec_start", "tool_name": tc_info["name"], "args": arg_summary}
+                yield ToolExecStartEvent(tool_name=tc_info["name"], args=arg_summary)
                 _tc_infos.append((tc_info, arg_summary))
                 tasks.append(self._tools.execute(
                     tool_name=tc_info["name"],
@@ -251,16 +267,15 @@ class Dispatcher:
                     self._same_call_failures = 0
 
                 if self._same_call_failures >= self._max_same_call_failures:
-                    yield {
-                        "type": "error",
-                        "message": (
+                    yield ErrorEvent(
+                        message=(
                             f"Circuit breaker: same call failed {self._same_call_failures} times "
                             f"({tc_info['name']}), terminating loop"
                         ),
-                    }
+                    )
                     return
-                yield {"type": "tool_exec_end", "tool_name": tc_info["name"],
-                       "preview": (result.output or result.error or "")[:80].split("\n")[0]}
+                yield ToolExecEndEvent(tool_name=tc_info["name"],
+                       preview=(result.output or result.error or "")[:80].split("\n")[0])
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc_info["id"],
@@ -270,7 +285,7 @@ class Dispatcher:
             # Stage 1: 缓存旧工具结果
             self._freeze_old_tool_results(messages, session_id, _tc_id_to_name)
 
-        yield {"type": "done", "text": "".join(text_parts), "tokens": llm_tokens, "usage": llm_usage}
+        yield DoneEvent(text="".join(text_parts), tokens=llm_tokens, usage=llm_usage)
 
     async def dispatch(
         self,

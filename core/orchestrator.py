@@ -9,34 +9,25 @@ v2.0 新增:
 
 用法:
     orch = Orchestrator(context_mgr, llm_invoker, tool_executor, memory_manager=mgr, dream_pipeline=dream)
-    resp = await orch.run("帮我读一下 main.py", session_id="s1")
-    print(resp.text)
+    orch.set_engine(engine)
+    async for chunk in orch.run_stream("帮我读一下 main.py", session_id="s1"):
+        ...
 """
 
 import asyncio
 import logging
-import time
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from core.models.session import (
     ConversationState, SessionMetadata, MessageEvent, ObservationEvent,
     ToolCallEvent,
 )
+from core.models.stream_event import (
+    TextEvent, ErrorEvent, CompactEvent, ToolCallStartEvent, ToolExecEndEvent,
+)
 
 logger = logging.getLogger(__name__)
 
-
-@dataclass
-class OrchResponse:
-    """Orchestrator 运行结果"""
-    text: str = ""
-    session_id: str = ""
-    iterations: int = 0
-    total_tokens: int = 0
-    total_cost: float = 0.0
-    duration_ms: int = 0
-    error: Optional[str] = None
 
 
 class Orchestrator:
@@ -54,7 +45,6 @@ class Orchestrator:
         policy_engine: Optional[Any] = None,
         memory_manager: Optional[Any] = None,
         dream_pipeline: Optional[Any] = None,
-        max_iterations: int = 50,
     ):
         self._context = context_manager
         self._llm = llm_invoker
@@ -66,153 +56,11 @@ class Orchestrator:
         self._telemetry = telemetry
         self._hooks = hook_orchestrator
         self._policy = policy_engine
-        self._max_iterations = max_iterations
         self._engine: Optional[Any] = None  # ChatEngine（由 set_engine 设置）
 
     def set_engine(self, engine) -> None:
         """注入 ChatEngine 实例（用于 run_stream）。"""
         self._engine = engine
-
-    # ====== 主入口 ======
-
-    async def run(
-        self,
-        user_input: str,
-        session_id: str = "",
-        project_id: str = "default",
-        tools: Optional[List[Dict]] = None,
-    ) -> OrchResponse:
-        """运行 Think-Act-Observe 主循环。"""
-        t0 = time.monotonic()
-        sid = session_id or f"session-{int(t0)}"
-
-        if not self._llm and not self._dispatcher:
-            return OrchResponse(
-                error="No LLM invoker or dispatcher configured",
-                session_id=sid,
-            )
-
-        # 初始化会话状态
-        meta = SessionMetadata(session_id=sid, project_id=project_id)
-        state = ConversationState(metadata=meta)
-        state.add_event(MessageEvent(source="user", role="user", content=user_input))
-
-        # 会话开始事件
-        if self._gateway:
-            from protocol.rpc_schema import SessionLifecycleEvent
-            await self._gateway.publish(
-                SessionLifecycleEvent(params={
-                    "event": "started",
-                    "session_id": sid,
-                }),
-                session_id=sid,
-            )
-
-        # 主循环
-        iterations = 0
-        total_tokens = 0
-        final_text = ""
-
-        while iterations < self._max_iterations:
-            iterations += 1
-
-            # 1. 上下文组装
-            messages = await self._get_messages(state)
-
-            # 2. LLM 调用
-            if self._dispatcher:
-                resp = await self._dispatcher.dispatch(messages, sid)
-            else:
-                resp = await self._llm.invoke(messages, tools=tools, session_id=sid)
-
-            if resp.usage:
-                total_tokens += resp.usage.get("total", 0)
-
-            # 3. 错误处理
-            if resp.error:
-                if any(kw in resp.error.lower() for kw in ("authentication", "circuit")):
-                    return OrchResponse(error=resp.error, session_id=sid)
-                state.add_event(MessageEvent(source="system", role="system", content=f"[Error] {resp.error}"))
-                continue
-
-            if resp.text:
-                final_text = resp.text
-                state.add_event(MessageEvent(source="agent", role="assistant", content=resp.text))
-
-            # 4. 工具调用处理
-            if resp.tool_calls:
-                for tc in resp.tool_calls:
-                    state.add_event(ToolCallEvent(
-                        source="tool",
-                        tool_name=tc.name,
-                        tool_use_id=tc.id,
-                        arguments=tc.arguments,
-                    ))
-
-                results = await self._tools.execute_batch(
-                    [
-                        {"tool_name": tc.name, "arguments": tc.arguments, "tool_use_id": tc.id}
-                        for tc in resp.tool_calls
-                    ],
-                    sid,
-                )
-
-                for r in results:
-                    state.add_event(ObservationEvent(
-                        source="tool",
-                        tool_use_id=r.tool_use_id,
-                        content=r.output,
-                        status=r.status,
-                        error=r.error,
-                        truncated=r.truncated,
-                        cache_key=r.cache_key,
-                        duration_ms=r.duration_ms,
-                    ))
-            else:
-                # 5. 无工具调用 → 最终回答 → 异步保存记忆
-                if final_text and self._memory:
-                    self._save_round_memory(user_input, final_text, project_id)
-
-                break
-
-        # 强制终止警告
-        if iterations >= self._max_iterations:
-            logger.warning("达到最大迭代次数 (%d)，强制终止", self._max_iterations)
-
-        duration = int((time.monotonic() - t0) * 1000)
-
-        # 会话结束事件
-        if self._gateway:
-            from protocol.rpc_schema import SessionLifecycleEvent
-            await self._gateway.publish(
-                SessionLifecycleEvent(params={
-                    "event": "ended",
-                    "session_id": sid,
-                    "total_tokens": total_tokens,
-                    "total_cost_usd": 0.0,
-                }),
-                session_id=sid,
-            )
-
-        # 遥测
-        if self._telemetry:
-            self._telemetry.agent.record_session(
-                session_id=sid,
-                total_tokens=total_tokens,
-                total_cost=0.0,
-                duration_ms=duration,
-            )
-
-        # 会话结束清理
-        await self._end_session_cleanup(sid)
-
-        return OrchResponse(
-            text=final_text,
-            session_id=sid,
-            iterations=iterations,
-            total_tokens=total_tokens,
-            duration_ms=duration,
-        )
 
     # ====== 流式入口（委托 ChatEngine，为 Hook/Policy 预留） ======
 
@@ -266,7 +114,7 @@ class Orchestrator:
             try:
                 allowed = await self._policy.check(user_input)
                 if not allowed:
-                    yield {"type": "error", "message": "请求被策略拦截"}
+                    yield ErrorEvent(message="请求被策略拦截")
                     return
             except Exception:
                 pass
@@ -299,7 +147,7 @@ class Orchestrator:
         # ── 6. Dispatcher 调度（直接调用，不经过 ChatEngine） ──
         dispatcher = self._dispatcher or getattr(self._engine, '_dispatcher', None)
         if not dispatcher:
-            yield {"type": "error", "message": "No dispatcher configured"}
+            yield ErrorEvent(message="No dispatcher configured")
             return
 
         response_parts: list[str] = []
@@ -310,32 +158,32 @@ class Orchestrator:
                 max_rounds=200,
             ):
                 # ConversationState 事件跟踪
-                if chunk.get("type") == "tool_call_start":
+                if isinstance(chunk, ToolCallStartEvent):
                     state.add_event(ToolCallEvent(
                         source="tool",
-                        tool_name=chunk.get("tool_name", "?"),
-                        tool_use_id=chunk.get("tool_use_id", ""),
-                        arguments=chunk.get("arguments", {}),
+                        tool_name=chunk.tool_name,
+                        tool_use_id=getattr(chunk, 'tool_use_id', ''),
+                        arguments={},
                     ))
-                elif chunk.get("type") == "tool_exec_end":
+                elif isinstance(chunk, ToolExecEndEvent):
                     state.add_event(ObservationEvent(
                         source="tool",
-                        tool_use_id=chunk.get("tool_use_id", ""),
-                        content=chunk.get("content", ""),
-                        status=chunk.get("status", "success"),
-                        error=chunk.get("error"),
-                        truncated=chunk.get("truncated", False),
-                        cache_key=chunk.get("cache_key", ""),
-                        duration_ms=chunk.get("duration_ms", 0),
+                        tool_use_id=getattr(chunk, 'tool_use_id', ''),
+                        content=getattr(chunk, 'preview', ''),
+                        status="success",
+                        error=None,
+                        truncated=False,
+                        cache_key='',
+                        duration_ms=0,
                     ))
-                elif chunk.get("type") == "text":
-                    response_parts.append(chunk.get("content", ""))
+                elif isinstance(chunk, TextEvent):
+                    response_parts.append(chunk.content)
 
                 yield chunk
         except GeneratorExit:
             return
         except Exception as e:
-            yield {"type": "error", "message": str(e)}
+            yield ErrorEvent(message=str(e))
 
         final_text = "".join(response_parts)
 
@@ -354,7 +202,7 @@ class Orchestrator:
         )
         if reason:
             self._engine._messages = msgs
-            yield {"type": "compact", "reason": reason}
+            yield CompactEvent(reason=reason)
 
         # ── 8. 上下文利用率遥测 ──
         try:
@@ -444,36 +292,4 @@ class Orchestrator:
                 except Exception as e:
                     logger.warning("DreamPipeline 启动失败: %s", e)
 
-    # ====== 内部 ======
 
-    async def _get_messages(self, state: ConversationState) -> List[Dict[str, Any]]:
-        """组装上下文消息（含 PRE_CONTEXT_ASSEMBLY 钩子注入）。"""
-        # 钩子注入的额外上下文（Git 感知等可插拔模块）
-        additional_blocks: list = []
-        if self._hooks:
-            try:
-                from core.models.hook import HookPoint
-                from core.models.context import ContextBlock, BlockSource
-                hook_result = await self._hooks.run(
-                    session_id=state.metadata.session_id,
-                    hook_point=HookPoint.PRE_CONTEXT_ASSEMBLY,
-                )
-                if hook_result and hook_result.additional_context:
-                    additional_blocks.append(ContextBlock(
-                        source=BlockSource.ADDITIONAL_CONTEXT,
-                        role="system",
-                        content=hook_result.additional_context,
-                        zone="dynamic",
-                        priority=8,
-                        importance=0.55,
-                    ))
-            except Exception:
-                pass
-
-        if self._context:
-            ctx = self._context.assemble(
-                state,
-                additional_contexts=additional_blocks or None,
-            )
-            return ctx.get_messages()
-        return state.get_messages_for_llm()

@@ -8,6 +8,7 @@ tests/unit/test_llm_invoker.py
 import pytest
 
 from core.llm_invoker import (
+    TextChunk, ReasoningChunk, ToolCallStartChunk, ToolCallDeltaChunk, ToolCallEndChunk, DoneChunk, ErrorChunk,
     LLMInvoker, StreamChunk, ToolCall, LLMResponse,
 )
 
@@ -30,9 +31,9 @@ class MockClient:
 @pytest.mark.asyncio
 async def test_text_only_stream():
     client = MockClient([
-        StreamChunk(type="text", content="Hello"),
-        StreamChunk(type="text", content=" world!"),
-        StreamChunk(type="done", finish_reason="stop", usage={"input": 10, "output": 2}),
+        TextChunk(content="Hello"),
+        TextChunk(content=" world!"),
+        DoneChunk(finish_reason="stop", usage={"input": 10, "output": 2}),
     ])
     invoker = LLMInvoker(model_client=client)
     resp = await invoker.invoke([{"role": "user", "content": "hi"}])
@@ -47,11 +48,11 @@ async def test_text_only_stream():
 @pytest.mark.asyncio
 async def test_tool_call_stream():
     client = MockClient([
-        StreamChunk(type="tool_call_start", tool_index=0, tool_id="c1", tool_name="read_file"),
-        StreamChunk(type="tool_call_delta", tool_index=0, tool_args_delta='{"pa'),
-        StreamChunk(type="tool_call_delta", tool_index=0, tool_args_delta='th": "/tmp/test.py"}'),
-        StreamChunk(type="tool_call_end", tool_index=0),
-        StreamChunk(type="done", finish_reason="tool_calls", usage={"input": 20, "output": 5}),
+        ToolCallStartChunk(tool_index=0, tool_id="c1", tool_name="read_file"),
+        ToolCallDeltaChunk(tool_index=0, tool_args_delta='{"pa'),
+        ToolCallDeltaChunk(tool_index=0, tool_args_delta='th": "/tmp/test.py"}'),
+        ToolCallEndChunk(tool_index=0),
+        DoneChunk(finish_reason="tool_calls", usage={"input": 20, "output": 5}),
     ])
     invoker = LLMInvoker(model_client=client)
     resp = await invoker.invoke([{"role": "user", "content": "read"}])
@@ -67,11 +68,11 @@ async def test_tool_call_stream():
 @pytest.mark.asyncio
 async def test_multiple_tool_calls():
     client = MockClient([
-        StreamChunk(type="tool_call_start", tool_index=0, tool_id="c1", tool_name="read_file"),
-        StreamChunk(type="tool_call_end", tool_index=0),
-        StreamChunk(type="tool_call_start", tool_index=1, tool_id="c2", tool_name="grep"),
-        StreamChunk(type="tool_call_end", tool_index=1),
-        StreamChunk(type="done", finish_reason="tool_calls"),
+        ToolCallStartChunk(tool_index=0, tool_id="c1", tool_name="read_file"),
+        ToolCallEndChunk(tool_index=0),
+        ToolCallStartChunk(tool_index=1, tool_id="c2", tool_name="grep"),
+        ToolCallEndChunk(tool_index=1),
+        DoneChunk(finish_reason="tool_calls"),
     ])
     invoker = LLMInvoker(model_client=client)
     resp = await invoker.invoke([{"role": "user", "content": "search"}])
@@ -85,10 +86,10 @@ async def test_multiple_tool_calls():
 @pytest.mark.asyncio
 async def test_text_and_tool_calls():
     client = MockClient([
-        StreamChunk(type="text", content="Let me read that."),
-        StreamChunk(type="tool_call_start", tool_index=0, tool_id="c1", tool_name="read_file"),
-        StreamChunk(type="tool_call_end", tool_index=0),
-        StreamChunk(type="done", finish_reason="tool_calls"),
+        TextChunk(content="Let me read that."),
+        ToolCallStartChunk(tool_index=0, tool_id="c1", tool_name="read_file"),
+        ToolCallEndChunk(tool_index=0),
+        DoneChunk(finish_reason="tool_calls"),
     ])
     invoker = LLMInvoker(model_client=client)
     resp = await invoker.invoke([{"role": "user", "content": "read /tmp/a.py"}])
@@ -101,7 +102,7 @@ async def test_text_and_tool_calls():
 @pytest.mark.asyncio
 async def test_error_mapping_rate_limit():
     client = MockClient([
-        StreamChunk(type="error", error="429 Too Many Requests"),
+        ErrorChunk(error="429 Too Many Requests"),
     ])
     invoker = LLMInvoker(model_client=client)
     resp = await invoker.invoke([{"role": "user", "content": "hi"}])
@@ -111,7 +112,7 @@ async def test_error_mapping_rate_limit():
 @pytest.mark.asyncio
 async def test_error_mapping_auth():
     client = MockClient([
-        StreamChunk(type="error", error="401 Unauthorized"),
+        ErrorChunk(error="401 Unauthorized"),
     ])
     invoker = LLMInvoker(model_client=client)
     resp = await invoker.invoke([{"role": "user", "content": "hi"}])
@@ -136,7 +137,7 @@ async def test_cost_circuit_breaker():
     engine._circuit_breaker._cumulative = 100.0
     engine._circuit_breaker._state = "open"
 
-    client = MockClient([StreamChunk(type="done")])
+    client = MockClient([DoneChunk()])
     invoker = LLMInvoker(model_client=client, policy_engine=engine)
     resp = await invoker.invoke([{"role": "user", "content": "hi"}])
     assert "熔断" in (resp.error or "") or "circuit" in (resp.error or "").lower()
@@ -148,8 +149,8 @@ async def test_cost_circuit_breaker():
 async def test_done_finish_reason():
     for reason in ["stop", "tool_calls", "length"]:
         client = MockClient([
-            StreamChunk(type="text", content="x"),
-            StreamChunk(type="done", finish_reason=reason),
+            TextChunk(content="x"),
+            DoneChunk(finish_reason=reason),
         ])
         invoker = LLMInvoker(model_client=client)
         resp = await invoker.invoke([{"role": "user", "content": "hi"}])

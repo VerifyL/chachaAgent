@@ -168,7 +168,8 @@ ChachaAgent/
 │   │   ├── context.py         上下文模型 ✅
 │   │   ├── session.py         会话模型 ✅
 │   │   ├── hook.py            钩子模型 ✅
-│   │   └── audit.py           审计模型 ✅
+│   │   ├── audit.py           审计模型 ✅
+│   │   └── stream_event.py    流式事件 ✅
 │   └── debug/               🚧 调试工具 (占位)
 ├── capabilities/           能力与插件层
 │   ├── base.py              BaseTool 抽象基类 ✅

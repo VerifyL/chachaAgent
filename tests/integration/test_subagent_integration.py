@@ -74,5 +74,5 @@ async def test_all_three_types():
     assert "worker" in SUBAGENT_DEFINITIONS
 
     explore = SUBAGENT_DEFINITIONS["explore"]
-    assert explore.max_iterations == 15
-    assert explore.tools_whitelist == ["read_file", "grep"]
+    assert explore.max_rounds == 25
+    assert explore.tools_whitelist == ["read_file", "grep", "read_cached_output"]

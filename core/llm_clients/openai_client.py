@@ -23,7 +23,10 @@ from typing import Any, AsyncIterator, Dict, List, Optional
 
 from openai import AsyncOpenAI
 
-from core.llm_invoker import StreamChunk
+from core.llm_invoker import (
+    TextChunk, ReasoningChunk, ToolCallStartChunk,
+    ToolCallDeltaChunk, DoneChunk,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +64,7 @@ class OpenAIClient:
         self,
         messages: List[Dict[str, Any]],
         tools: Optional[List[Dict[str, Any]]] = None,
-    ) -> AsyncIterator[StreamChunk]:
+    ) -> AsyncIterator[Any]:
         """流式调用 LLM，逐个返回 StreamChunk。"""
         # DeepSeek thinking mode: 需保留 reasoning_content（但不要传 null）
         _messages = []
@@ -99,10 +102,10 @@ class OpenAIClient:
             # 1. 文本内容 + DeepSeek reasoning
             content = getattr(delta, "content", None)
             if content:
-                yield StreamChunk(type="text", content=content)
+                yield TextChunk(content=content)
             reasoning = getattr(delta, "reasoning_content", None)
             if reasoning:
-                yield StreamChunk(type="reasoning", content=reasoning)
+                yield ReasoningChunk(content=reasoning)
 
             # 2. 工具调用
             tool_calls = getattr(delta, "tool_calls", None)
@@ -119,8 +122,7 @@ class OpenAIClient:
 
                     if tc_id and idx not in started_indices:
                         started_indices.add(idx)
-                        yield StreamChunk(
-                            type="tool_call_start",
+                        yield ToolCallStartChunk(
                             tool_index=idx,
                             tool_id=tc_id,
                             tool_name=tc_name or "",
@@ -130,8 +132,7 @@ class OpenAIClient:
                     if fn:
                         args_delta = getattr(fn, "arguments", None)
                         if args_delta:
-                            yield StreamChunk(
-                                type="tool_call_delta",
+                            yield ToolCallDeltaChunk(
                                 tool_index=idx,
                                 tool_args_delta=args_delta,
                             )
@@ -153,16 +154,14 @@ class OpenAIClient:
                         "model": self._model,
                     }
 
-                yield StreamChunk(
-                    type="done",
+                yield DoneChunk(
                     finish_reason=finish_reason,
                     usage=usage_info if usage_info else None,
                 )
                 return
 
         # 流自然结束但无 finish_reason（兼容某些提供商）
-        yield StreamChunk(
-            type="done",
+        yield DoneChunk(
             finish_reason="stop",
             usage=usage_info if usage_info else None,
         )

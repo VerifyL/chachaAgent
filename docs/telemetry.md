@@ -145,9 +145,41 @@ assert llm.trace_id == tool.trace_id == root.trace_id
 
 ```toml
 [telemetry]
-# enabled = true               # 开启结构化日志 + 审计（默认关闭）
-# log_level = "INFO"           # DEBUG / INFO / WARNING / ERROR
+enabled = true               # 开启结构化日志 + 审计（默认开启）
+log_level = "INFO"           # DEBUG / INFO / WARNING / ERROR
+enable_audit = true          # 审计日志
 ```
+
+### 5.1 CLI 快速开关
+
+| 方式 | 说明 |
+|------|------|
+| `chacha --debug` | 启动时强制开启遥测（覆盖配置文件） |
+| `chacha --verbose` | 启动时开启遥测 + DEBUG 级别日志 |
+
+### 5.2 CLI 遥测命令
+
+| 命令 | 说明 |
+|------|------|
+| `/telemetry` | **完整仪表盘**：指标摘要(P50/P99延迟)、token统计、成本、日志文件大小 |
+| `/telemetry on` | **运行时开启遥测**（热切换，即时生效） |
+| `/telemetry off` | **运行时关闭遥测**（热切换，即时生效） |
+| `/logs [N] [level] [keyword]` | 查看/过滤调试日志，默认最近10条 |
+| `/auditlog [N]` | 查看审计日志（最近 N 条） |
+| `/trace` | Span 追踪链：操作名、耗时、trace_id、错误标记 |
+| `/cost` | API 成本汇总：累计总成本 + 按模型拆分 |
+| `Ctrl+T` | 快捷键查看遥测仪表盘 |
+
+**日志过滤示例**：
+```
+/logs 20 ERROR          # 最近 20 条 ERROR 级别日志
+/logs 5 read_file       # 最近 5 条含 "read_file" 的日志
+/logs 50 INFO tool      # 最近 50 条 INFO 级别含 "tool" 的日志
+```
+
+> **运行时热切换**：`/telemetry on` 和 `/telemetry off` 可在对话中随时切换。
+> 子系统（Dispatcher、ToolExecutor、ContextManager）持有 Telemetry **对象引用**，
+> 运行时检查 `enabled` / `agent` / `logger` 属性，因此翻转后立即全局生效，无需重启。
 
 ---
 

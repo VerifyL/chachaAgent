@@ -7,7 +7,18 @@ import asyncio
 
 import pytest
 
-from core.llm_invoker import LLMInvoker, StreamChunk
+from core.llm_invoker import (
+    LLMInvoker,
+    TextChunk,
+    ReasoningChunk,
+    ToolCallStartChunk,
+    ToolCallDeltaChunk,
+    ToolCallEndChunk,
+    DoneChunk,
+    ErrorChunk,
+    LLMResponse,
+    ToolCall,
+)
 from core.telemetry import Telemetry
 from core.models.config import TelemetryConfig
 
@@ -30,8 +41,8 @@ async def test_text_only_replay_with_telemetry():
     t.start()
 
     client = MockClient([
-        StreamChunk(type="text", content="Hello, world!"),
-        StreamChunk(type="done", finish_reason="stop",
+        TextChunk(content="Hello, world!"),
+        DoneChunk( finish_reason="stop",
                     usage={"input": 50, "output": 10, "model": "gpt-4"}),
     ])
     invoker = LLMInvoker(model_client=client, telemetry=t)
@@ -51,11 +62,11 @@ async def test_text_only_replay_with_telemetry():
 async def test_tool_call_replay():
     """LLM 返回 read_file 工具调用 → 正确解析"""
     client = MockClient([
-        StreamChunk(type="text", content="I'll read the file."),
-        StreamChunk(type="tool_call_start", tool_index=0, tool_id="call-1",
+        TextChunk(content="I'll read the file."),
+        ToolCallStartChunk(tool_index=0, tool_id="call-1",
                     tool_name="read_file"),
-        StreamChunk(type="tool_call_end", tool_index=0),
-        StreamChunk(type="done", finish_reason="tool_calls",
+        ToolCallEndChunk(tool_index=0),
+        DoneChunk( finish_reason="tool_calls",
                     usage={"input": 100, "output": 20}),
     ])
     invoker = LLMInvoker(model_client=client)
@@ -75,7 +86,7 @@ async def test_tool_call_replay():
 async def test_error_replay_timeout():
     """模拟超时异常"""
     client = MockClient([
-        StreamChunk(type="error", error="Request timeout after 60s"),
+        ErrorChunk(error="Request timeout after 60s"),
     ])
     invoker = LLMInvoker(model_client=client)
     resp = await invoker.invoke(

@@ -33,52 +33,84 @@ Orchestrator
 
 ## 1. 适配器接口
 
-### 1.1 StreamChunk
+### 1.1 StreamChunk（Pydantic Discriminated Union）
+
+`StreamChunk` 是 7 个子类的 discriminated union（`core/llm_invoker.py`），适配器产出具体子类实例：
 
 ```python
-@dataclass
-class StreamChunk:
-    type: str          # text | tool_call_start | tool_call_delta | tool_call_end | done | error
-    content: str       # text 类型
-    tool_index: int    # tool_call 类型的索引（0~N）
-    tool_id: str       # tool_call_start
-    tool_name: str     # tool_call_start
-    tool_args_delta: str  # tool_call_delta（增量 JSON）
-    finish_reason: str    # done 类型：stop | tool_calls | length
-    usage: dict        # done 类型：{input, output, total}
-    error: str         # error 类型
+class TextChunk(BaseModel):
+    type: Literal["text"] = "text"
+    content: str
+
+class ReasoningChunk(BaseModel):
+    type: Literal["reasoning"] = "reasoning"
+    content: str
+
+class ToolCallStartChunk(BaseModel):
+    type: Literal["tool_call_start"] = "tool_call_start"
+    tool_index: int
+    tool_id: str
+    tool_name: str = ""
+
+class ToolCallDeltaChunk(BaseModel):
+    type: Literal["tool_call_delta"] = "tool_call_delta"
+    tool_index: int
+    tool_args_delta: str = ""
+
+class ToolCallEndChunk(BaseModel):
+    type: Literal["tool_call_end"] = "tool_call_end"
+    tool_index: int
+    tool_args_delta: str = ""
+
+class DoneChunk(BaseModel):
+    type: Literal["done"] = "done"
+    finish_reason: str = ""       # stop | tool_calls | length | content_filter
+    usage: Optional[Dict[str, Any]] = None
+
+class ErrorChunk(BaseModel):
+    type: Literal["error"] = "error"
+    error: Optional[str] = None
+    content: str = ""
 ```
 
-适配器（OpenAI/Anthropic 等）将各自的流式响应转换为统一的 `StreamChunk` 序列。
+适配器（OpenAI/Anthropic 等）将各自的流式响应转换为具体的 Chunk 子类实例。消费方用 `isinstance()` 匹配：
+
+```python
+async for chunk in client.stream(...):
+    if isinstance(chunk, TextChunk):
+        print(chunk.content, end="")
+    elif isinstance(chunk, ToolCallStartChunk):
+        tool_calls[chunk.tool_index] = ToolCall(id=chunk.tool_id, name=chunk.tool_name, arguments={})
+```
 
 **流式示例**：
 
 ```
-text "Let me" → tool_call_start("read_file", id="c1") → tool_call_delta('{"pa')
-→ tool_call_delta('th":"/tmp/test.py"}') → tool_call_end → done("tool_calls")
+TextChunk("Let me") → ToolCallStartChunk(tool_index=0, tool_id="c1", tool_name="read_file")
+→ ToolCallDeltaChunk(tool_index=0, tool_args_delta='{"pa')
+→ ToolCallDeltaChunk(tool_index=0, tool_args_delta='th":"/tmp/test.py"}')
+→ ToolCallEndChunk(tool_index=0) → DoneChunk(finish_reason="tool_calls")
 ```
 
 ### 1.2 ToolCall
 
 ```python
-@dataclass
-class ToolCall:
+class ToolCall(BaseModel):
     id: str                              # 工具调用 ID
     name: str                            # 工具名称
-    arguments: Dict[str, Any]            # 解析后的参数
+    arguments: Dict[str, Any] = Field(default_factory=dict)
 ```
 
 ### 1.3 LLMResponse
 
 ```python
-@dataclass
-class LLMResponse:
-    text: str                            # 文本输出
-    tool_calls: List[ToolCall]           # 工具调用列表
-    finish_reason: str                   # stop | tool_calls | length
-    usage: Dict[str, int]                # {input, output, total}
-    error: Optional[str]                 # 错误信息
-    duration_ms: int                     # 耗时
+class LLMResponse(BaseModel):
+    text: str = ""                         # 文本输出（所有 text chunk 拼接）
+    tool_calls: List[ToolCall] = Field(default_factory=list)
+    finish_reason: str = "stop"            # stop | tool_calls | length | content_filter
+    error: Optional[str] = None
+    usage: Dict[str, int] = Field(default_factory=dict)  # {input, output, total}
+    duration_ms: int = 0
 ```
 
 ---
@@ -159,6 +191,8 @@ resp = await invoker.invoke(messages)
 
 ```python
 # core/llm_clients/openai_client.py（阶段 3）
+from core.llm_invoker import TextChunk, ToolCallStartChunk, ToolCallDeltaChunk, DoneChunk, StreamChunk
+
 class OpenAIClient:
     async def stream(self, messages, tools) -> AsyncIterator[StreamChunk]:
         response = await self._client.chat.completions.create(
@@ -167,14 +201,14 @@ class OpenAIClient:
         async for event in response:
             delta = event.choices[0].delta
             if delta.content:
-                yield StreamChunk(type="text", content=delta.content)
+                yield TextChunk(content=delta.content)
             if delta.tool_calls:
                 for tc in delta.tool_calls:
                     if tc.id:
-                        yield StreamChunk(type="tool_call_start", tool_index=tc.index,
-                                          tool_id=tc.id, tool_name=tc.function.name)
+                        yield ToolCallStartChunk(tool_index=tc.index,
+                                                 tool_id=tc.id, tool_name=tc.function.name)
                     if tc.function.arguments:
-                        yield StreamChunk(type="tool_call_delta", tool_index=tc.index,
-                                          tool_args_delta=tc.function.arguments)
-        yield StreamChunk(type="done", finish_reason=..., usage=...)
+                        yield ToolCallDeltaChunk(tool_index=tc.index,
+                                                 tool_args_delta=tc.function.arguments)
+        yield DoneChunk(finish_reason=..., usage=...)
 ```

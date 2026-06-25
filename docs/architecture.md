@@ -198,7 +198,7 @@ Orchestrator.run_stream(user_input, session_id)
   ├─ 12. Gateway: session_ended
   └─ 13. 清理 + DreamPipeline 触发
 
-Orchestrator.run()  保留为测试/非流式兼容入口，返回 OrchResponse。
+Orchestrator.run_stream() 为唯一编排入口，返回 `AsyncIterator[StreamEvent]`。
 ```
 
 ### 4.2 ChatEngine — 对话引擎（v2.1 降级为存储层）
@@ -332,7 +332,7 @@ OpenAIClient(api_key=sk-..., model=deepseek-chat, base_url=https://api.deepseek.
 OpenAIClient(model=llama3, base_url=http://localhost:11434/v1, api_key=ollama)
 ```
 
-**StreamChunk 类型**：text | reasoning | tool_call_start | tool_call_delta | tool_call_end | done | error
+**StreamChunk** 是 Pydantic discriminated union（7 个子类：TextChunk / ReasoningChunk / ToolCallStartChunk / ToolCallDeltaChunk / ToolCallEndChunk / DoneChunk / ErrorChunk），消费方用 `isinstance()` 匹配
 
 ### 5.2 RetryHandler
 

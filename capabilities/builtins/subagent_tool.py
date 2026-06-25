@@ -75,12 +75,17 @@ class SubAgentTool(BaseTool):
         ExpandSubAgentTool.cache_result(subagent_id, result.text)
 
         preview = result.text[:500] + ("..." if len(result.text) > 500 else "")
+        summary_str = ""
+        if result.tool_calls_summary:
+            parts = [f"{name}×{cnt}" for name, cnt in sorted(result.tool_calls_summary.items())]
+            summary_str = "工具: " + ", ".join(parts) + "\n\n"
         return (
             f"[子Agent: {result.agent_type}] [ID: {subagent_id}]\n"
             f"任务: {result.task}\n"
             f"状态: {result.status}\n"
             f"Token: {result.tokens_used} | 工具调用: {result.tool_calls_made}次\n"
             f"耗时: {result.duration_ms}ms\n\n"
+            f"{summary_str}"
             f"{preview}\n\n"
             f"[使用 expand_subagent(\"{subagent_id}\") 查看详情]"
         )

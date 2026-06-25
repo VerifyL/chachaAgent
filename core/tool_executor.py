@@ -18,9 +18,10 @@ ToolExecutor — 工具执行调度器：查找、审批、钩子、执行、遥
 import asyncio
 import logging
 import time
-from dataclasses import dataclass, field
-from core.models.audit import audit_factory, AuditEventCategory
 from typing import Any, Callable, Coroutine, Dict, List, Optional, Union
+
+from pydantic import BaseModel, Field
+from core.models.audit import audit_factory, AuditEventCategory
 
 logger = logging.getLogger(__name__)
 
@@ -71,8 +72,7 @@ class ToolPermissionError(Exception):
 
 # ========================= 审批请求 =========================
 
-@dataclass
-class ApprovalRequest:
+class ApprovalRequest(BaseModel):
     """审批请求上下文"""
     tool_name: str
     arguments: Dict[str, Any]
@@ -86,9 +86,8 @@ class ApprovalRequest:
 
 # ========================= 执行结果 =========================
 
-@dataclass
-class ToolResult:
-    """工具执行结果"""
+class ToolResult(BaseModel):
+    """工具执行结果（Pydantic 模型，自动校验）"""
     tool_use_id: str
     tool_name: str
     status: str = "success"       # success | error | blocked | timeout
@@ -265,7 +264,6 @@ class ToolExecutor:
             import hashlib as _hl
             cache_key = _hl.md5(f"{tool_name}:{tool_use_id}:{time.time()}".encode()).hexdigest()[:12]
             self._output_cache[cache_key] = (output, time.time())
-            self._cleanup_cache()
             # 分页提示（根据工具类型给出具体建议）
             hint = self._truncation_hint(tool_name, arguments, remaining)
             output = f"{cut}\n... [截断，剩余 {remaining} 字符。续读: cache_key={cache_key}]\n{hint}"
@@ -413,6 +411,7 @@ class ToolExecutor:
         if has_more:
             result += f"\n... [还有 {len(full_output) - offset - limit} 字符，续读: offset={offset + limit}]"
         return result
+
 
     def _cleanup_cache(self) -> None:
         """清理超过 2 分钟的过期缓存。"""

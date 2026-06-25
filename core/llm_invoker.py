@@ -19,47 +19,106 @@ import json
 import asyncio
 import logging
 import time
-from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Dict, List, Optional
+from enum import Enum
+from typing import Any, Annotated, AsyncIterator, Dict, List, Literal, Optional, Union
 
 from core.models.context import CompressionLevel
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
 
 # ========================= 接口定义 =========================
 
-@dataclass
-class StreamChunk:
-    """模型适配器返回的流式块（适配器无关接口）"""
-    type: str = ""               # text | tool_call_start | tool_call_delta | tool_call_end | done
-    content: str = ""            # text 类型的内容
-    tool_index: int = -1         # tool_call 类型的索引
-    tool_id: str = ""            # tool_call_start
-    tool_name: str = ""          # tool_call_start
-    tool_args_delta: str = ""    # tool_call_delta
-    finish_reason: str = ""      # done 类型：stop | tool_calls | length | error
-    usage: Optional[Dict[str, int]] = None  # done 类型：{input, output, total}
-    error: Optional[str] = None  # error 类型
+class StreamChunkType(str, Enum):
+    """流式块类型枚举"""
+    TEXT = "text"
+    REASONING = "reasoning"
+    TOOL_CALL_START = "tool_call_start"
+    TOOL_CALL_DELTA = "tool_call_delta"
+    TOOL_CALL_END = "tool_call_end"
+    DONE = "done"
+    ERROR = "error"
 
 
-@dataclass
-class ToolCall:
+class TextChunk(BaseModel):
+    """文本增量块"""
+    type: Literal[StreamChunkType.TEXT] = StreamChunkType.TEXT
+    content: str
+
+
+class ReasoningChunk(BaseModel):
+    """推理过程块（DeepSeek-R1 / o1 等思考链模型）"""
+    type: Literal[StreamChunkType.REASONING] = StreamChunkType.REASONING
+    content: str
+
+
+class ToolCallStartChunk(BaseModel):
+    """工具调用开始"""
+    type: Literal[StreamChunkType.TOOL_CALL_START] = StreamChunkType.TOOL_CALL_START
+    tool_index: int
+    tool_id: str
+    tool_name: str = ""
+
+
+class ToolCallDeltaChunk(BaseModel):
+    """工具调用参数增量"""
+    type: Literal[StreamChunkType.TOOL_CALL_DELTA] = StreamChunkType.TOOL_CALL_DELTA
+    tool_index: int
+    tool_args_delta: str = ""
+
+
+class ToolCallEndChunk(BaseModel):
+    """工具调用参数结束"""
+    type: Literal[StreamChunkType.TOOL_CALL_END] = StreamChunkType.TOOL_CALL_END
+    tool_index: int
+    tool_args_delta: str = ""
+
+
+class DoneChunk(BaseModel):
+    """流结束"""
+    type: Literal[StreamChunkType.DONE] = StreamChunkType.DONE
+    finish_reason: str = ""      # stop | tool_calls | length | error
+    usage: Optional[Dict[str, Any]] = None  # {input, output, total}
+
+
+class ErrorChunk(BaseModel):
+    """错误块"""
+    type: Literal[StreamChunkType.ERROR] = StreamChunkType.ERROR
+    error: Optional[str] = None  # 错误详情
+    content: str = ""            # 兼容旧接口：某些调用方用 content 传错误描述
+
+
+# 联合类型（Pydantic v2 discriminated union）
+StreamChunk = Annotated[
+    Union[
+        TextChunk,
+        ReasoningChunk,
+        ToolCallStartChunk,
+        ToolCallDeltaChunk,
+        ToolCallEndChunk,
+        DoneChunk,
+        ErrorChunk,
+    ],
+    Field(discriminator="type"),
+]
+
+
+class ToolCall(BaseModel):
     """解析后的工具调用"""
     id: str
     name: str
-    arguments: Dict[str, Any] = field(default_factory=dict)
+    arguments: Dict[str, Any] = Field(default_factory=dict)
     _args_raw: str = ""  # 流式累积的原始 JSON 字符串（内部使用）
 
 
-@dataclass
-class LLMResponse:
+class LLMResponse(BaseModel):
     """LLM 调用完整结果"""
     text: str = ""                         # 文本输出（所有 text chunk 拼接）
-    tool_calls: List[ToolCall] = field(default_factory=list)
+    tool_calls: List[ToolCall] = Field(default_factory=list)
     finish_reason: str = "stop"            # stop | tool_calls | length | content_filter
     error: Optional[str] = None
-    usage: Dict[str, int] = field(default_factory=dict)  # {input, output, total}
+    usage: Dict[str, int] = Field(default_factory=dict)  # {input, output, total}
     duration_ms: int = 0
 
 
@@ -125,7 +184,7 @@ class LLMInvoker:
         except GeneratorExit:
             return
         except (KeyboardInterrupt, asyncio.CancelledError):
-            yield StreamChunk(type="error", content="用户中断")
+            yield ErrorChunk(error="用户中断")
 
     async def _invoke_impl(
         self,
@@ -159,7 +218,7 @@ class LLMInvoker:
             else:
                 it = self._client.stream(messages, tools or [])
             async for chunk in it:
-                if chunk.type == "text":
+                if isinstance(chunk, TextChunk):
                     text_parts.append(chunk.content)
                     if self._gateway:
                         from protocol.rpc_schema import TokenChunkEvent
@@ -168,26 +227,30 @@ class LLMInvoker:
                             session_id=session_id,
                         )
 
-                elif chunk.type == "tool_call_start":
+                elif isinstance(chunk, ReasoningChunk):
+                    # 推理过程不积累到文本输出，仅流式展示（Gateway 已处理）
+                    pass
+
+                elif isinstance(chunk, ToolCallStartChunk):
                     tool_calls[chunk.tool_index] = ToolCall(
                         id=chunk.tool_id, name=chunk.tool_name,
                     )
 
-                elif chunk.type == "tool_call_delta":
+                elif isinstance(chunk, ToolCallDeltaChunk):
                     tc = tool_calls.get(chunk.tool_index)
                     if tc:
                         tc._args_raw += chunk.tool_args_delta
 
-                elif chunk.type == "tool_call_end":
+                elif isinstance(chunk, ToolCallEndChunk):
                     tc = tool_calls.get(chunk.tool_index)
                     if tc:
                         tc._args_raw += chunk.tool_args_delta
 
-                elif chunk.type == "done":
+                elif isinstance(chunk, DoneChunk):
                     finish_reason = chunk.finish_reason or finish_reason
                     usage = chunk.usage or {}
 
-                elif chunk.type == "error":
+                elif isinstance(chunk, ErrorChunk):
                     mapped = self._map_error(Exception(chunk.error or "Unknown error"))
                     return LLMResponse(
                         text="".join(text_parts),

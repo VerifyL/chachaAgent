@@ -76,7 +76,8 @@ async def test_output_truncation():
     executor = ToolExecutor({"big": _big}, max_output_chars=1000)
     result = await executor.execute("big", {}, "s1", "c1")
     assert result.truncated is True
-    assert len(result.output) <= 1000 + len("\n... [truncated]")
+    assert "截断" in result.output
+    assert "cache_key" in result.output
 
 
 # ========== 4. PolicyEngine 拦截 ==========

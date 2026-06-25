@@ -26,14 +26,30 @@ LLM ⇄ 工具循环 + 并发工具执行 + Circuit Breaker + 工具结果冻结
 
 ## 流式输出格式
 
+`dispatch_stream()` 产出 `StreamEvent` discriminated union（`core/models/stream_event.py`）。所有事件均为 Pydantic BaseModel，消费方用 `isinstance()` 匹配：
+
 ```
-yield {"type": "text", "content": "..."}
-yield {"type": "tool_call_start", "tool_name": "read_file"}
-yield {"type": "tool_exec_start", "tool_name": "read_file", "args": "📄 path.py"}
-yield {"type": "tool_exec_end", "tool_name": "read_file", "preview": "..."}
-yield {"type": "done", "text": "...", "tokens": N, "usage": {}, "session_id": ""}
-yield {"type": "error", "message": "..."}
-yield {"type": "compact", "reason": "..."}
+yield TextEvent(content="...")
+yield ReasoningEvent(content="...")
+yield ToolCallStartEvent(tool_name="read_file", tool_index=0)
+yield ToolExecStartEvent(tool_name="read_file", args="📄 main.py")
+yield ToolExecEndEvent(tool_name="read_file", preview="第1-100行...")
+yield DoneEvent(text="...", tokens=N, usage={})
+yield ErrorEvent(message="...")
+yield CompactEvent(reason="Token 超 80%")
+```
+
+```python
+# 消费方示例
+from core.models.stream_event import TextEvent, DoneEvent, ErrorEvent
+
+async for event in dispatcher.dispatch_stream(...):
+    if isinstance(event, TextEvent):
+        print(event.content, end="")
+    elif isinstance(event, DoneEvent):
+        print(f"\n[{event.tokens} tokens]")
+    elif isinstance(event, ErrorEvent):
+        print(f"错误: {event.message}")
 ```
 
 ## 工具结果冻结

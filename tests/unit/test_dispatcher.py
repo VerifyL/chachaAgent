@@ -23,7 +23,12 @@ from pathlib import Path
 import pytest
 
 from core.dispatcher import Dispatcher, KEEP_TOOL_RESULTS
-from core.llm_invoker import LLMResponse, ToolCall, StreamChunk
+from core.models.stream_event import TextEvent, ReasoningEvent, ToolCallStartEvent, ToolCallEndEvent, ToolExecStartEvent, ToolExecEndEvent, DoneEvent, ErrorEvent
+from core.llm_invoker import (
+    LLMResponse, ToolCall, StreamChunk,
+    TextChunk, ReasoningChunk, ToolCallStartChunk,
+    ToolCallDeltaChunk, ToolCallEndChunk, DoneChunk, ErrorChunk,
+)
 from core.tool_executor import ToolResult
 from core.context.memory_manager import MemoryManager
 
@@ -55,8 +60,8 @@ class MockStreamingLLM:
             for c in chunks:
                 yield c
         else:
-            yield StreamChunk(type="text", content="done")
-            yield StreamChunk(type="done", finish_reason="stop")
+            yield TextChunk(content="done")
+            yield DoneChunk( finish_reason="stop")
 
 
 class MockTools:
@@ -232,9 +237,9 @@ async def test_dispatch_stream_text_only():
     """dispatch_stream 纯文本流式输出"""
     llm = MockStreamingLLM([
         [
-            StreamChunk(type="text", content="Hello, "),
-            StreamChunk(type="text", content="world!"),
-            StreamChunk(type="done", finish_reason="stop", usage={"total": 10}),
+            TextChunk(content="Hello, "),
+            TextChunk(content="world!"),
+            DoneChunk( finish_reason="stop", usage={"total": 10}),
         ],
     ])
     d = Dispatcher(llm, MockTools())
@@ -243,9 +248,9 @@ async def test_dispatch_stream_text_only():
     async for chunk in d.dispatch_stream([{"role": "user", "content": "hi"}], "s1"):
         chunks.append(chunk)
 
-    texts = [c["content"] for c in chunks if c["type"] == "text"]
+    texts = [c.content for c in chunks if isinstance(c, TextEvent)]
     assert "".join(texts) == "Hello, world!"
-    assert any(c["type"] == "done" for c in chunks)
+    assert any(isinstance(c, DoneEvent) for c in chunks)
 
 
 # ── U-D2: 流式工具调用 → 执行 → 返回 ──
@@ -256,16 +261,16 @@ async def test_dispatch_stream_with_tool_calls():
     llm = MockStreamingLLM([
         # 第 1 轮：工具调用
         [
-            StreamChunk(type="text", content="Let me read..."),
-            StreamChunk(type="tool_call_start", tool_index=0, tool_id="c1", tool_name="read_file"),
-            StreamChunk(type="tool_call_delta", tool_index=0, tool_args_delta='{"path": "main.py"}'),
-            StreamChunk(type="tool_call_end", tool_index=0),
-            StreamChunk(type="done", finish_reason="tool_calls"),
+            TextChunk(content="Let me read..."),
+            ToolCallStartChunk(tool_index=0, tool_id="c1", tool_name="read_file"),
+            ToolCallDeltaChunk(tool_index=0, tool_args_delta='{"path": "main.py"}'),
+            ToolCallEndChunk(tool_index=0),
+            DoneChunk( finish_reason="tool_calls"),
         ],
         # 第 2 轮：最终回答
         [
-            StreamChunk(type="text", content="File contents here"),
-            StreamChunk(type="done", finish_reason="stop", usage={"total": 15}),
+            TextChunk(content="File contents here"),
+            DoneChunk( finish_reason="stop", usage={"total": 15}),
         ],
     ])
     tools = MockTools()
@@ -276,14 +281,14 @@ async def test_dispatch_stream_with_tool_calls():
         chunks.append(chunk)
 
     # 验证工具执行事件
-    exec_starts = [c for c in chunks if c["type"] == "tool_exec_start"]
-    exec_ends = [c for c in chunks if c["type"] == "tool_exec_end"]
+    exec_starts = [c for c in chunks if isinstance(c, ToolExecStartEvent)]
+    exec_ends = [c for c in chunks if isinstance(c, ToolExecEndEvent)]
     assert len(exec_starts) == 1
     assert len(exec_ends) == 1
-    assert exec_starts[0]["tool_name"] == "read_file"
+    assert exec_starts[0].tool_name == "read_file"
     assert len(tools.executed) == 1
 
-    texts = [c["content"] for c in chunks if c["type"] == "text"]
+    texts = [c.content for c in chunks if isinstance(c, TextEvent)]
     assert "File contents here" in "".join(texts)
 
 
@@ -294,20 +299,20 @@ async def test_dispatch_stream_concurrent_tools():
     """同轮多个 tool_calls → 并发执行 (asyncio.gather)"""
     llm = MockStreamingLLM([
         [
-            StreamChunk(type="tool_call_start", tool_index=0, tool_id="c1", tool_name="read_file"),
-            StreamChunk(type="tool_call_delta", tool_index=0, tool_args_delta='{"path": "a.py"}'),
-            StreamChunk(type="tool_call_end", tool_index=0),
-            StreamChunk(type="tool_call_start", tool_index=1, tool_id="c2", tool_name="grep"),
-            StreamChunk(type="tool_call_delta", tool_index=1, tool_args_delta='{"pattern": "foo"}'),
-            StreamChunk(type="tool_call_end", tool_index=1),
-            StreamChunk(type="tool_call_start", tool_index=2, tool_id="c3", tool_name="bash"),
-            StreamChunk(type="tool_call_delta", tool_index=2, tool_args_delta='{"command": "ls"}'),
-            StreamChunk(type="tool_call_end", tool_index=2),
-            StreamChunk(type="done", finish_reason="tool_calls"),
+            ToolCallStartChunk(tool_index=0, tool_id="c1", tool_name="read_file"),
+            ToolCallDeltaChunk(tool_index=0, tool_args_delta='{"path": "a.py"}'),
+            ToolCallEndChunk(tool_index=0),
+            ToolCallStartChunk(tool_index=1, tool_id="c2", tool_name="grep"),
+            ToolCallDeltaChunk(tool_index=1, tool_args_delta='{"pattern": "foo"}'),
+            ToolCallEndChunk(tool_index=1),
+            ToolCallStartChunk(tool_index=2, tool_id="c3", tool_name="bash"),
+            ToolCallDeltaChunk(tool_index=2, tool_args_delta='{"command": "ls"}'),
+            ToolCallEndChunk(tool_index=2),
+            DoneChunk( finish_reason="tool_calls"),
         ],
         [
-            StreamChunk(type="text", content="all done"),
-            StreamChunk(type="done", finish_reason="stop"),
+            TextChunk(content="all done"),
+            DoneChunk( finish_reason="stop"),
         ],
     ])
     tools = MultiToolMock()
@@ -319,9 +324,9 @@ async def test_dispatch_stream_concurrent_tools():
 
     # 3 个工具都被执行
     assert len(tools.executed) == 3
-    exec_starts = [c for c in chunks if c["type"] == "tool_exec_start"]
+    exec_starts = [c for c in chunks if isinstance(c, ToolExecStartEvent)]
     assert len(exec_starts) == 3
-    exec_ends = [c for c in chunks if c["type"] == "tool_exec_end"]
+    exec_ends = [c for c in chunks if isinstance(c, ToolExecEndEvent)]
     assert len(exec_ends) == 3
 
     # bash 最慢但在 gather 中同时执行（并发验证通过执行数量间接证明）
@@ -336,17 +341,17 @@ async def test_dispatch_stream_tool_exception_wrapped():
     """并发中单个工具抛异常 → 包装为 error ToolResult，不中断其他"""
     llm = MockStreamingLLM([
         [
-            StreamChunk(type="tool_call_start", tool_index=0, tool_id="c1", tool_name="read_file"),
-            StreamChunk(type="tool_call_delta", tool_index=0, tool_args_delta='{"path": "a.py"}'),
-            StreamChunk(type="tool_call_end", tool_index=0),
-            StreamChunk(type="tool_call_start", tool_index=1, tool_id="c2", tool_name="grep"),
-            StreamChunk(type="tool_call_delta", tool_index=1, tool_args_delta='{"pattern": "x"}'),
-            StreamChunk(type="tool_call_end", tool_index=1),
-            StreamChunk(type="done", finish_reason="tool_calls"),
+            ToolCallStartChunk(tool_index=0, tool_id="c1", tool_name="read_file"),
+            ToolCallDeltaChunk(tool_index=0, tool_args_delta='{"path": "a.py"}'),
+            ToolCallEndChunk(tool_index=0),
+            ToolCallStartChunk(tool_index=1, tool_id="c2", tool_name="grep"),
+            ToolCallDeltaChunk(tool_index=1, tool_args_delta='{"pattern": "x"}'),
+            ToolCallEndChunk(tool_index=1),
+            DoneChunk( finish_reason="tool_calls"),
         ],
         [
-            StreamChunk(type="text", content="partial success"),
-            StreamChunk(type="done", finish_reason="stop"),
+            TextChunk(content="partial success"),
+            DoneChunk( finish_reason="stop"),
         ],
     ])
     tools = MultiToolMock()
@@ -359,14 +364,14 @@ async def test_dispatch_stream_tool_exception_wrapped():
         chunks.append(chunk)
 
     # read_file 仍然成功，grep 失败被包装
-    exec_ends = [c for c in chunks if c["type"] == "tool_exec_end"]
+    exec_ends = [c for c in chunks if isinstance(c, ToolExecEndEvent)]
     assert len(exec_ends) == 2  # 两个工具都有 end 事件
 
     # 错误不会导致 dispatch_stream 终止
-    errors = [c for c in chunks if c["type"] == "error"]
+    errors = [c for c in chunks if isinstance(c, ErrorEvent)]
     assert len(errors) == 0  # 工具异常不产生 error chunk
 
-    texts = [c["content"] for c in chunks if c["type"] == "text"]
+    texts = [c.content for c in chunks if isinstance(c, TextEvent)]
     assert "partial success" in "".join(texts)
 
 
@@ -377,14 +382,14 @@ async def test_dispatch_stream_tool_exec_events():
     """验证 tool_exec_start / tool_exec_end 事件正确 yield"""
     llm = MockStreamingLLM([
         [
-            StreamChunk(type="tool_call_start", tool_index=0, tool_id="c42", tool_name="read_file"),
-            StreamChunk(type="tool_call_delta", tool_index=0, tool_args_delta='{"path": "x.py"}'),
-            StreamChunk(type="tool_call_end", tool_index=0),
-            StreamChunk(type="done", finish_reason="tool_calls"),
+            ToolCallStartChunk(tool_index=0, tool_id="c42", tool_name="read_file"),
+            ToolCallDeltaChunk(tool_index=0, tool_args_delta='{"path": "x.py"}'),
+            ToolCallEndChunk(tool_index=0),
+            DoneChunk( finish_reason="tool_calls"),
         ],
         [
-            StreamChunk(type="text", content="ok"),
-            StreamChunk(type="done", finish_reason="stop"),
+            TextChunk(content="ok"),
+            DoneChunk( finish_reason="stop"),
         ],
     ])
     d = Dispatcher(llm, MockTools())
@@ -393,14 +398,14 @@ async def test_dispatch_stream_tool_exec_events():
     async for chunk in d.dispatch_stream([{"role": "user", "content": "read"}], "s1"):
         chunks.append(chunk)
 
-    start_events = [c for c in chunks if c["type"] == "tool_exec_start"]
-    end_events = [c for c in chunks if c["type"] == "tool_exec_end"]
+    start_events = [c for c in chunks if isinstance(c, ToolExecStartEvent)]
+    end_events = [c for c in chunks if isinstance(c, ToolExecEndEvent)]
     assert len(start_events) == 1
     assert len(end_events) == 1
-    assert start_events[0]["tool_name"] == "read_file"
-    assert "args" in start_events[0]
-    assert end_events[0]["tool_name"] == "read_file"
-    assert "preview" in end_events[0]
+    assert start_events[0].tool_name == "read_file"
+    assert start_events[0].args
+    assert end_events[0].tool_name == "read_file"
+    assert end_events[0].preview
 
 
 # ── U-D6: 断路器——同一调用连续失败 → 终止 ──
@@ -412,10 +417,10 @@ async def test_dispatch_stream_circuit_breaker_trips():
     rounds_of_tool_calls = []
     for _ in range(6):
         rounds_of_tool_calls.append([
-            StreamChunk(type="tool_call_start", tool_index=0, tool_id="c1", tool_name="flaky_tool"),
-            StreamChunk(type="tool_call_delta", tool_index=0, tool_args_delta='{"target": "server"}'),
-            StreamChunk(type="tool_call_end", tool_index=0),
-            StreamChunk(type="done", finish_reason="tool_calls"),
+            ToolCallStartChunk(tool_index=0, tool_id="c1", tool_name="flaky_tool"),
+            ToolCallDeltaChunk(tool_index=0, tool_args_delta='{"target": "server"}'),
+            ToolCallEndChunk(tool_index=0),
+            DoneChunk( finish_reason="tool_calls"),
         ])
     llm = MockStreamingLLM(rounds_of_tool_calls)
     tools = FailingTools(fail_count=10)  # 总是失败
@@ -428,9 +433,9 @@ async def test_dispatch_stream_circuit_breaker_trips():
         chunks.append(chunk)
 
     # 断路器应触发
-    errors = [c for c in chunks if c["type"] == "error"]
+    errors = [c for c in chunks if isinstance(c, ErrorEvent)]
     assert len(errors) >= 1
-    assert any("Circuit breaker" in e["message"] for e in errors)
+    assert any("Circuit breaker" in e.message for e in errors)
 
 
 # ── U-D7: 断路器——不同调用失败重置计数 ──
@@ -443,29 +448,29 @@ async def test_dispatch_stream_circuit_breaker_resets():
     # 第 3 轮：tool A 又失败 1 次 → 总共 A 失败 2 次 < 5
     llm = MockStreamingLLM([
         [  # Round 1: flaky_tool + read_file
-            StreamChunk(type="tool_call_start", tool_index=0, tool_id="c1", tool_name="flaky_tool"),
-            StreamChunk(type="tool_call_delta", tool_index=0, tool_args_delta='{"target": "x"}'),
-            StreamChunk(type="tool_call_end", tool_index=0),
-            StreamChunk(type="tool_call_start", tool_index=1, tool_id="c2", tool_name="read_file"),
-            StreamChunk(type="tool_call_delta", tool_index=1, tool_args_delta='{"path": "y.py"}'),
-            StreamChunk(type="tool_call_end", tool_index=1),
-            StreamChunk(type="done", finish_reason="tool_calls"),
+            ToolCallStartChunk(tool_index=0, tool_id="c1", tool_name="flaky_tool"),
+            ToolCallDeltaChunk(tool_index=0, tool_args_delta='{"target": "x"}'),
+            ToolCallEndChunk(tool_index=0),
+            ToolCallStartChunk(tool_index=1, tool_id="c2", tool_name="read_file"),
+            ToolCallDeltaChunk(tool_index=1, tool_args_delta='{"path": "y.py"}'),
+            ToolCallEndChunk(tool_index=1),
+            DoneChunk( finish_reason="tool_calls"),
         ],
         [  # Round 2: read_file（不同于 flaky_tool）→ 应重置
-            StreamChunk(type="tool_call_start", tool_index=0, tool_id="c3", tool_name="read_file"),
-            StreamChunk(type="tool_call_delta", tool_index=0, tool_args_delta='{"path": "z.py"}'),
-            StreamChunk(type="tool_call_end", tool_index=0),
-            StreamChunk(type="done", finish_reason="tool_calls"),
+            ToolCallStartChunk(tool_index=0, tool_id="c3", tool_name="read_file"),
+            ToolCallDeltaChunk(tool_index=0, tool_args_delta='{"path": "z.py"}'),
+            ToolCallEndChunk(tool_index=0),
+            DoneChunk( finish_reason="tool_calls"),
         ],
         [  # Round 3: flaky_tool 又失败 → 计数器重新从 1 开始
-            StreamChunk(type="tool_call_start", tool_index=0, tool_id="c4", tool_name="flaky_tool"),
-            StreamChunk(type="tool_call_delta", tool_index=0, tool_args_delta='{"target": "x"}'),
-            StreamChunk(type="tool_call_end", tool_index=0),
-            StreamChunk(type="done", finish_reason="tool_calls"),
+            ToolCallStartChunk(tool_index=0, tool_id="c4", tool_name="flaky_tool"),
+            ToolCallDeltaChunk(tool_index=0, tool_args_delta='{"target": "x"}'),
+            ToolCallEndChunk(tool_index=0),
+            DoneChunk( finish_reason="tool_calls"),
         ],
         [
-            StreamChunk(type="text", content="final"),
-            StreamChunk(type="done", finish_reason="stop"),
+            TextChunk(content="final"),
+            DoneChunk( finish_reason="stop"),
         ],
     ])
 
@@ -499,11 +504,11 @@ async def test_dispatch_stream_circuit_breaker_resets():
         chunks.append(chunk)
 
     # 不应触发断路器（不同调用间重置了计数器）
-    errors = [c for c in chunks if c["type"] == "error"]
+    errors = [c for c in chunks if isinstance(c, ErrorEvent)]
     cb_errors = [e for e in errors if "Circuit breaker" in e.get("message", "")]
     assert len(cb_errors) == 0
 
-    texts = [c["content"] for c in chunks if c["type"] == "text"]
+    texts = [c.content for c in chunks if isinstance(c, TextEvent)]
     assert "final" in "".join(texts)
 
 
@@ -514,14 +519,14 @@ async def test_dispatch_stream_blocked_tool():
     """blocked / pending_approval 状态 → output 变为 [status] 前缀"""
     llm = MockStreamingLLM([
         [
-            StreamChunk(type="tool_call_start", tool_index=0, tool_id="c1", tool_name="dangerous_tool"),
-            StreamChunk(type="tool_call_delta", tool_index=0, tool_args_delta='{"cmd": "rm -rf /"}'),
-            StreamChunk(type="tool_call_end", tool_index=0),
-            StreamChunk(type="done", finish_reason="tool_calls"),
+            ToolCallStartChunk(tool_index=0, tool_id="c1", tool_name="dangerous_tool"),
+            ToolCallDeltaChunk(tool_index=0, tool_args_delta='{"cmd": "rm -rf /"}'),
+            ToolCallEndChunk(tool_index=0),
+            DoneChunk( finish_reason="tool_calls"),
         ],
         [
-            StreamChunk(type="text", content="blocked and reported"),
-            StreamChunk(type="done", finish_reason="stop"),
+            TextChunk(content="blocked and reported"),
+            DoneChunk( finish_reason="stop"),
         ],
     ])
     d = Dispatcher(llm, BlockingTools())
@@ -531,10 +536,10 @@ async def test_dispatch_stream_blocked_tool():
         chunks.append(chunk)
 
     # 工具执行完成但被阻塞
-    exec_ends = [c for c in chunks if c["type"] == "tool_exec_end"]
+    exec_ends = [c for c in chunks if isinstance(c, ToolExecEndEvent)]
     assert len(exec_ends) == 1
 
-    texts = [c["content"] for c in chunks if c["type"] == "text"]
+    texts = [c.content for c in chunks if isinstance(c, TextEvent)]
     assert "blocked and reported" in "".join(texts)
 
 
@@ -545,7 +550,7 @@ async def test_dispatch_stream_llm_error():
     """LLM 返回 error chunk → yield + return（不崩溃）"""
     llm = MockStreamingLLM([
         [
-            StreamChunk(type="error", content="API rate limit exceeded"),
+            ErrorChunk(error="API rate limit exceeded"),
         ],
     ])
     d = Dispatcher(llm, MockTools())
@@ -554,9 +559,9 @@ async def test_dispatch_stream_llm_error():
     async for chunk in d.dispatch_stream([{"role": "user", "content": "hi"}], "s1"):
         chunks.append(chunk)
 
-    errors = [c for c in chunks if c["type"] == "error"]
+    errors = [c for c in chunks if isinstance(c, ErrorEvent)]
     assert len(errors) >= 1
-    assert "rate limit" in errors[0]["message"]
+    assert "rate limit" in errors[0].message
 
 
 # ── U-D10: reasoning_content 透传 ──
@@ -566,9 +571,9 @@ async def test_dispatch_stream_reasoning_chunks():
     """DeepSeek reasoning_content 透传"""
     llm = MockStreamingLLM([
         [
-            StreamChunk(type="reasoning", content="Let me think..."),
-            StreamChunk(type="text", content="The answer is 42"),
-            StreamChunk(type="done", finish_reason="stop"),
+            ReasoningChunk(content="Let me think..."),
+            TextChunk(content="The answer is 42"),
+            DoneChunk( finish_reason="stop"),
         ],
     ])
     d = Dispatcher(llm, MockTools())
@@ -577,11 +582,11 @@ async def test_dispatch_stream_reasoning_chunks():
     async for chunk in d.dispatch_stream([{"role": "user", "content": "what is the answer"}], "s1"):
         chunks.append(chunk)
 
-    reasoning = [c["content"] for c in chunks if c["type"] == "reasoning"]
+    reasoning = [c.content for c in chunks if isinstance(c, ReasoningEvent)]
     assert len(reasoning) >= 1
     assert "think" in "".join(reasoning)
 
-    texts = [c["content"] for c in chunks if c["type"] == "text"]
+    texts = [c.content for c in chunks if isinstance(c, TextEvent)]
     assert "42" in "".join(texts)
 
 
@@ -594,10 +599,10 @@ async def test_dispatch_stream_max_rounds():
     endless_rounds = []
     for _ in range(5):
         endless_rounds.append([
-            StreamChunk(type="tool_call_start", tool_index=0, tool_id="c1", tool_name="read_file"),
-            StreamChunk(type="tool_call_delta", tool_index=0, tool_args_delta='{"path": "x.py"}'),
-            StreamChunk(type="tool_call_end", tool_index=0),
-            StreamChunk(type="done", finish_reason="tool_calls"),
+            ToolCallStartChunk(tool_index=0, tool_id="c1", tool_name="read_file"),
+            ToolCallDeltaChunk(tool_index=0, tool_args_delta='{"path": "x.py"}'),
+            ToolCallEndChunk(tool_index=0),
+            DoneChunk( finish_reason="tool_calls"),
         ])
     llm = MockStreamingLLM(endless_rounds)
     d = Dispatcher(llm, MockTools())
@@ -609,7 +614,7 @@ async def test_dispatch_stream_max_rounds():
         chunks.append(chunk)
 
     # 3 轮后终止
-    exec_starts = [c for c in chunks if c["type"] == "tool_exec_start"]
+    exec_starts = [c for c in chunks if isinstance(c, ToolExecStartEvent)]
     assert len(exec_starts) <= 3
 
 
@@ -620,14 +625,14 @@ async def test_dispatch_stream_tool_args_invalid_json():
     """工具参数 JSON 无效 → 回退 {}，不崩溃"""
     llm = MockStreamingLLM([
         [
-            StreamChunk(type="tool_call_start", tool_index=0, tool_id="c1", tool_name="read_file"),
-            StreamChunk(type="tool_call_delta", tool_index=0, tool_args_delta="NOT VALID JSON {{{"),
-            StreamChunk(type="tool_call_end", tool_index=0),
-            StreamChunk(type="done", finish_reason="tool_calls"),
+            ToolCallStartChunk(tool_index=0, tool_id="c1", tool_name="read_file"),
+            ToolCallDeltaChunk(tool_index=0, tool_args_delta="NOT VALID JSON {{{"),
+            ToolCallEndChunk(tool_index=0),
+            DoneChunk( finish_reason="tool_calls"),
         ],
         [
-            StreamChunk(type="text", content="handled bad args"),
-            StreamChunk(type="done", finish_reason="stop"),
+            TextChunk(content="handled bad args"),
+            DoneChunk( finish_reason="stop"),
         ],
     ])
     tools = MockTools()
@@ -640,9 +645,9 @@ async def test_dispatch_stream_tool_args_invalid_json():
     # 工具仍执行，参数为空字典
     assert len(tools.executed) == 1
     # 不应有 error chunk
-    errors = [c for c in chunks if c["type"] == "error"]
+    errors = [c for c in chunks if isinstance(c, ErrorEvent)]
     assert len(errors) == 0
-    texts = [c["content"] for c in chunks if c["type"] == "text"]
+    texts = [c.content for c in chunks if isinstance(c, TextEvent)]
     assert "handled bad args" in "".join(texts)
 
 
@@ -655,15 +660,15 @@ async def test_dispatch_stream_freeze_triggers(memory):
     tool_rounds = []
     for i in range(12):
         tool_rounds.append([
-            StreamChunk(type="tool_call_start", tool_index=0, tool_id=f"c{i}", tool_name="read_file"),
-            StreamChunk(type="tool_call_delta", tool_index=0,
+            ToolCallStartChunk(tool_index=0, tool_id=f"c{i}", tool_name="read_file"),
+            ToolCallDeltaChunk(tool_index=0,
                         tool_args_delta=json.dumps({"path": f"f{i}.py"})),
-            StreamChunk(type="tool_call_end", tool_index=0),
-            StreamChunk(type="done", finish_reason="tool_calls"),
+            ToolCallEndChunk(tool_index=0),
+            DoneChunk( finish_reason="tool_calls"),
         ])
     tool_rounds.append([
-        StreamChunk(type="text", content="all processed"),
-        StreamChunk(type="done", finish_reason="stop"),
+        TextChunk(content="all processed"),
+        DoneChunk( finish_reason="stop"),
     ])
     llm = MockStreamingLLM(tool_rounds)
 
@@ -685,7 +690,7 @@ async def test_dispatch_stream_freeze_triggers(memory):
     async for chunk in d.dispatch_stream([{"role": "user", "content": "read all"}], "s1"):
         chunks.append(chunk)
 
-    texts = [c["content"] for c in chunks if c["type"] == "text"]
+    texts = [c.content for c in chunks if isinstance(c, TextEvent)]
     assert "all processed" in "".join(texts)
 
 
@@ -698,15 +703,15 @@ async def test_dispatch_stream_freeze_below_threshold():
     tool_rounds = []
     for i in range(2):
         tool_rounds.append([
-            StreamChunk(type="tool_call_start", tool_index=0, tool_id=f"c{i}", tool_name="read_file"),
-            StreamChunk(type="tool_call_delta", tool_index=0,
+            ToolCallStartChunk(tool_index=0, tool_id=f"c{i}", tool_name="read_file"),
+            ToolCallDeltaChunk(tool_index=0,
                         tool_args_delta=json.dumps({"path": f"f{i}.py"})),
-            StreamChunk(type="tool_call_end", tool_index=0),
-            StreamChunk(type="done", finish_reason="tool_calls"),
+            ToolCallEndChunk(tool_index=0),
+            DoneChunk( finish_reason="tool_calls"),
         ])
     tool_rounds.append([
-        StreamChunk(type="text", content="only two tools"),
-        StreamChunk(type="done", finish_reason="stop"),
+        TextChunk(content="only two tools"),
+        DoneChunk( finish_reason="stop"),
     ])
     llm = MockStreamingLLM(tool_rounds)
     d = Dispatcher(llm, MockTools())
@@ -715,7 +720,7 @@ async def test_dispatch_stream_freeze_below_threshold():
     async for chunk in d.dispatch_stream([{"role": "user", "content": "read"}], "s1"):
         chunks.append(chunk)
 
-    texts = [c["content"] for c in chunks if c["type"] == "text"]
+    texts = [c.content for c in chunks if isinstance(c, TextEvent)]
     assert "only two tools" in "".join(texts)
 
 

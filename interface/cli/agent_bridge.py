@@ -33,6 +33,8 @@ class AgentBridge:
         system_prompt: str = "",
         tools: Optional[List] = None,
         project_root: Optional[Path] = None,
+        force_telemetry: bool = False,
+        verbose: bool = False,
     ):
         self._root = project_root or Path.cwd()
         self._system_prompt = system_prompt
@@ -55,6 +57,12 @@ class AgentBridge:
 
         # 可观测性（开关控制，session_id 后续由 app.py 注入）
         from core.telemetry import Telemetry
+        if self._telemetry_cfg:
+            if force_telemetry or verbose:
+                self._telemetry_cfg = self._telemetry_cfg.model_copy(update={
+                    "enabled": True,
+                    "log_level": "DEBUG" if verbose else self._telemetry_cfg.log_level,
+                })
         self._telemetry = Telemetry(self._telemetry_cfg) if self._telemetry_cfg else None
 
         self._project_id = getattr(default_provider, "project_id", "") if default_provider else ""
@@ -383,6 +391,18 @@ class AgentBridge:
 
     # ====== 命令 ======
 
+    def toggle_telemetry(self, enable: bool) -> str:
+        """运行时热切换遥测开关。
+
+        子系统持有 Telemetry 对象引用，运行时检查 enabled/logger/agent，
+        因此翻转后立即生效，无需重建 Dispatcher/ToolExecutor。
+        """
+        if not self._telemetry:
+            return "⚠️ 遥测未初始化"
+        self._telemetry.toggle(enable)
+        status = "🟢 已启用" if enable else "⚫ 已禁用"
+        return f"📊 遥测: {status}"
+
     async def handle_command(self, text: str) -> str:
         parts = text.lstrip("/").strip().split(None, 1)
         cmd = parts[0].lower()
@@ -453,6 +473,150 @@ class AgentBridge:
             return "\n".join(lines)
         except Exception as e:
             return f"读取记忆失败: {e}"
+
+    # ====== 遥测查询（供 CLI 仪表盘使用） ======
+
+    def get_telemetry_dashboard(self) -> str:
+        """完整遥测仪表盘：指标摘要 + 日志概览 + 成本。"""
+        if not self._telemetry:
+            return "⚠️ 遥测未初始化（使用 --debug 启动以启用遥测）"
+        if not self._telemetry.enabled:
+            return "⚫ 遥测未启用（使用 /telemetry on 或 --debug 启动）"
+
+        snap = self._telemetry.snapshot()
+        m = snap.get("metrics", {})
+        counters = m.get("counters", {})
+        histograms = m.get("histograms", {})
+        gauges = m.get("gauges", {})
+        uptime = snap.get("uptime_seconds", 0)
+
+        lines = [
+            f"📊 遥测仪表盘",
+            f"   状态: 🟢 已启用 | 日志级别: {snap['log_level']} | 运行: {int(uptime)}s",
+            f"   日志目录: {snap['log_dir']} | 审计: {'开' if snap.get('audit_enabled') else '关'}",
+            "",
+            "   ═══ 调用统计 ═══",
+        ]
+
+        # LLM 调用
+        llm_total = counters.get("chacha_llm_calls_total", 0)
+        llm_in = counters.get("chacha_llm_input_tokens_total", 0)
+        llm_out = counters.get("chacha_llm_output_tokens_total", 0)
+        llm_lat = histograms.get("chacha_llm_latency_ms", {})
+        lines.append(f"   LLM 调用: {llm_total} 次 | 输入 {llm_in}T | 输出 {llm_out}T")
+        if llm_lat:
+            lines.append(f"   延迟: avg={llm_lat['avg']:.0f}ms p50={llm_lat['p50']:.0f}ms p99={llm_lat['p99']:.0f}ms")
+
+        # 工具调用
+        tool_total = counters.get("chacha_tool_calls_total", 0)
+        tool_lat = histograms.get("chacha_tool_duration_ms", {})
+        lines.append(f"   工具调用: {tool_total} 次")
+        if tool_lat:
+            lines.append(f"   耗时: avg={tool_lat['avg']:.0f}ms p50={tool_lat['p50']:.0f}ms p99={tool_lat['p99']:.0f}ms")
+
+        # 会话
+        sess = counters.get("chacha_sessions_total", 0)
+        ctx_util = gauges.get("chacha_context_utilization", 0)
+        compressions = counters.get("chacha_context_compressions_total", 0)
+        lines.append(f"   会话: {sess} | 上下文利用率: {ctx_util:.1%} | 压缩: {compressions} 次")
+
+        # 成本
+        cost = self._telemetry.cost_summary()
+        lines.append(f"")
+        lines.append(f"   ═══ 成本 ═══")
+        lines.append(f"   累计: ${cost['total_cost_usd']:.4f}")
+        for model, c in cost.get("by_model", {}).items():
+            lines.append(f"     {model}: ${c:.4f}")
+
+        # 日志文件大小
+        import os
+        log_dir = Path(snap["log_dir"])
+        for fname in ["debug.jsonl", "audit.jsonl"]:
+            fp = log_dir / fname
+            if fp.exists():
+                size = fp.stat().st_size
+                lines.append(f"   {fname}: {self._fmt_size(size)}")
+            else:
+                lines.append(f"   {fname}: (空)")
+
+        return "\n".join(lines)
+
+    def get_logs(self, n: int = 10, level: str = "", filter_text: str = "") -> str:
+        """读取并格式化最近 N 条调试日志。"""
+        if not self._telemetry or not self._telemetry.enabled:
+            return "⚠️ 遥测未启用"
+        level_arg = level.upper() if level else None
+        filter_arg = filter_text if filter_text else None
+        entries = self._telemetry.read_logs("debug", n=n, level=level_arg, filter_text=filter_arg)
+        if not entries:
+            return "📭 无匹配日志"
+        lines = [f"📋 调试日志（最近 {len(entries)} 条）:"]
+        for e in entries:
+            ts = e.get("ts", "")[:19].replace("T", " ")
+            lvl = e.get("level", "?")
+            msg = e.get("msg", "")
+            extra = {k: v for k, v in e.items() if k not in ("ts", "level", "msg", "session")}
+            extra_str = " " + " ".join(f"{k}={v}" for k, v in extra.items()) if extra else ""
+            lines.append(f"  {ts} [{lvl}] {msg}{extra_str}")
+        return "\n".join(lines)
+
+    def get_audit_logs(self, n: int = 10) -> str:
+        """读取最近 N 条审计日志。"""
+        if not self._telemetry or not self._telemetry.enabled:
+            return "⚠️ 遥测未启用"
+        entries = self._telemetry.read_logs("audit", n=n)
+        if not entries:
+            return "📭 审计日志为空"
+        lines = [f"🔒 审计日志（最近 {len(entries)} 条）:"]
+        for e in entries:
+            ts = e.get("ts", "")[:19].replace("T", " ")
+            event_type = e.get("event_type", e.get("type", "?"))
+            summary = str(e)[:200]
+            lines.append(f"  {ts} [{event_type}] {summary}")
+        return "\n".join(lines)
+
+    def get_trace(self) -> str:
+        """列出最近的 Span 追踪链。"""
+        if not self._telemetry or not self._telemetry.enabled:
+            return "⚠️ 遥测未启用"
+        spans = self._telemetry.list_spans()
+        if not spans:
+            return "📭 无 Span 记录"
+        lines = [f"🔗 Span 追踪链（{len(spans)} 条，按耗时降序）:"]
+        for s in spans:
+            err = f" ❌{s['error']}" if s['error'] else ""
+            tags = " ".join(f"{k}={v}" for k, v in s.get("tags", {}).items())
+            lines.append(
+                f"  {s['operation']:<20} {s['duration_ms']:>8.1f}ms  "
+                f"span={s['span_id']}  trace={s['trace_id']}  parent={s['parent']}{err}"
+            )
+            if tags:
+                lines.append(f"  {'':20} {'':>8}   {tags}")
+        return "\n".join(lines)
+
+    def get_cost(self) -> str:
+        """成本汇总。"""
+        if not self._telemetry or not self._telemetry.enabled:
+            return "⚠️ 遥测未启用"
+        cost = self._telemetry.cost_summary()
+        lines = [
+            f"💰 成本汇总",
+            f"   累计: ${cost['total_cost_usd']:.6f}",
+        ]
+        for model, c in cost.get("by_model", {}).items():
+            lines.append(f"   {model}: ${c:.6f}")
+        if not cost.get("by_model"):
+            lines.append("   (暂无调用)")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _fmt_size(size: int) -> str:
+        if size < 1024:
+            return f"{size}B"
+        elif size < 1024 * 1024:
+            return f"{size / 1024:.1f}KB"
+        else:
+            return f"{size / (1024 * 1024):.1f}MB"
 
     def _load_compress_cfg(self) -> dict:
         try:

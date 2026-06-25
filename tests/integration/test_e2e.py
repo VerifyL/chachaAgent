@@ -14,6 +14,7 @@ import pytest
 
 from interface.cli.agent_bridge import AgentBridge
 from core.session_service import SessionService
+from core.models.stream_event import TextEvent, DoneEvent
 from capabilities.builtins.chunk_streamer import ReadFileTool, GrepTool
 from capabilities.builtins.code_patcher import EditFileTool
 from capabilities.builtins.memory_tool import LoadMemoryTool
@@ -56,7 +57,7 @@ async def test_e2e_single_turn():
     async for chunk in bridge.send_message("Python 有几个主要版本？简短回答"):
         chunks.append(chunk)
 
-    texts = [c["content"] for c in chunks if c["type"] == "text"]
+    texts = [c.content for c in chunks if isinstance(c, TextEvent)]
     response = "".join(texts)
     assert len(response) > 0
     print(f"\n[E2E 单轮] 回答: {response[:200]}...")
@@ -78,7 +79,7 @@ async def test_e2e_file_ops():
     async for chunk in bridge.send_message("读取 hello.py 并告诉我它做了什么"):
         chunks.append(chunk)
 
-    texts = [c["content"] for c in chunks if c["type"] == "text"]
+    texts = [c.content for c in chunks if isinstance(c, TextEvent)]
     response = "".join(texts)
     assert len(response) > 0
     print(f"\n[E2E 文件] 回答: {response[:200]}...")
@@ -104,8 +105,8 @@ async def test_e2e_memory_lifecycle():
     # 1. 在 session1 中写记忆（LLM 可调用 write_topi工具）
     texts = []
     async for chunk in bridge.send_message("记录到记忆：最喜欢的颜色是蓝色"):
-        if chunk["type"] == "text":
-            texts.append(chunk["content"])
+        if isinstance(chunk, TextEvent):
+            texts.append(chunk.content)
     response = "".join(texts)
     print(f"\n[E2E 记忆] 回答: {response[:200]}...")
     assert len(response) > 0

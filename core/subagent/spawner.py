@@ -10,8 +10,9 @@ SubAgentSpawner — 子Agent 孵化器（参考 sub-agent 设计）。
 import asyncio
 import logging
 import time
-from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, Field
 
 from core.context_manager import ContextManager
 from core.dispatcher import Dispatcher
@@ -23,8 +24,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_TIMEOUT = 300  # 子Agent 5 分钟硬超时
 
 
-@dataclass
-class SubAgentResult:
+class SubAgentResult(BaseModel):
     """子Agent 执行结果"""
     agent_type: str
     task: str
@@ -105,7 +105,7 @@ class SubAgentSpawner:
                         {"role": "user", "content": task},
                     ],
                     session_id=f"{session_id}-sub-{agent_type}",
-                    max_rounds=definition.max_iterations,
+                    max_rounds=definition.max_rounds,
                 ),
                 timeout=timeout,
             )

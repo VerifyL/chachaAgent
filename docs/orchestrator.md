@@ -31,12 +31,11 @@
   └─ 13. 清理 + DreamPipeline 触发
 ```
 
-### 两条 API
+### API
 
 | 方法 | 流式 | 用途 | 状态 |
 |------|------|------|------|
-| `run_stream(user_input, session_id)` | ✅ yield chunk | **生产主流程** | ✅ v2.1 重写 |
-| `run(user_input, session_id)` | ❌ 返回 OrchResponse | 测试 / 非流式兼容 | 保留 |
+| `run_stream(user_input, session_id)` | ✅ yield `StreamEvent` | **唯一编排入口** | ✅ v2.1 |
 
 ---
 
@@ -80,7 +79,7 @@ Orchestrator(
   │   ├─ dream_pipeline.record_session()
   │   └─ if dream_pipeline.should_run() → asyncio.create_task(dream.run())
   ├─ Gateway → SessionLifecycleEvent(event="ended")
-  └─ yield {"type": "done", ...}
+  └─ yield DoneEvent(text=..., tokens=N, usage=...)
 ```
 
 ---
@@ -112,9 +111,11 @@ orch = Orchestrator(
     dream_pipeline=dream,
 )
 
-async for chunk in orch.run_stream("帮我读一下 main.py", session_id="s1"):
-    if chunk["type"] == "text":
-        print(chunk["content"], end="")
-    elif chunk["type"] == "done":
-        print(f"\n[{chunk['tokens']} tokens, {chunk['iterations']} rounds]")
+from core.models.stream_event import TextEvent, DoneEvent
+
+async for event in orch.run_stream("帮我读一下 main.py", session_id="s1"):
+    if isinstance(event, TextEvent):
+        print(event.content, end="")
+    elif isinstance(event, DoneEvent):
+        print(f"\n[{event.tokens} tokens]")
 ```

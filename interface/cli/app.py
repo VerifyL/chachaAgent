@@ -23,6 +23,10 @@ from rich import box
 
 from interface.cli.agent_bridge import AgentBridge
 from core.project_init import ProjectInit
+from core.models.stream_event import (
+    TextEvent, ReasoningEvent, ToolCallStartEvent, ToolCallEndEvent,
+    ToolExecStartEvent, ToolExecEndEvent, DoneEvent, ErrorEvent, CompactEvent,
+)
 from core.session_service import SessionService
 from core.cli_theme import load_theme, write_default_theme
 
@@ -62,12 +66,13 @@ _in_approval = False  # input() 阻塞时允许抛 KeyboardInterrupt
 class ChachaCLI:
     """基于 prompt_toolkit + Rich 的 CLI"""
 
-    def __init__(self, project_root: str = "."):
+    def __init__(self, project_root: str = ".", debug: bool = False, verbose: bool = False):
         self._project = Path(project_root).resolve()
         self._bridge: Optional[AgentBridge] = None
         self._session: Optional[SessionService] = None
         self._sending = False
-        self._debug = False
+        self._debug = debug
+        self._verbose = verbose
         self._version = _get_version(self._project)
 
         # 主题
@@ -86,6 +91,8 @@ class ChachaCLI:
             system_prompt=si.build_system_prompt(),
             tools=si.build_tools(),
             project_root=self._project,
+            force_telemetry=self._debug or self._verbose,
+            verbose=self._verbose,
         )
         # Telemetry session 必须在 initialize（包含 start）之前设置
         if self._bridge._telemetry:
@@ -128,7 +135,7 @@ class ChachaCLI:
         self._print_system(init_msg)
         if self._session.project_init._rules:
             self._print_system("[cyan]📜 CHACHA.md 已加载[/]")
-        self._print_system("Ctrl+N 新会话  Ctrl+S 保存  Ctrl+F 调试  Ctrl+B 会话列表  Ctrl+X 压缩  Ctrl+L 清屏  Ctrl+R 推理  Ctrl+C 中断  Ctrl+D 退出  Ctrl+\\ 强退  Ctrl+J 换行  /help 命令")
+        self._print_system("Ctrl+N 新会话  Ctrl+S 保存  Ctrl+F 调试  Ctrl+B 会话列表  Ctrl+X 压缩  Ctrl+L 清屏  Ctrl+R 推理  Ctrl+T 遥测  Ctrl+C 中断  Ctrl+D 退出  Ctrl+\\ 强退  Ctrl+J 换行  /help 命令")
         self._print_system("")
 
         # 输入循环
@@ -205,22 +212,22 @@ class ChachaCLI:
                     _interrupted = False
                     raise KeyboardInterrupt()
 
-                if chunk["type"] == "reasoning":
+                if isinstance(chunk, ReasoningEvent):
                     if self._show_reasoning:
-                        RICH_CONSOLE.print(f"[dim]{chunk['content']}[/]", end="")
+                        RICH_CONSOLE.print(f"[dim]{chunk.content}[/]", end="")
                         in_reasoning = True
 
-                elif chunk["type"] == "text":
+                elif isinstance(chunk, TextEvent):
                     if in_reasoning:
                         RICH_CONSOLE.print()  # 思考 → 回答 换行
                         in_reasoning = False
-                    response_parts.append(chunk["content"])
+                    response_parts.append(chunk.content)
                     if in_tools:
                         in_tools = False
                         RICH_CONSOLE.print(f"[{self._t['separator']}]" + "─" * 30 + "[/]")
-                    RICH_CONSOLE.print(chunk["content"], end="")
+                    RICH_CONSOLE.print(chunk.content, end="")
 
-                elif chunk["type"] == "tool_call_start":
+                elif isinstance(chunk, ToolCallStartEvent):
                     if in_reasoning:
                         RICH_CONSOLE.print()  # 思考 → 工具 换行
                         in_reasoning = False
@@ -231,34 +238,33 @@ class ChachaCLI:
                             f"[{self._t['separator']}]" + "━" * 30 + "[/]"
                         )
                     tool_trace.append({
-                        "tool": chunk["tool_name"], "t0": time.monotonic(),
+                        "tool": chunk.tool_name, "t0": time.monotonic(),
                     })
 
-                elif chunk["type"] == "tool_exec_start":
+                elif isinstance(chunk, ToolExecStartEvent):
                     if tool_trace:
                         t = tool_trace[-1]
                         t["ms"] = int((time.monotonic() - t["t0"]) * 1000)
-                    args_text = chunk.get("args", "")
-                    if args_text:
-                        RICH_CONSOLE.print(f"  [{self._t['tool_thinking']}]🔧 {chunk['tool_name']} — {args_text}[/]")
+                    if chunk.args:
+                        RICH_CONSOLE.print(f"  [{self._t['tool_thinking']}]🔧 {chunk.tool_name} — {chunk.args}[/]")
                     else:
-                        RICH_CONSOLE.print(f"  [{self._t['tool_thinking']}]🔧 {chunk['tool_name']}[/]")
+                        RICH_CONSOLE.print(f"  [{self._t['tool_thinking']}]🔧 {chunk.tool_name}[/]")
 
-                elif chunk["type"] == "tool_call_end":
+                elif isinstance(chunk, ToolCallEndEvent):
                     if tool_trace:
                         t = tool_trace[-1]
                         t["ms"] = int((time.monotonic() - t["t0"]) * 1000)
 
-                elif chunk["type"] == "error":
-                    errors.append(chunk["message"])
-                    RICH_CONSOLE.print(f"[red]错误: {chunk['message']}[/]")
+                elif isinstance(chunk, ErrorEvent):
+                    errors.append(chunk.message)
+                    RICH_CONSOLE.print(f"[red]错误: {chunk.message}[/]")
 
-                elif chunk["type"] == "done":
-                    tokens = chunk.get("tokens", 0)
-                    usage = chunk.get("usage", {}) if chunk.get("usage") else usage
+                elif isinstance(chunk, DoneEvent):
+                    tokens = chunk.tokens
+                    usage = chunk.usage if chunk.usage else usage
 
-                elif chunk["type"] == "compact":
-                    self._print_system(f"🔄 自动压缩: {chunk['reason']}")
+                elif isinstance(chunk, CompactEvent):
+                    self._print_system(f"🔄 自动压缩: {chunk.reason}")
 
         except KeyboardInterrupt:
             RICH_CONSOLE.print(f"\n[{self._t['separator']}]" + "─" * 30 + "[/]")
@@ -332,8 +338,16 @@ class ChachaCLI:
         if cmd == "debug":
             self._debug = not self._debug
             return f"🐛 Debug: {'开' if self._debug else '关'}"
-        if cmd == "audit":
-            return self._session.audit_report()
+        if cmd in ("telemetry", "telem"):
+            return self._cmd_telemetry(arg)
+        if cmd == "logs":
+            return self._cmd_logs(arg)
+        if cmd in ("auditlog", "audit"):
+            return self._cmd_auditlog(arg)
+        if cmd == "trace":
+            return self._cmd_trace(arg)
+        if cmd == "cost":
+            return self._cmd_cost(arg)
         if cmd == "status":
             return self._session.status_report()
         if cmd == "compact":
@@ -427,6 +441,61 @@ class ChachaCLI:
         except Exception as e:
             return f"压缩失败: {e}"
 
+    # ====== 遥测 ======
+
+    def _cmd_telemetry(self, arg: str) -> str:
+        """显示遥测仪表盘 / 热切换开关"""
+        if not self._bridge or not self._bridge._telemetry:
+            return "⚠️ 遥测未初始化（使用 --debug 启动以启用遥测）"
+        if arg in ("on", "enable"):
+            return self._bridge.toggle_telemetry(True)
+        if arg in ("off", "disable"):
+            return self._bridge.toggle_telemetry(False)
+        # 默认：完整仪表盘
+        return self._bridge.get_telemetry_dashboard()
+
+    def _cmd_logs(self, arg: str = "") -> str:
+        """查看日志：/logs [N] [level] [filter]"""
+        if not self._bridge:
+            return "⚠️ 桥接层未初始化"
+        # 解析参数：/logs 20 ERROR keyword
+        parts = arg.split() if arg else []
+        n = 10
+        level = ""
+        filter_text = ""
+        i = 0
+        while i < len(parts):
+            p = parts[i]
+            if p.isdigit():
+                n = int(p)
+            elif p.upper() in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
+                level = p
+            else:
+                # 剩余全部作为过滤关键词
+                filter_text = " ".join(parts[i:])
+                break
+            i += 1
+        return self._bridge.get_logs(n=n, level=level, filter_text=filter_text)
+
+    def _cmd_auditlog(self, arg: str = "") -> str:
+        """查看审计日志：/audit [N]"""
+        if not self._bridge:
+            return "⚠️ 桥接层未初始化"
+        n = int(arg) if arg.isdigit() else 10
+        return self._bridge.get_audit_logs(n=n)
+
+    def _cmd_trace(self, arg: str = "") -> str:
+        """查看 Span 追踪链"""
+        if not self._bridge:
+            return "⚠️ 桥接层未初始化"
+        return self._bridge.get_trace()
+
+    def _cmd_cost(self, arg: str = "") -> str:
+        """查看成本汇总"""
+        if not self._bridge:
+            return "⚠️ 桥接层未初始化"
+        return self._bridge.get_cost()
+
     # ====== 键绑定 ======
 
     def _make_bindings(self) -> KeyBindings:
@@ -471,6 +540,11 @@ class ChachaCLI:
             self._show_reasoning = not self._show_reasoning
             status = "开" if self._show_reasoning else "关"
             self._print_system(f"🧠 思考过程: {status}")
+
+        @kb.add("c-t")
+        def _(event):
+            result = self._cmd_telemetry("")
+            self._print_system(result)
 
         @kb.add("c-\\")
         def _(event):
@@ -550,7 +624,12 @@ class ChachaCLI:
                 ("/dream global", "运行 GlobalDream"),
             ],
             "调试": [
-                ("/audit", "完整审计报告"),
+                ("/telemetry", "遥测仪表盘（P50/P99/成本）"),
+                ("/telemetry on/off", "运行时开关遥测"),
+                ("/logs [n] [level] [kw]", "查看/过滤调试日志"),
+                ("/auditlog [n]", "查看审计日志"),
+                ("/trace", "Span 追踪链"),
+                ("/cost", "API 成本汇总"),
                 ("/compact", "压缩上下文"),
                 ("/debug", "切换调试模式"),
             ],
@@ -562,6 +641,7 @@ class ChachaCLI:
                 ("Ctrl+X", "压缩上下文"),
                 ("Ctrl+L", "清屏"),
                 ("Ctrl+R", "切换推理显示"),
+                ("Ctrl+T", "遥测状态"),
                 ("Ctrl+C", "中断回答"),
                 ("Ctrl+D", "退出程序"),
                 ("Ctrl+\\", "强制退出"),
@@ -585,8 +665,13 @@ class ChachaCLI:
 # ====== 入口 ======
 
 def main():
-    project = sys.argv[1] if len(sys.argv) > 1 else "."
-    cli = ChachaCLI(project)
+    import argparse
+    parser = argparse.ArgumentParser(description="ChachaAgent CLI")
+    parser.add_argument("project", nargs="?", default=".", help="项目路径")
+    parser.add_argument("-d", "--debug", action="store_true", help="启用遥测（结构化日志+指标+审计）")
+    parser.add_argument("-v", "--verbose", action="store_true", help="启用遥测并设置 DEBUG 日志级别")
+    args = parser.parse_args()
+    cli = ChachaCLI(args.project, debug=args.debug, verbose=args.verbose)
 
     # Ctrl+C → 中断标志（C 级 signal，绕过 asyncio 屏蔽）
     # Ctrl+\ → 立即强制退出（包括审批阻塞时）

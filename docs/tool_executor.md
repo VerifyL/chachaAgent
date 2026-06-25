@@ -45,8 +45,9 @@ execute("shell", {"cmd": "ls"}, session_id)
 ## 1. ToolResult
 
 ```python
-@dataclass
-class ToolResult:
+from pydantic import BaseModel
+
+class ToolResult(BaseModel):
     tool_use_id: str
     tool_name: str
     status: str = "success"       # success | error | blocked | timeout

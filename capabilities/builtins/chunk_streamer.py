@@ -31,7 +31,8 @@ class ReadFileTool(BaseTool):
     name = "read_file"
     description = (
         "读取文件内容。支持符号跳转（symbol=函数/类名直接定位）、"
-        "流式分页（offset+limit 行号偏移）。"
+        "流式分页（offset+limit 行号偏移）、"
+        "关键字搜索（search=搜索词，自动定位并展开上下文）。"
         "文件路径相对于项目根目录。"
     )
     parameters = {
@@ -42,6 +43,8 @@ class ReadFileTool(BaseTool):
             "limit": {"type": "integer", "description": "最大读取行数，默认 100"},
             "symbol": {"type": "string", "description": "跳转到函数/类/变量定义处。优先级高于 offset"},
             "context_lines": {"type": "integer", "description": "目标（symbol 定位行或指定行）前后各 N 行上下文，默认 0"},
+            "search": {"type": "string", "description": "搜索关键词（纯文本匹配），自动定位匹配行并以 context_lines 展开上下文。多结果时返回摘要"},
+            "skip_first": {"type": "integer", "description": "search 模式下跳过前 N 条匹配（续读用），默认 0"},
         },
         "required": ["path"],
     }
@@ -52,7 +55,8 @@ class ReadFileTool(BaseTool):
         self._root = Path(root).resolve() if root else Path.cwd().resolve()
 
     async def execute(self, path: str, offset: int = 1, limit: int = 500,
-                      symbol: str = "", context_lines: int = 0) -> str:
+                      symbol: str = "", context_lines: int = 0,
+                      search: str = "", skip_first: int = 0) -> str:
         # 符号跳转优先级最高
         if symbol:
             raw = (Path(path).resolve() if Path(path).is_absolute()
@@ -81,7 +85,114 @@ class ReadFileTool(BaseTool):
             result["symbol_line"] = symbol_line
             return json.dumps(result, ensure_ascii=False)
 
-        # 正常读取
+        # search 搜索定位（与 offset 互斥）
+        if search:
+            if offset != 1:
+                return json.dumps({
+                    "error": "invalid_params",
+                    "message": "search 与 offset 不能同时使用",
+                }, ensure_ascii=False)
+
+            raw = (Path(path).resolve() if Path(path).is_absolute()
+                   else (self._root / path)).resolve()
+            try:
+                raw.relative_to(self._root)
+            except ValueError:
+                return json.dumps({
+                    "error": "access_denied",
+                    "message": "路径超出项目根目录",
+                }, ensure_ascii=False)
+            if not raw.exists() or not raw.is_file():
+                return json.dumps({
+                    "error": "not_found",
+                    "message": f"文件不存在: {path}",
+                }, ensure_ascii=False)
+
+            # Step 1: 先获取匹配行（无上下文），确定匹配数
+            result_no_ctx = read_mmap_lines(
+                str(raw), search,
+                offset=skip_first, limit=200, context_lines=0,
+                root=self._root,
+            )
+            if result_no_ctx is None:
+                return json.dumps({
+                    "error": "not_found",
+                    "message": f"未找到匹配: '{search}' in {path}",
+                }, ensure_ascii=False)
+
+            header_no_ctx, output_no_ctx = result_no_ctx
+            mcnt = re.search(r"共 (\d+) 条匹配", header_no_ctx)
+            total = int(mcnt.group(1)) if mcnt else 0
+
+            if total == 0:
+                return json.dumps({
+                    "error": "not_found",
+                    "message": f"未找到匹配: '{search}' in {path}",
+                }, ensure_ascii=False)
+
+            # 单条匹配 → 像 symbol 模式一样用行号锚定
+            if total == 1:
+                first_line = output_no_ctx.split("\n")[0]
+                parts = first_line.split(":", 2)
+                if len(parts) >= 2:
+                    try:
+                        match_lineno = int(parts[1])
+                    except ValueError:
+                        match_lineno = 1
+                else:
+                    match_lineno = 1
+
+                ctx = max(context_lines, 0)
+                actual_offset = max(1, match_lineno - ctx)
+                actual_limit = 2 * ctx + 1 if ctx > 0 else 1
+
+                result_str = read_by_offset(
+                    str(raw), offset=actual_offset, limit=actual_limit, root=self._root,
+                )
+                result = json.loads(result_str)
+                result["search"] = search
+                result["match_line"] = match_lineno
+                result["total_matches"] = 1
+                return json.dumps(result, ensure_ascii=False)
+
+            # 少量匹配 → 带上下文完整展开
+            if total <= 10:
+                result_ctx = read_mmap_lines(
+                    str(raw), search,
+                    offset=skip_first, limit=total, context_lines=context_lines,
+                    root=self._root,
+                )
+                if result_ctx is None:
+                    header, output = header_no_ctx, output_no_ctx
+                else:
+                    header, output = result_ctx
+                return f"{header}\n{output}"
+
+            # 大量匹配 → 返回摘要，引导 LLM 展开具体匹配
+            lines = output_no_ctx.split("\n")
+            display_count = min(20, len(lines))
+            summary_parts = [
+                f'[search] "{search}" | 共 {total} 条匹配 | 显示前 {display_count} 条摘要:',
+            ]
+            for line in lines[:display_count]:
+                summary_parts.append(line)
+
+            if total > display_count:
+                summary_parts.append(
+                    f"\n... 还有 {total - display_count} 条匹配。"
+                    f'用 read_file(path="{path}", search="{search}", skip_first={display_count}, context_lines=5) 查看更多，'
+                    f"或用 read_file(path=\"{path}\", offset=行号, context_lines=5) 展开具体匹配。"
+                )
+
+            return "\n".join(summary_parts)
+
+        # 正常读取 — context_lines 与 offset 配合
+        if context_lines > 0:
+            actual_offset = max(1, offset - context_lines)
+            actual_limit = 2 * context_lines + 1
+            return read_by_offset(
+                path, offset=actual_offset, limit=actual_limit, root=self._root,
+            )
         return read_by_offset(
             path, offset=offset, limit=limit, root=self._root,
         )
