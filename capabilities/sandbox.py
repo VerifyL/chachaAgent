@@ -28,8 +28,6 @@ from typing import List, Optional, Union
 
 from capabilities.base import BaseTool
 
-MAX_OUTPUT_CHARS = 100_000
-
 _ANSI_RE = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]|\x1b\]0;.*?\x07')
 
 _ENV_WHITELIST = {
@@ -128,15 +126,6 @@ class Sandbox(BaseTool):
 
         output = self._clean_ansi(output)
         output = output.strip() or f"(exit={proc.returncode})"
-
-        if len(output) > MAX_OUTPUT_CHARS:
-            cut = output[:MAX_OUTPUT_CHARS]
-            last_nl = cut.rfind("\n")
-            if last_nl > MAX_OUTPUT_CHARS // 2:
-                cut = cut[:last_nl]
-            remaining = len(output) - len(cut)
-            output = f"{cut}\n... [output truncated, exit={proc.returncode}, {remaining} chars remaining. hint: use head/tail]"
-
 
         return output
 

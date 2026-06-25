@@ -78,11 +78,11 @@ def test_clean_ansi_no_change():
 # ====== 7. 输出截断 ======
 
 @pytest.mark.asyncio
-async def test_output_truncation(sandbox):
-    # 生成超长输出
-    long_cmd = f"python3 -c \"print('x' * 200000)\""
+async def test_output_no_truncation(sandbox):
+    # 长输出不再被 sandbox 截断，交给 ToolExecutor 统一处理
+    long_cmd = f"python3 -c \"print('x' * 150000)\""
     result = await sandbox.execute(command=long_cmd)
-    assert len(result) <= 100_020  # MAX_OUTPUT_CHARS + 截断标记
+    assert len(result) >= 150000  # 不截断，全量通过
 
 
 # ====== 8. 命令白名单（PolicyEngine 集成） ======
