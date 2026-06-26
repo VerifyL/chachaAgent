@@ -54,7 +54,7 @@ class WriteTopicTool(BaseTool):
 
     name = "write_topic"
     description = (
-        "将重要信息记录到对应主题的长期记忆中。由 LLM 自主决定是否记录，无须征得用户同意。\n"
+        "将重要信息记录到对应主题的长期记忆。每次回复末尾应主动检查是否需要记录。\n"
         "唯一例外：禁止记录密钥、密码、Token 等敏感信息。\n"
         "触发场景（每次遇到都应记录）：\n"
         "- user-preferences：用户明确表达偏好（编码风格、工具、语言、沟通方式等）\n"
@@ -63,7 +63,7 @@ class WriteTopicTool(BaseTool):
         "- errors-fixed：成功修复的错误及诊断-根因-解决方案三要素\n"
         "- project-progress：功能完成、重构、里程碑、TODO 事项\n"
         "当用户要求 '记住' 时，使用 write_topic 工具记录长期主题记忆。\n"
-        "LLM 也可自主调用 write_topic，无须用户同意（敏感信息除外）。"
+        "LLM 应主动调用 write_topic 记录有价值的信息，无须用户同意（敏感信息除外）。"
     )
     parameters = {
         "type": "object",
