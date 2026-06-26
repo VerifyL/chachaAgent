@@ -103,8 +103,11 @@ class AgentBridge:
             context_manager=self._context_manager,
         )
 
+        from core.context.dream import DreamPipeline
+        self._dream_pipeline = DreamPipeline(llm_invoker=None)
         self._orchestrator = Orchestrator(
             context_manager=self._context_manager,
+            dream_pipeline=self._dream_pipeline,
         )
         self._orchestrator.set_engine(self._engine)
 
@@ -359,12 +362,14 @@ class AgentBridge:
     # ====== 发送消息（委托 ChatEngine） ======
 
     def build_orchestrator(self, session_id: str = "", memory_manager=None) -> None:
-        """注入运行时依赖（LLM/Dispatcher/Telemetry/MemoryManager）到 Orchestrator。"""
+        """注入运行时依赖（LLM/Dispatcher/Telemetry/MemoryManager/DreamPipeline）到 Orchestrator。"""
         self._orchestrator._llm = self._invoker
         self._orchestrator._tools = self._executor
         self._orchestrator._dispatcher = self._dispatcher
         self._orchestrator._telemetry = self._telemetry
         self._orchestrator._memory = memory_manager
+        if self._orchestrator._dream:
+            self._orchestrator._dream._llm = self._invoker
 
     async def send_message(self, user_input: str) -> AsyncIterator[Dict[str, Any]]:
         """委托 Orchestrator（统一编排路径）。"""

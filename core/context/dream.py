@@ -28,7 +28,7 @@ import asyncio
 logger = logging.getLogger(__name__)
 
 # 触发配置
-_DREAM_SESSION_COUNT = 1    # 每 N 次会话触发
+_DREAM_SESSION_COUNT = 10   # 每 N 次会话触发
 _DREAM_HOURS = 24            # 距上次运行超 N 小时触发
 
 DREAM_SYSTEM_PROMPT = """You are a memory consolidation assistant. Your task is to read raw conversation memories and produce TWO outputs:

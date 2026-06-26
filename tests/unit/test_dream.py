@@ -141,11 +141,21 @@ def test_should_run_after_10_sessions():
     assert pipeline.should_run() is True
 
 
-def test_should_run_after_5_sessions_not_enough():
-    """1 次会话（默认 _DREAM_SESSION_COUNT=1）→ True"""
+def test_should_not_run_before_session_threshold():
+    """9 次会话 < 默认 _DREAM_SESSION_COUNT=10 → False"""
     llm = MockLLM()
     pipeline = DreamPipeline(llm)
-    pipeline.record_session()
+    for _ in range(9):
+        pipeline.record_session()
+    assert pipeline.should_run() is False
+
+
+def test_should_run_at_session_threshold():
+    """10 次会话 == 默认 _DREAM_SESSION_COUNT=10 → True"""
+    llm = MockLLM()
+    pipeline = DreamPipeline(llm)
+    for _ in range(10):
+        pipeline.record_session()
     assert pipeline.should_run() is True
 
 

@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_BASE = Path.home() / ".chacha"
 _GLOBAL_PERMANENT_FILE = "USER_MEMORY.md"
-_GLOBAL_DREAM_COUNT = 1       # 累计 50 次项目 dream 触发
+_GLOBAL_DREAM_COUNT = 50      # 累计 50 次项目 dream 触发
 _GLOBAL_DREAM_HOURS = 168      # 每 7 天触发
 
 GLOBAL_DREAM_SYSTEM_PROMPT = """You are a user-level memory consolidation assistant.
