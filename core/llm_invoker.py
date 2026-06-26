@@ -279,6 +279,10 @@ class LLMInvoker:
             args_str = tc._args_raw or "{}"
             if self._governor:
                 valid, repaired = self._governor.validate_tool_call(args_str)
+                if not valid:
+                    tc.arguments = None  # type: ignore[assignment]
+                    tc._repair_error = repaired  # type: ignore[attr-defined]
+                    continue
                 args_str = repaired
             try:
                 tc.arguments = json.loads(args_str)

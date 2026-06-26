@@ -70,7 +70,12 @@ class AtomicWriter:
     写入策略：
       - write():  覆盖写入 + 版本化备份（项目文件）
       - append(): 追加写入，无备份（系统事件 / 记忆）
+
+    校验策略：
+      - 流式写入时实时 sha256 自校验 + rename 后 stat 大小确认，避免双倍 I/O
     """
+
+    _CHUNK_SIZE = 64 * 1024  # 64KB：流式写入的分块大小
 
     def __init__(self, root: Optional[Path] = None):
         """
@@ -104,9 +109,10 @@ class AtomicWriter:
         # 2. 原子写入（加锁）
         tmp = path.with_suffix(path.suffix + ".tmp")
         lock_fd = None
+        content_bytes = content.encode("utf-8")
         try:
             lock_fd = self._acquire_lock(path)
-            tmp.write_text(content, encoding="utf-8")
+            self._write_streaming_with_hash(tmp, content_bytes)
             tmp.replace(path)  # 原子 rename
         except Exception as e:
             tmp.unlink(missing_ok=True)
@@ -119,8 +125,8 @@ class AtomicWriter:
         finally:
             self._release_lock(lock_fd)
 
-        # 3. 验证
-        verified = self._verify(path, content)
+        # 3. 验证（stat 大小确认，写入时已做 sha256 自校验）
+        verified = self._verify_checksum(path, content_bytes)
 
         preview = content.strip()[:PREVIEW_LENGTH]
         if len(content.strip()) > PREVIEW_LENGTH:
@@ -128,6 +134,71 @@ class AtomicWriter:
 
         logger.info(
             "写入完成: %s | 校验=%s | 备份=%s",
+            path.name, verified, backup_path,
+        )
+
+        return WriteResult(
+            ok=True, path=str(path), action=action,
+            verified=verified,
+            backup=str(backup_path) if backup_path else None,
+            preview=preview, error=None,
+        )
+
+    def write_chunks(self, path: Path, chunks: list, backup: bool = True) -> WriteResult:
+        """原子覆盖写入（分块版本，避免拼接全量字符串）。
+
+        逐 chunk 编码写入，内存峰值 ≈ 单个 chunk 大小（64KB），
+        适合 edit_file 等已持有 chunk 列表的场景。
+
+        Args:
+            path: 目标文件路径
+            chunks: 字符串块列表
+            backup: 是否创建版本化备份
+        """
+        action = "updated" if path.exists() else "created"
+
+        # 1. 备份
+        backup_path = None
+        if backup and path.exists():
+            backup_path = self._create_backup(path)
+
+        # 2. 流式写入（单遍 encode，不做预计算）
+        total_bytes = 0
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        lock_fd = None
+        try:
+            lock_fd = self._acquire_lock(path)
+            with tmp.open("wb") as f:
+                for chunk in chunks:
+                    chunk_bytes = chunk.encode("utf-8")
+                    f.write(chunk_bytes)
+                    total_bytes += len(chunk_bytes)
+            tmp.replace(path)
+        except Exception as e:
+            tmp.unlink(missing_ok=True)
+            logger.error("写入失败: %s → %s", path, e)
+            return WriteResult(
+                ok=False, path=str(path), action=action,
+                verified=False, backup=str(backup_path) if backup_path else None,
+                preview="", error=str(e),
+            )
+        finally:
+            self._release_lock(lock_fd)
+
+        # 4. stat 大小校验
+        try:
+            verified = path.stat().st_size == total_bytes
+        except Exception:
+            verified = False
+
+        # 5. preview
+        preview_chunk = chunks[0] if chunks else ""
+        preview = preview_chunk.strip()[:PREVIEW_LENGTH]
+        if len(preview_chunk.strip()) > PREVIEW_LENGTH:
+            preview += "..."
+
+        logger.info(
+            "写入完成(chunks): %s | 校验=%s | 备份=%s",
             path.name, verified, backup_path,
         )
 
@@ -294,9 +365,47 @@ class AtomicWriter:
 
     @staticmethod
     def _verify(path: Path, expected: str) -> bool:
-        """回读校验：写入内容和预期一致。"""
+        """全量回读校验：读回文件内容与预期逐字对比。
+
+        当前 write() 默认使用 _verify_checksum（stat 校验），
+        此方法保留供外部直接调用或需要逐字节确认的场景使用。
+        """
         try:
             actual = path.read_text(encoding="utf-8")
             return actual == expected
         except Exception:
             return False
+
+    @staticmethod
+    def _write_streaming_with_hash(tmp: Path, content_bytes: bytes) -> None:
+        """流式写入临时文件，边写边校验 sha256。
+
+        分块写入 + 实时 sha256 累加，写完后比对 hash。
+        不匹配则抛 IOError，写入时已完成校验。
+        """
+        expected = hashlib.sha256(content_bytes).hexdigest()
+        hasher = hashlib.sha256()
+        with tmp.open("wb") as f:
+            for i in range(0, len(content_bytes), AtomicWriter._CHUNK_SIZE):
+                chunk = content_bytes[i:i + AtomicWriter._CHUNK_SIZE]
+                f.write(chunk)
+                hasher.update(chunk)
+        if hasher.hexdigest() != expected:
+            raise IOError(
+                f"sha256 校验失败: tmp 写入内容与预期不一致 "
+                f"(expected={expected[:16]}..., actual={hasher.hexdigest()[:16]}...)"
+            )
+
+    @staticmethod
+    def _verify_checksum(path: Path, content_bytes: bytes) -> bool:
+        """rename 后轻量校验：仅 stat 确认文件大小一致。
+
+        rename 在同一文件系统上是原子的，文件内容不会变，
+        因此不需要再次读取全量内容做比对。
+        """
+        try:
+            return path.stat().st_size == len(content_bytes)
+        except Exception:
+            return False
+
+

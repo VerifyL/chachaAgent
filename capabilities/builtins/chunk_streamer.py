@@ -3,7 +3,7 @@ capabilities/builtins/chunk_streamer.py
 ReadFile + ReadFiles + Grep — 文件读写工具（BaseTool）。
 
 核心设计（v2，无 mmap）：
-- read_file: 纯 seek+read 按行号读取。首次 f.read() 建行偏移列表（单次扫描，不缓存）
+- read_file: 纯 seek+read 按行号读取。每次 f.read() 全量建行偏移列表
 - grep: 系统 ripgrep 子进程 → grep → Python re 逐级降级
 - read_files: 批量 read_file
 
@@ -27,7 +27,8 @@ from capabilities.builtins.lang_patterns import (
 logger = logging.getLogger(__name__)
 
 MAX_OUTPUT_CHARS = 100_000
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB，超大文件拒绝
+MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB，与 edit_file 对齐
+
 
 _BINARY_EXTS = frozenset({
     ".pyc", ".so", ".dll", ".dylib", ".exe",
@@ -107,7 +108,7 @@ def _read_by_offset(
             ensure_ascii=False,
         )
 
-    # 4. 读全文件 + 建行偏移索引（单次 f.read()，C 级速度）
+    # 4. 读全文件 + 建行偏移索引
     try:
         with open(raw, "rb") as f:
             data = f.read()
@@ -122,7 +123,7 @@ def _read_by_offset(
             ensure_ascii=False,
         )
 
-    # 扫描换行符建偏移列表（Python 逐字节循环，对 10MB 文件约 10ms）
+    # 扫描换行符建偏移列表
     offsets = [0]
     for i, byte_val in enumerate(data):
         if byte_val == 0x0A:  # \n
@@ -163,6 +164,7 @@ def _read_by_offset(
 
     # 6. 切片 + 解码
     raw_bytes = data[byte_start:byte_end]
+    del data  # 尽早释放全量内存
     content = raw_bytes.decode("utf-8", errors="replace")
     lines_read = content.count("\n")
 

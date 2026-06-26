@@ -330,7 +330,7 @@ class Dispatcher:
                         "type": "function",
                         "function": {
                             "name": tc.name,
-                            "arguments": json.dumps(tc.arguments, ensure_ascii=False),
+                            "arguments": json.dumps(tc.arguments if tc.arguments is not None else {}, ensure_ascii=False),
                         },
                     }
                     for tc in resp.tool_calls
@@ -342,13 +342,22 @@ class Dispatcher:
             for tc in resp.tool_calls:
                 self.tool_calls_made += 1
                 _tc_id_to_name[tc.id] = tc.name
-                result = await self._tools.execute(
-                    tool_name=tc.name,
-                    arguments=tc.arguments,
-                    session_id=session_id,
-                    tool_use_id=tc.id,
-                    project_id=self._project_id,
-                )
+                if tc.arguments is None:
+                    result = ToolResult(
+                        tool_use_id=tc.id,
+                        tool_name=tc.name,
+                        status="error",
+                        output="",
+                        error="工具调用参数 JSON 被截断且无法自动修复。请缩小参数（如缩短 old_string、减少 context_lines）后重试。",
+                    )
+                else:
+                    result = await self._tools.execute(
+                        tool_name=tc.name,
+                        arguments=tc.arguments,
+                        session_id=session_id,
+                        tool_use_id=tc.id,
+                        project_id=self._project_id,
+                    )
                 # blocked / pending_approval → 转为错误消息
                 if result.status in ("blocked", "pending_approval"):
                     result.output = result.error or '工具执行被阻止'

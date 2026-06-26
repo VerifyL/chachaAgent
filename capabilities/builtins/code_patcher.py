@@ -1,3 +1,4 @@
+
 """
 capabilities/builtins/code_patcher.py
 EditFile — 精确文件编辑工具（BaseTool）。
@@ -9,31 +10,35 @@ EditFile — 精确文件编辑工具（BaseTool）。
 
 底层：
   - 精确匹配，对齐 Claude Code：不 strip、不 fuzzy
+  - 分块流式读取 + 双 chunk 窗口搜索（支持跨 chunk 边界匹配）
+  - 局部替换（只重建受影响的 chunk，其余复用引用）
+  - 流式写入 AtomicWriter（sha256 + stat 校验）
   - 多匹配时列出上下文供 LLM 选择
-  - 写入走 AtomicWriter（原子 rename + 版本化备份 + 回读验证）
   - 新文件自动创建父目录，无需备份
 """
 
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional, Tuple
 
 from capabilities.atomic_writer import AtomicWriter
 from capabilities.base import BaseTool
 
-CHUNK_SIZE = 64 * 1024        # 64KB chunks for streaming
-LARGE_FILE_THRESHOLD = 10 * 1024 * 1024  # 10MB
+CHUNK_SIZE = 64 * 1024              # 64KB chunks for streaming
+OLD_STRING_MAX_LENGTH = CHUNK_SIZE  # 64KB，保证最多跨 1 个 chunk 边界
+LARGE_FILE_THRESHOLD = 100 * 1024 * 1024  # 100MB (chunk 窗口下安全)
 
 logger = logging.getLogger(__name__)
 
 
 class EditFileTool(BaseTool):
-    """精确文件编辑，底层原子写入。"""
+    """精确文件编辑，分块流式读写，局部替换。"""
 
     name = "edit_file"
     description = (
         "精确替换文件内容，适合小范围修改（<50行）。"
         "old_string 必须唯一匹配（避免误改），"
+        "old_string 长度不能超过 64KB。"
         "自动备份到 .chacha_agent/backups/。"
         "old_string='' 时可创建新文件。"
         "大范围或多文件修改请使用 apply_patch。"
@@ -42,7 +47,7 @@ class EditFileTool(BaseTool):
         "type": "object",
         "properties": {
             "path": {"type": "string", "description": "文件路径"},
-            "old_string": {"type": "string", "description": "要被替换的原始文本（必须精确匹配）"},
+            "old_string": {"type": "string", "description": "要被替换的原始文本（必须精确匹配，不超过 64KB）"},
             "new_string": {"type": "string", "description": "替换后的新文本"},
             "replace_all": {"type": "boolean", "description": "是否替换所有匹配项（默认仅替换首处）"},
         },
@@ -58,6 +63,10 @@ class EditFileTool(BaseTool):
     async def execute(
         self, path: str, old_string: str, new_string: str, replace_all: bool = False
     ) -> str:
+        """执行文件编辑。
+
+        流程: 校验 → 分块读取 → 双 chunk 窗口搜索 → 局部替换 → 流式写入
+        """
         # 1. 路径校验
         full_path = (
             Path(path) if Path(path).is_absolute() else self._root / path
@@ -65,16 +74,14 @@ class EditFileTool(BaseTool):
         try:
             full_path.relative_to(self._root)
         except ValueError:
-            # 允许写入 ~/.chacha/ 目录（用户工具、配置）
             if Path.home() / ".chacha" in full_path.parents or full_path == Path.home() / ".chacha":
-                pass  # 放行
+                pass
             else:
                 return "[错误] 访问被拒绝: 路径超出项目根目录"
 
-        # 文件不存在 + old_string 为空 → 创建新文件
+        # 2. 新文件创建
         if not full_path.exists():
             if old_string == "":
-                # 确保父目录存在
                 full_path.parent.mkdir(parents=True, exist_ok=True)
                 result = self._writer.write(full_path, new_string, backup=False)
                 if result.ok:
@@ -90,67 +97,62 @@ class EditFileTool(BaseTool):
             else:
                 return f"[错误] 文件不存在: {path}（新建文件请传 old_string=''）"
 
-        # 2. Read: chunked streaming for large files
+        # 3. old_string 上限检查
+        if len(old_string) > OLD_STRING_MAX_LENGTH:
+            return (
+                f"[错误] old_string 长度 ({len(old_string)} 字节) 超过上限 "
+                f"({OLD_STRING_MAX_LENGTH} 字节)。请缩小替换范围后重试。"
+            )
+
+        # 4. 文件大小检查
+        file_size = full_path.stat().st_size
+        if file_size > LARGE_FILE_THRESHOLD:
+            return (
+                f"[错误] 文件过大 ({file_size} 字节 > {LARGE_FILE_THRESHOLD} 字节)。"
+                f"请使用 grep + 行号定位方式修改。"
+            )
+
+        # 5. 分块读取
         try:
-            file_size = full_path.stat().st_size
-            if file_size > LARGE_FILE_THRESHOLD:
-                # 大文件：分块搜索 + 累积内容，一次 IO 完成搜索和加载
-                found = False
-                chunks = []
-                with open(full_path, "r", encoding="utf-8") as f:
-                    prev = ""
-                    while True:
-                        chunk = f.read(CHUNK_SIZE)
-                        if not chunk:
-                            break
-                        chunks.append(chunk)
-                        if old_string in prev + chunk:
-                            found = True
-                        prev = chunk[-len(old_string):] if len(old_string) > 0 else ""
-                content = "".join(chunks)
-                if not found:
-                    # 找不到时显示文件头部，帮助 LLM 修正
-                    lines = content.split("\n")
-                    context_lines = "\n".join(f"  {i+1}: {l}" for i, l in enumerate(lines[:15]))
-                    return (
-                        f"[Error] old_string not found. "
-                        f"File starts with:\n"
-                        f"{context_lines}\n"
-                        f"  ... ({len(lines)} lines total)\n"
-                        f"Please verify the exact text with read_file and try again."
-                    )
-            else:
-                content = full_path.read_text(encoding="utf-8")
+            chunks = self._read_chunks(full_path)
         except Exception as e:
             return f"[错误] 读取失败: {e}"
 
-        # 3. 精确匹配（对齐 Claude Code：不做任何 strip/fuzzy）
+        if not chunks or (len(chunks) == 1 and not chunks[0]):
+            return "[错误] 文件为空"
+
+        # 6. 搜索（双 chunk 窗口）
         old = old_string
         new = new_string
-        count = content.count(old)
+
+        if replace_all:
+            matches = self._find_all_in_chunks(chunks, old)
+            count = len(matches)
+        else:
+            match = self._find_in_chunks(chunks, old)
+            count = 1 if match else 0
 
         if count == 0:
-            snippet = old[:80] + ("..." if len(old) > 80 else "")
+            first_chunk = chunks[0] if chunks else ""
+            lines = first_chunk.split("\n")
+            context_lines = "\n".join(f"  {i+1}: {l}" for i, l in enumerate(lines[:15]))
+            total_lines = self._count_lines(chunks)
             return (
-                f"[错误] old_string 未找到。文件可能已被修改，"
-                f"请用 read_file 确认当前内容后重试。\n"
-                f"搜索片段: '{snippet}'"
+                f"[Error] old_string not found. "
+                f"File starts with:\n"
+                f"{context_lines}\n"
+                f"  ... ({total_lines} lines total)\n"
+                f"Please verify the exact text with read_file and try again."
             )
 
         if not replace_all and count > 1:
-            # 列出上下文帮 LLM 选择
+            all_matches = self._find_all_in_chunks(chunks, old)
             occurrences = []
-            pos = -1
-            for _ in range(count):
-                pos = content.find(old, pos + 1)
-                line_no = content[:pos].count("\n") + 1
-                start = max(0, pos - 30)
-                end = min(len(content), pos + len(old) + 30)
-                ctx = content[start:end].replace("\n", "\\n")
+            for i, m in enumerate(all_matches[:5]):
+                ci, offset = m
+                ctx = self._get_context(chunks, ci, offset, old)
+                line_no = self._chunk_offset_to_line(chunks, ci, offset)
                 occurrences.append(f"  行 {line_no}: ...{ctx}...")
-                if len(occurrences) >= 5:
-                    break
-
             occ_list = "\n".join(occurrences)
             return (
                 f"[错误] old_string 匹配了 {count} 处（不唯一）。\n"
@@ -158,12 +160,16 @@ class EditFileTool(BaseTool):
                 f"请提供更多上下文确保唯一匹配，或设置 replace_all=true"
             )
 
-        # 5. 执行替换
-        new_content = content.replace(old, new) if replace_all else content.replace(old, new, 1)
-        replaced = count if replace_all else 1
+        # 7. 局部替换
+        if replace_all:
+            chunks = self._replace_all_in_chunks(chunks, old, new, matches)
+            replaced = count
+        else:
+            chunks = self._replace_in_chunks(chunks, old, new, match)
+            replaced = 1
 
-        # 6. 原子写入
-        result = self._writer.write(full_path, new_content, backup=True)
+        # 8. 流式写入（逐 chunk，不拼全量）
+        result = self._writer.write_chunks(full_path, chunks, backup=True)
 
         if result.ok:
             return (
@@ -173,3 +179,139 @@ class EditFileTool(BaseTool):
             )
         else:
             return f"[错误] 写入失败: {result.error}\n   备份: {result.backup}"
+
+    # ── Chunk 读取 ──────────────────────────────────────────
+
+    @staticmethod
+    def _read_chunks(path: Path, chunk_size: int = CHUNK_SIZE) -> List[str]:
+        """分块读取文件，不拼全量。返回 chunks 列表。"""
+        chunks = []
+        with open(path, "r", encoding="utf-8") as f:
+            while True:
+                chunk = f.read(chunk_size)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+        if not chunks:
+            return [""]
+        EditFileTool._merge_tiny_tail(chunks, min_size=16 * 1024)
+        return chunks
+
+    @staticmethod
+    def _merge_tiny_tail(chunks: List[str], min_size: int) -> None:
+        """如果最后一个 chunk 小于 min_size，合并到前一个。"""
+        if len(chunks) > 1 and len(chunks[-1]) < min_size:
+            chunks[-2] += chunks.pop()
+
+    # ── Chunk 窗口搜索 ──────────────────────────────────────
+
+    @staticmethod
+    def _find_in_chunks(chunks: List[str], old: str) -> Optional[Tuple[int, int]]:
+        """双 chunk 窗口搜索 old，返回 (chunk_index, offset) 或 None。
+
+        窗口 = chunks[i][-len(old):] + chunks[i+1][:len(old)]
+        保证 old 跨 chunk 边界也能命中。
+        old 长度 ≤ CHUNK_SIZE 保证最多跨 1 个边界。
+        """
+        old_len = len(old)
+        for i, chunk in enumerate(chunks):
+            pos = chunk.find(old)
+            if pos != -1:
+                return (i, pos)
+            # 跨 chunk 窗口
+            if i + 1 < len(chunks):
+                tail = chunk[-old_len:] if old_len <= len(chunk) else chunk
+                head = chunks[i + 1][:old_len]
+                overlap = tail + head
+                pos = overlap.find(old)
+                if pos != -1:
+                    offset = len(chunk) - len(tail) + pos
+                    return (i, offset)
+        return None
+
+    @staticmethod
+    def _find_all_in_chunks(chunks: List[str], old: str) -> List[Tuple[int, int]]:
+        """查找所有匹配，返回 [(chunk_index, offset), ...] 列表。"""
+        matches = []
+        old_len = len(old)
+        for i, chunk in enumerate(chunks):
+            pos = 0
+            while True:
+                pos = chunk.find(old, pos)
+                if pos == -1:
+                    break
+                matches.append((i, pos))
+                pos += len(old)
+            # 跨 chunk 窗口
+            if i + 1 < len(chunks):
+                tail = chunk[-old_len:] if old_len <= len(chunk) else chunk
+                head = chunks[i + 1][:old_len]
+                overlap = tail + head
+                pos = overlap.find(old)
+                if pos != -1 and pos < len(tail):
+                    matches.append((i, len(chunk) - len(tail) + pos))
+        return matches
+
+    # ── Chunk 局部替换 ──────────────────────────────────────
+
+    @staticmethod
+    def _replace_in_chunks(
+        chunks: List[str], old: str, new: str, match: Tuple[int, int]
+    ) -> List[str]:
+        """只在受影响的 chunk 上做替换，其余复用引用。
+
+        match: (chunk_index, offset) — old 在 chunks[chunk_index] 中的偏移。
+        """
+        i, offset = match
+        old_len = len(old)
+        chunk = chunks[i]
+
+        if offset + old_len <= len(chunk):
+            # 单 chunk：字符串切片拼接
+            chunks[i] = chunk[:offset] + new + chunk[offset + old_len:]
+        else:
+            # 跨 chunk：拼接 → 替换 → 拆回
+            if i + 1 >= len(chunks):
+                raise ValueError("跨 chunk 匹配但缺少下一个 chunk")
+            merged = chunk + chunks[i + 1]
+            merged = merged[:offset] + new + merged[offset + old_len:]
+            split = offset + len(new)
+            chunks[i] = merged[:split]
+            chunks[i + 1] = merged[split:]
+        return chunks
+
+    @staticmethod
+    def _replace_all_in_chunks(
+        chunks: List[str], old: str, new: str, matches: List[Tuple[int, int]]
+    ) -> List[str]:
+        """替换所有匹配，从后往前避免偏移失效。"""
+        for ci, offset in reversed(matches):
+            chunks = EditFileTool._replace_in_chunks(chunks, old, new, (ci, offset))
+        return chunks
+
+    # ── 辅助方法 ────────────────────────────────────────────
+
+    @staticmethod
+    def _count_lines(chunks: List[str]) -> int:
+        """统计 chunks 总行数。"""
+        return sum(c.count("\n") for c in chunks)
+
+    @staticmethod
+    def _chunk_offset_to_line(chunks: List[str], chunk_idx: int, offset: int) -> int:
+        """计算 chunk 内偏移对应的全局行号（1-based）。"""
+        line = 1
+        for i in range(chunk_idx):
+            line += chunks[i].count("\n")
+        if offset > 0:
+            line += chunks[chunk_idx][:offset].count("\n")
+        return line
+
+    @staticmethod
+    def _get_context(chunks: List[str], chunk_idx: int, offset: int, old: str) -> str:
+        """获取匹配位置周围 30 字符上下文。"""
+        chunk = chunks[chunk_idx]
+        start = max(0, offset - 30)
+        end = min(len(chunk), offset + len(old) + 30)
+        return chunk[start:end].replace("\n", "\\n")
+
+
