@@ -435,6 +435,7 @@ class ChachaCLI:
                 self._bridge._messages,
                 getattr(self._bridge, "_context_window", 1_048_576),
                 llm=getattr(self._bridge, "_invoker", None),
+                trigger_ratio=0.0,  # Ctrl+X 强制压缩，无视利用率阈值
                 **getattr(self._bridge, "_compress_cfg", {}),
             )
             self._bridge._messages = msgs
