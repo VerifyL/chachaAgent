@@ -30,7 +30,7 @@ from typing import Any, List, Optional, Tuple
 # ========================= 块类型与修复置信度 =========================
 
 class BlockType(str, Enum):
-    """流式内容块类型（参考 Claude Code ContentBlock）"""
+    """流式内容块类型"""
     TEXT = "text"          # 纯文本输出 → 透传
     TOOL_USE = "tool_use"  # 工具调用 JSON → 缓冲累积后修复
     THINKING = "thinking"  # 思考过程 → 透传（不缓冲）

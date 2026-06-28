@@ -51,7 +51,7 @@ from core.llm_invoker import (
     DoneChunk,
     ErrorChunk,
 )
-from core.tool_executor import ToolResult
+from capabilities.result import ToolResult
 
 
 
@@ -66,22 +66,30 @@ _API_KEY_RE = re.compile(
 )
 
 def _tool_args_summary(name: str, args: dict) -> str:
-    if name in ("read_file", "bash", "list_files", "file_outline",
-                 "depe_analyze", "project_overview", "load_memory",
-                 "write_topic", "read_topic", "subagent", "subagent"):
-        items = [f"{k}={v}" for k, v in args.items()]
-        return " ".join(items)
-    if name == "read_files" and "paths" in args:
-        paths = args["paths"]
-        return f"paths={paths}"
-    if name == "grep":
-        pat = args.get("pattern", "")
-        loc = args.get("path", "") or ""
-        return f"pattern={pat}" + (f" path={loc}" if loc else "")
-    if name == "edit_file":
-        return f"path={args.get('path', '?')}"
-    items = [f"{k}={v}" for k, v in args.items()]
-    return " ".join(items)
+    """为日志/缓存 key 生成工具调用参数摘要，按工具名分发防止大参数爆日志。"""
+    if name == "read":
+        return f"read {args.get('path','?')}:{args.get('offset',1)}:{args.get('limit',200)}"
+    elif name == "write":
+        content = args.get("content", "")
+        return f"write {args.get('path','?')} ({len(content)} bytes)"
+    elif name == "edit":
+        old = args.get("old_string", "")
+        new = args.get("new_string", "")
+        return f"edit {args.get('path','?')}: {len(old)}→{len(new)} chars"
+    elif name == "bash":
+        cmd = args.get("command", "")
+        return ("bash " + cmd[:120] + "…") if len(cmd) > 120 else ("bash " + cmd)
+    elif name == "grep":
+        return f"grep {args.get('pattern','?')} [{args.get('path','.')}:{args.get('glob','*')}]"
+    elif name == "glob":
+        return f"glob {args.get('pattern','?')} [{args.get('path','.')}]"
+    elif name == "task":
+        return f"task {args.get('subagent_type','worker')}: {args.get('description','?')[:80]}"
+    elif name == "memory":
+        return f"memory {args.get('action','?')}"
+    elif name == "cache_read":
+        return f"cache_read {args.get('cache_key','?')[:40]}"
+    return " ".join(f"{k}={v}" for k, v in args.items())
 
 
 
@@ -244,19 +252,19 @@ class Dispatcher:
                         tool_use_id=tc_info["id"],
                         tool_name=tc_info["name"],
                         status="error",
-                        output="",
+                        content="",
                         error=str(raw),
                     )
                 else:
                     result = raw
 
                 # blocked / pending_approval → 转为错误消息
-                if result.status in ("blocked", "pending_approval"):
-                    result.output = result.error or '工具执行被阻止'
+                if result.status == "error" and result.error_type in ("blocked", "pending_approval"):
+                    result.content = result.error or '工具执行被阻止'
 
                 # Dynamic circuit breaker: same (tool+args) consecutive failures
                 call_key = f"{tc_info['name']}:{arg_summary}"
-                if result.status in ("error", "blocked", "timeout"):
+                if result.status == "error":
                     if call_key == self._last_failed_call:
                         self._same_call_failures += 1
                     else:
@@ -275,11 +283,11 @@ class Dispatcher:
                     )
                     return
                 yield ToolExecEndEvent(tool_name=tc_info["name"],
-                       preview=(result.output or result.error or "")[:80].split("\n")[0])
+                       preview=(result.content or result.error or "")[:80].split("\n")[0])
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc_info["id"],
-                    "content": f"[status={result.status}] {result.output}",
+                    "content": result.model_dump_json(exclude_none=True),
                 })
 
             # Stage 1: 缓存旧工具结果
@@ -347,7 +355,7 @@ class Dispatcher:
                         tool_use_id=tc.id,
                         tool_name=tc.name,
                         status="error",
-                        output="",
+                        content="",
                         error="工具调用参数 JSON 被截断且无法自动修复。请缩小参数（如缩短 old_string、减少 context_lines）后重试。",
                     )
                 else:
@@ -359,12 +367,12 @@ class Dispatcher:
                         project_id=self._project_id,
                     )
                 # blocked / pending_approval → 转为错误消息
-                if result.status in ("blocked", "pending_approval"):
-                    result.output = result.error or '工具执行被阻止'
+                if result.status == "error" and result.error_type in ("blocked", "pending_approval"):
+                    result.content = result.error or '工具执行被阻止'
 
                 # Dynamic circuit breaker: same (tool+args) consecutive failures
                 call_key = f"{tc.name}:{json.dumps(tc.arguments, sort_keys=True)}"
-                if result.status in ("error", "blocked", "timeout"):
+                if result.status == "error":
                     if call_key == self._last_failed_call:
                         self._same_call_failures += 1
                     else:
@@ -379,7 +387,7 @@ class Dispatcher:
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc.id,
-                    "content": f"[status={result.status}] {result.output}",
+                    "content": result.model_dump_json(exclude_none=True),
                 })
 
             # Stage 1: 缓存旧工具结果
@@ -413,8 +421,12 @@ class Dispatcher:
     def _freeze_old_tool_results(self, messages: List[Dict], session_id: str, tc_id_to_name: Optional[Dict[str, str]] = None) -> None:
         """保持最近 KEEP_TOOL_RESULTS 个工具结果完整，更早的替换为 JSON 占位符。
 
-        占位格式: {"toolname":"read_file","result_summary":"读取 main.py 前200行...","cache_path":"tool_cache/t3.json"}
+        占位格式: {"toolname":"read","result_summary":"读取 main.py 前200行...","cache_path":"tool_caool_cache/t3.json"}
+
+        注意: 无 memory_manager 时跳过冻结（无缓存后端，占位符的 cache_ref 无效）。
         """
+        if not self._memory:
+            return
         tool_indices = [
             i for i, m in enumerate(messages)
             if m.get("role") == "tool" and not m.get("content", "").startswith("{")

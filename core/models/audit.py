@@ -222,11 +222,11 @@ def audit_factory(
 
     示例:
         evt = audit_factory(
-            AuditEventCategory.TOOL_CALL,
             session_id="s1",
             project_id="p1",
-            tool_name="read_file",
-            tool_use_id="call_1",
+            tool_name="edit",
+            tool_use_id="call_2",
+            arguments={"path": "foo.py", "old_string": "x", "new_string": "y"},
             status="success",
         )
     """

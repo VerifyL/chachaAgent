@@ -63,14 +63,13 @@ class ChatEngine:
         return self._dispatcher
 
     def rebuild(self, tools=None) -> None:
-        from core.tool_executor import ToolExecutor
-        from core.dispatcher import Dispatcher
-        from core.policy_engine import PolicyEngine
-        if not self._llm:
-            return
-        policy = PolicyEngine()
-        executor = ToolExecutor(tools=tools or [], policy_engine=policy)
-        self._dispatcher = Dispatcher(llm_invoker=self._llm, tool_executor=executor)
+        """重新装配工具/Dispatcher（当前由 AgentBridge.rebuild() 统一管理）。
+        
+        ChatEngine 自身不负责 PolicyEngine/ToolExecutor/Dispatcher 的创建，
+        避免与 AgentBridge.rebuild() 产生双实例冲突。
+        如未来 ChatEngine 需要独立运行，通过 agent_bridge 注入完成。
+        """
+        pass
 
     # ====== 检查点 ======
 

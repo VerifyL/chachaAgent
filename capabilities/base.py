@@ -3,14 +3,17 @@ capabilities/base.py
 BaseTool — 统一工具基类，所有工具实现此抽象。
 
 用法:
-    class ReadFile(BaseTool):
-        name = "read_file"
+    class ReadTool(BaseTool):
+        name = "read"
         description = "读取文件内容"
         async def execute(self, path: str) -> str: ...
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict
+from pathlib import Path
+from typing import Any, Dict, Optional
+
+from capabilities.result import ToolResult
 
 
 class BaseTool(ABC):
@@ -25,11 +28,15 @@ class BaseTool(ABC):
     requires_approval: bool = False  # 是否需要用户确认
     no_truncate: bool = False  # 设为 True 时 ToolExecutor 不截断该工具的输出
 
+    # ====== 运行时注入 ======
+
+    project_root: Optional[Path] = None  # 项目根目录（由 registry 注入）
+
     # ====== 子类实现 ======
 
     @abstractmethod
-    async def execute(self, **kwargs: Any) -> str:
-        """执行工具，返回结果文本"""
+    async def execute(self, **kwargs: Any) -> ToolResult:
+        """执行工具，返回 ToolResult"""
         ...
 
     # ====== 自动生成 ======

@@ -9,7 +9,7 @@ TODO(阶段8): 实现进程生命周期管理（启动/心跳/优雅关闭）
 TODO(阶段8): 实现 MCPToolAdapter（MCP tool → BaseTool）
 TODO(阶段8): 实现权限与审计集成
 
-参考: Harness MiniHarness MCP + Claude Code MCP 协议
+参考: Harness MiniHarness MCP
 """
 
 import logging

@@ -2,7 +2,7 @@
 core/models/hook.py
 钩子上下文与结果模型：不可变上下文在责任链中传递，HookResult 禁止副作用。
 
-设计原则（参考 Claude Code hooks）：
+设计原则：
 1. HookContext 不可变（frozen），在钩子链中只读传递
 2. HookResult 是纯返回值，钩子不直接修改全局状态
 3. additional_context 允许钩子向对话注入额外消息（系统提示/警告）
@@ -52,7 +52,7 @@ class HookMatcher(BaseModel):
 
     用法:
         # 匹配所有读/写文件工具
-        HookMatcher(type="tool_name", pattern="read_file|write_file")
+        HookMatcher(type="tool_name", pattern="read|write")
 
         # 匹配包含 "git push" 的命令
         HookMatcher(type="command", pattern="git\\s+push")

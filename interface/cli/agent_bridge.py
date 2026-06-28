@@ -114,7 +114,7 @@ class AgentBridge:
         # Hook 系统（可插拔模块：Git 感知等）
         from core.hook_orchestrator import HookOrchestrator
         from core.models.hook import HookPoint
-        from capabilities.builtins.git_context import GitContextHook
+        from core.git_context import GitContextHook
         self._hooks = HookOrchestrator(telemetry=self._telemetry)
         self._hooks.register(
             "git-context",
@@ -186,102 +186,7 @@ class AgentBridge:
         if self._telemetry and self._telemetry.enabled:
             self._telemetry.start()
 
-        # 2. PolicyEngine + CLI 审批回调
-        from core.policy_engine import PolicyEngine
-        policy = PolicyEngine()
-
-        async def _cli_approval(req) -> bool:
-            """CLI 交互式审批回调"""
-            print(f"\n⚠️  工具 '{req.tool_name}' 需要审批")
-            print(f"   风险等级: {req.risk_level} (分数: {req.risk_score:.0f})")
-            # 展示关键参数（大值显示长度+摘要，避免 diff/new_string 被硬截断）
-            arg_parts = []
-            for k, v in req.arguments.items():
-                s = str(v)
-                if len(s) > 500:
-                    s = f"{s[:200]}... [{len(s)} chars] ...{s[-100:]}"
-                arg_parts.append(f"{k}={s}")
-            args_str = " ".join(arg_parts)
-            if args_str:
-                print(f"   参数: {args_str}")
-            # edit_file → 展示 diff
-            if req.diff:
-                print(f"\n--- 文件变更 ({req.arguments.get('path', '?')}) ---")
-                print(req.diff)
-                print("--- diff 结束 ---")
-            # 系统类工具 → 强调风险，默认拒绝
-            if req.tool_name in PolicyEngine.SYSTEM_TOOLS:
-                print(f"   ⛔ '{req.tool_name}' 是系统级工具，可能执行任意命令！")
-                default = "N"
-            else:
-                default = "y"
-            default_hint = "[Y/n]" if default == "y" else "[y/N]"
-            try:
-                answer = _interruptible_input(f"   是否执行？{default_hint}: ").strip().lower()
-            except KeyboardInterrupt:
-                return False
-            except EOFError:
-                return False
-            if not answer:
-                return default == "y"
-            return answer in ("y", "yes")
-
-        # 3. Dispatcher
-        self._executor = ToolExecutor(
-            tools=self._custom_tools,
-            policy_engine=policy,
-            hook_orchestrator=self._hooks,
-            telemetry=self._telemetry,
-            approval_handler=_cli_approval,
-        )
-        self._dispatcher = Dispatcher(
-            llm_invoker=self._invoker,
-            tool_executor=self._executor,
-            telemetry=self._telemetry,
-            project_id=self._project_id,
-            context_window=self._context_window,
-        )
-        self._engine.set_dispatcher(self._dispatcher)
-
-        # 2.5 注入工具运行时依赖（如 SubAgentTool）
-        for tool in self._custom_tools:
-            if hasattr(tool, 'configure'):
-                tool.configure(
-                    llm_invoker=self._invoker,
-                    parent_tool_executor=self._executor,
-                    project_root=self._root,
-                    telemetry=self._telemetry,
-                    policy_engine=policy,
-                )
-
-        # 3. ContextManager — 注入记忆和技能
-        from core.context_manager import ContextManager
-        from core.context.memory_manager import MemoryManager
-        import json
-        try:
-            mgr = MemoryManager(project_root=self._root)
-            perm = mgr.read_permanent_memory()
-            if perm:
-                self._context_manager.set_permanent_memory(perm)
-            idx = mgr.read()
-            if idx:
-                self._context_manager.set_memory_index(idx)
-            # 读取最近 3 天会话记忆
-            recent = mgr.read_recent_days(3)
-            if recent:
-                self._context_manager.set_session_memory(recent)
-            user_path = Path.home() / ".chacha" / "USER_MEMORY.md"
-            if user_path.exists():
-                self._context_manager.set_global_permanent_memory(
-                    user_path.read_text(encoding="utf-8"))
-            # 工具 schema → skill 文本
-            schemas = self._executor.get_schemas()
-            if schemas:
-                skills_text = "\n".join(
-                    json.dumps(s, ensure_ascii=False) for s in schemas)
-                self._context_manager.set_skills(skills_text)
-        except Exception:
-            pass
+        await self.rebuild()
 
         self._initialized = True
         return f"API: {self._model} | 上下文: {self._context_window // 1000}K"
@@ -289,6 +194,7 @@ class AgentBridge:
     def set_tools_for_session(self, memory_manager) -> None:
         """根据 session 的 MemoryManager 重建工具（统一走 registry）。"""
         from capabilities.registry import build_tools
+        self._session_memory = memory_manager
         self._custom_tools = build_tools(root=self._root, memory_manager=memory_manager)
 
     async def rebuild(self) -> None:
@@ -339,6 +245,17 @@ class AgentBridge:
             telemetry=self._telemetry,
             approval_handler=_cli_approval,
         )
+
+        # 创建 SubAgentSpawner（供 TaskTool 使用）
+        from core.subagent.spawner import SubAgentSpawner
+        spawner = SubAgentSpawner(
+            llm_invoker=self._invoker,
+            parent_tool_executor=self._executor,
+            hook_orchestrator=self._hooks,
+            project_root=str(self._root) if self._root else None,
+            telemetry=self._telemetry,
+        )
+
         self._dispatcher = Dispatcher(
             llm_invoker=self._invoker,
             tool_executor=self._executor,
@@ -349,6 +266,10 @@ class AgentBridge:
         self._engine.set_dispatcher(self._dispatcher)
 
         # 重新注入工具运行时依赖
+        # SubAgentSpawner 依赖 ToolExecutor（需工具列表已就绪），而 ToolExecutor
+        # 构造时也需要工具列表。这个循环依赖决定了只能两阶段：先 build_tools()
+        # 再事后注入 spawner。registry.build_tools() 的 subagent_spawner= 参数
+        # 预留为未来解耦通道（如引入 factory 模式打破循环）。
         for tool in self._custom_tools:
             if hasattr(tool, 'configure'):
                 tool.configure(
@@ -357,7 +278,34 @@ class AgentBridge:
                     project_root=self._root,
                     telemetry=self._telemetry,
                     policy_engine=policy,
+                    subagent_spawner=spawner,
                 )
+
+        # ContextManager — 注入记忆和技能
+        from core.context.memory_manager import MemoryManager
+        import json
+        try:
+            mgr = getattr(self, '_session_memory', None) or MemoryManager(project_root=self._root)
+            perm = mgr.read_permanent_memory()
+            if perm:
+                self._context_manager.set_permanent_memory(perm)
+            idx = mgr.read()
+            if idx:
+                self._context_manager.set_memory_index(idx)
+            recent = mgr.read_recent_days(3)
+            if recent:
+                self._context_manager.set_session_memory(recent)
+            user_path = Path.home() / ".chacha" / "USER_MEMORY.md"
+            if user_path.exists():
+                self._context_manager.set_global_permanent_memory(
+                    user_path.read_text(encoding="utf-8"))
+            schemas = self._executor.get_schemas()
+            if schemas:
+                skills_text = "\n".join(
+                    json.dumps(s, ensure_ascii=False) for s in schemas)
+                self._context_manager.set_skills(skills_text)
+        except Exception:
+            pass
 
     # ====== 发送消息（委托 ChatEngine） ======
 
@@ -473,7 +421,7 @@ class AgentBridge:
     async def _cmd_memory(self, arg: str) -> str:
         try:
             from core.context.memory_manager import MemoryManager
-            mgr = MemoryManager(project_root=self._root)
+            mgr = getattr(self, '_session_memory', None) or MemoryManager(project_root=self._root)
             permanent = mgr.read_permanent_memory()
             index = mgr.read()
             days = mgr.list_days(limit=7)

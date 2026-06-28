@@ -39,7 +39,7 @@ DREAM_SYSTEM_PROMPT = """You are a memory consolidation assistant. Your task is 
 ## Rules for MEMORY.md:
 1. Read ALL provided daily memories, topics, and the OLD MEMORY.md
 2. Extract important information, deduplicate, and categorize
-3. Each entry must include: a one-line summary (≤60 chars) + source pointer (→ topics/xxx.md) + timestamp
+3. Each entry must include: a one-line summary (≤200 chars) + source pointer (→ topics/xxx.md) + timestamp
 4. Categories:
    - User Preferences (tools, style, workflow habits)
    - Project Decisions (architecture, tech stack, conventions)
@@ -174,7 +174,7 @@ Output ONLY the content between the markers. No additional explanations, no comm
 
 
 class DreamPipeline:
-    """记忆整合管道（Claude Code Dreaming 模式 v2.0）"""
+    """记忆整合管道（Dreaming 模式 v2.0）"""
 
     def __init__(
         self, llm_invoker,

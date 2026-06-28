@@ -106,7 +106,7 @@ async def test_tool_executor_with_base_tool():
     # 执行
     result = await executor.execute("read_file", {"path": "/tmp/x.py"}, "s1")
     assert result.status == "success"
-    assert "/tmp/x.py" in result.output
+    assert "/tmp/x.py" in result.content
 
 
 @pytest.mark.asyncio
@@ -120,7 +120,7 @@ async def test_tool_executor_backward_compatible():
 
     result = await executor.execute("old_tool", {}, "s1")
     assert result.status == "success"
-    assert result.output == "ok"
+    assert result.content == "ok"
 
 
 def test_schema_validates_required():

@@ -100,7 +100,7 @@ class HookOrchestrator:
 
         handler 可以是:
           - async def (HookContext) → HookResult（内置异步钩子）
-          - ShellCommand(cmd, timeout)（外部进程钩子，Claude Code 风格）
+          - ShellCommand(cmd, timeout)（外部进程钩子，风格）
         """
         hook = RegisteredHook(
             name=name,
@@ -254,7 +254,7 @@ class HookOrchestrator:
         return result
 
     async def _execute_external(self, cmd: ShellCommand, ctx: HookContext) -> HookResult:
-        """执行外部进程钩子（Claude Code 风格：stdin JSON → stdout JSON）"""
+        """执行外部进程钩子（风格：stdin JSON → stdout JSON）"""
         ctx_json = ctx.model_dump_json()
 
         env = dict(cmd.env or {})

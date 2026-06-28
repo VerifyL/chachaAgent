@@ -4,7 +4,7 @@
 
 ## 概述
 
-设计融合了 **Harness EventBus**（发布-订阅 + 事件历史）和 **Claude Code 隐式背压**（阻塞等待而非拒绝）：
+设计融合了 **Harness EventBus**（发布-订阅 + 事件历史）和 **隐式背压**（阻塞等待而非拒绝）：
 
 - **会话隔离**：每个会话独立 `asyncio.Queue`，慢前端不拖慢其他会话
 - **全局有序**：`seq` 自增保证跨会话消息顺序
@@ -16,18 +16,18 @@
 
 ```
 Producer (Orchestrator/LLMInvoker)
-  │ publish(payload, session_id)
-  ▼
+ │ publish(payload, session_id)
+ ▼
 Gateway._lock → 分配 seq → 包装 GatewayMessage
-  │
-  ├─→ _event_history (debug 追溯)
-  ├─→ _global_handlers 异步执行 (Telemetry/Audit)
-  └─→ _sessions[sid].queue 入队 (背压阻塞等待)
-         │
-         ▼
+ │
+ ├─→ _event_history (debug 追溯)
+ ├─→ _global_handlers 异步执行 (Telemetry/Audit)
+ └─→ _sessions[sid].queue 入队 (背压阻塞等待)
+ │
+ ▼
 Consumer (CLI/Web 前端)
-  async for msg in gateway.subscribe(sid):
-      render(msg)
+ async for msg in gateway.subscribe(sid):
+ render(msg)
 ```
 
 ---
@@ -36,9 +36,9 @@ Consumer (CLI/Web 前端)
 
 ```python
 ChaChaAsyncGateway(
-    max_queue_size: int = 10000,     # 每个会话队列的最大容量
-    max_history: int = 500,          # event_history 保留条数，0=关闭
-    publish_timeout: float = 10.0,   # 背压时阻塞等待的最大秒数
+ max_queue_size: int = 10000, # 每个会话队列的最大容量
+ max_history: int = 500, # event_history 保留条数，0=关闭
+ publish_timeout: float = 10.0, # 背压时阻塞等待的最大秒数
 )
 ```
 
@@ -72,12 +72,12 @@ await gateway.stop()
 
 ```
 stop()
-  ├─ _running = False
-  ├─ 向所有会话队列发送 None 哨兵
-  │    → subscribe() 的异步迭代器检测到 None → break
-  ├─ 等待队列排空
-  ├─ 清空 _sessions / _global_handlers / _event_history
-  └─ 日志：关闭完成
+ ├─ _running = False
+ ├─ 向所有会话队列发送 None 哨兵
+ │ → subscribe() 的异步迭代器检测到 None → break
+ ├─ 等待队列排空
+ ├─ 清空 _sessions / _global_handlers / _event_history
+ └─ 日志：关闭完成
 ```
 
 - 重复调用 `stop()` 安全（幂等）
@@ -110,8 +110,8 @@ gateway.unregister("session-abc")
 
 ```python
 ok = await gateway.publish(
-    TokenChunkEvent().set_delta("你好"),
-    session_id="session-abc",
+ TokenChunkEvent().set_delta("你好"),
+ session_id="session-abc",
 )
 ```
 
@@ -122,8 +122,8 @@ ok = await gateway.publish(
 2. 包装 GatewayMessage(seq, project_id, session_id, payload)
 3. _event_history.append(msg)
 4. for handler in _global_handlers:
-       asyncio.create_task(handler(msg))  # 异步，不阻塞
-5. await _sessions[sid].queue.put(msg)    # 背压阻塞等待
+ asyncio.create_task(handler(msg)) # 异步，不阻塞
+5. await _sessions[sid].queue.put(msg) # 背压阻塞等待
 6. send_count += 1
 7. return True
 ```
@@ -139,8 +139,8 @@ ok = await gateway.publish(
 
 ```python
 async for msg in gateway.subscribe("session-abc"):
-    if isinstance(msg.payload, TokenChunkEvent):
-        print(msg.payload.params["delta"], end="")
+ if isinstance(msg.payload, TokenChunkEvent):
+ print(msg.payload.params["delta"], end="")
 ```
 
 - 返回 `AsyncIterator[GatewayMessage]`
@@ -152,7 +152,7 @@ async for msg in gateway.subscribe("session-abc"):
 
 ```python
 async def audit_writer(msg: GatewayMessage):
-    await write_audit_line(msg.to_jsonl())
+ await write_audit_line(msg.to_jsonl())
 
 gateway.on_event(audit_writer)
 ```
@@ -166,10 +166,10 @@ gateway.on_event(audit_writer)
 
 ```python
 # 查询单个会话
-bp = gateway.get_backpressure("session-abc")  # → 0.35
+bp = gateway.get_backpressure("session-abc") # → 0.35
 
 # 查询所有会话中的最高值
-bp = gateway.get_backpressure()  # → 0.65
+bp = gateway.get_backpressure() # → 0.65
 ```
 
 | 返回值 | 含义 |
@@ -197,13 +197,13 @@ bp = gateway.get_backpressure()  # → 0.65
 
 ```
 队列有空位 → put_nowait → 立即返回 True
-队列满     → put() 阻塞，等待消费者取走消息
+队列满 → put() 阻塞，等待消费者取走消息
 等待 > publish_timeout → 返回 False（调用方自行决定重试/降级/告警）
 ```
 
 **为什么不是直接拒绝？**
 - Harness 指南的 `BackpressureQueue` 也是阻塞等待
-- Claude Code 的隐式背压也是 flow control 而非 reject
+- 的隐式背压也是 flow control 而非 reject
 - 消息总线不应该丢消息 —— 丢消息的责任在上游（Orchestrator 决定是否降级），网关只负责诚实传递
 
 **监控建议**：定期调用 `get_backpressure()`，超过 0.8 时告警或降级。
@@ -216,7 +216,7 @@ bp = gateway.get_backpressure()  # → 0.65
 # 完整消息（含 payload），上限可配
 history = gateway.get_event_history(limit=20)
 for msg in history:
-    print(f"seq={msg.seq} session={msg.session_id} type={type(msg.payload).__name__}")
+ print(f"seq={msg.seq} session={msg.session_id} type={type(msg.payload).__name__}")
 ```
 
 **使用场景**：
@@ -241,13 +241,13 @@ await gateway.start()
 gateway.register("s1")
 
 await gateway.publish(
-    RPCRequest(method="user/message", params={"content": "hello"}),
-    session_id="s1",
+ RPCRequest(method="user/message", params={"content": "hello"}),
+ session_id="s1",
 )
 
 async for msg in gateway.subscribe("s1"):
-    print(msg.seq, msg.payload.method)
-    break
+ print(msg.seq, msg.payload.method)
+ break
 
 await gateway.stop()
 ```
@@ -264,18 +264,18 @@ await gateway.publish(evt_b, session_id="web-session")
 
 # cli 消费者只收到 evt_a
 async for msg in gateway.subscribe("cli-session"):
-    assert msg.session_id == "cli-session"
-    break
+ assert msg.session_id == "cli-session"
+ break
 ```
 
 ### 6.3 全局监听者（审计 + 遥测）
 
 ```python
 async def audit_handler(msg: GatewayMessage):
-    await append_audit_log(msg)
+ await append_audit_log(msg)
 
 async def metrics_handler(msg: GatewayMessage):
-    PROM_COUNTER.labels(type=type(msg.payload).__name__).inc()
+ PROM_COUNTER.labels(type=type(msg.payload).__name__).inc()
 
 gateway.on_event(audit_handler)
 gateway.on_event(metrics_handler)
@@ -289,12 +289,12 @@ await gateway.publish(event, session_id="s1")
 ```python
 # Orchestrator 发布前检查背压
 if gateway.get_backpressure(session_id) > 0.8:
-    # 暂停生成，等待消费者消化
-    await asyncio.sleep(0.5)
+ # 暂停生成，等待消费者消化
+ await asyncio.sleep(0.5)
 
 ok = await gateway.publish(event, session_id=session_id)
 if not ok:
-    logger.warning("发布失败，会话 %s 背压过高", session_id)
+ logger.warning("发布失败，会话 %s 背压过高", session_id)
 ```
 
 ---

@@ -110,14 +110,8 @@ class Orchestrator:
                 pass
 
         # ── 3. Policy 检查 ──
-        if self._policy:
-            try:
-                allowed = await self._policy.check(user_input)
-                if not allowed:
-                    yield ErrorEvent(message="请求被策略拦截")
-                    return
-            except Exception:
-                pass
+        # PolicyEngine 关注工具级风险评估（evaluate_tool），输入级检查当前为空白占位。
+        # 若后续需要输入策略（黑名单词、注入检测），在此扩展。
 
         # ── 4. Gateway: session_started ──
         if self._gateway:

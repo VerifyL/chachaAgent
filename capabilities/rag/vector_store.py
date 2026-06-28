@@ -7,7 +7,7 @@ TODO(阶段9): 实现 FAISS/Chroma 向量索引
 TODO(阶段9): 实现增量更新与失效检测
 TODO(阶段9): 实现混合检索（关键词 + 语义）
 
-当前: LLM 通过 read_file + grep 工具组合实现代码理解。
+当前: LLM 通过 read + grep 工具组合实现代码理解。
 """
 
 import logging

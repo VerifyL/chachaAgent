@@ -32,7 +32,7 @@ async def test_execute_success():
     executor = ToolExecutor({"read_file": _echo})
     result = await executor.execute("read_file", {"path": "/tmp/a.py"}, "s1", "c1")
     assert result.status == "success"
-    assert "/tmp/a.py" in result.output
+    assert "/tmp/a.py" in result.content
     assert result.duration_ms >= 0
 
 
@@ -54,7 +54,7 @@ async def test_timeout_and_retry():
         max_retries=1,
     )
     result = await executor.execute("slow", {}, "s1", "c1")
-    assert result.status == "timeout"
+    assert result.status == "error" and result.error_type == "timeout"
     assert "timed out" in (result.error or "")
 
 
@@ -76,8 +76,8 @@ async def test_output_truncation():
     executor = ToolExecutor({"big": _big}, max_output_chars=1000)
     result = await executor.execute("big", {}, "s1", "c1")
     assert result.truncated is True
-    assert "截断" in result.output
-    assert "cache_key" in result.output
+    assert "截断" in result.content
+    assert "cache_key" in result.content
 
 
 # ========== 4. PolicyEngine 拦截 ==========
@@ -91,7 +91,7 @@ async def test_policy_block():
 
     # rm -rf 命中黑名单
     result = await executor.execute("shell", {"cmd": "rm -rf /"}, "s1", "c1")
-    assert result.status == "blocked"
+    assert result.status == "error" and result.error_type == "blocked"
 
 
 @pytest.mark.asyncio
@@ -120,7 +120,7 @@ async def test_hook_block():
     executor = ToolExecutor({"echo": _echo}, hook_orchestrator=orch)
 
     result = await executor.execute("echo", {}, "s1", "c1")
-    assert result.status == "blocked"
+    assert result.status == "error" and result.error_type == "blocked"
     assert "blocked by test hook" in (result.error or "")
 
 

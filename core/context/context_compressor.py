@@ -115,8 +115,8 @@ class ContextCompressor:
     def _compress_json_placeholder(self, content: str, session_id: str) -> str:
         """Stage 2: 将 Stage 1 的 JSON 占位符压缩为最小化格式。
 
-        Input:  {"toolname": "read_file", "result_summary": "读取 main.py...", "cache_path": "tool_cache/t3.json"}
-        Output: {"t":"read_file","s":"读取 main.py...","p":"tool_cache/t3.json"}
+        Input:  {"toolname": "read", "result_summary": "读取 main.py...", "cache_path": "tool_cache/t3.json"}
+        Output: {"t":"read","s":"读取 main.py...","p":"tool_cache/t3.json"}
         """
         try:
             data = json.loads(content)
