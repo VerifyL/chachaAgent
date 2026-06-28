@@ -39,7 +39,7 @@ SUBAGENT_DEFINITIONS: Dict[str, SubAgentDef] = {
 - 总结报告第一行用 \"## 探索结果\" 开头
 - 完成后停止，不要继续追问或建议下一步（由主Agent决定）""",
  tools_whitelist=["read", "grep", "glob"],
- max_rounds=20,
+ max_rounds=30,
  skip_claude_md=True,
  ),
  "plan": SubAgentDef(
@@ -56,7 +56,7 @@ SUBAGENT_DEFINITIONS: Dict[str, SubAgentDef] = {
 - 完成后第一行用 \"## 执行计划\" 开头
 - 完成后停止，由主Agent决定是否执行""",
  tools_whitelist=["read", "grep", "glob", "memory"],
- max_rounds=15,
+ max_rounds=20,
  skip_claude_md=False,
  ),
  "worker": SubAgentDef(

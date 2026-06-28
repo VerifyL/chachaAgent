@@ -97,7 +97,7 @@ class TaskTool(BaseTool):
         # 子Agent 返回空文本 → 追加提示
         content = result.text
         if not content or not content.strip():
-            content = f"[子Agent {subagent_type} 返回了空结果]"
+            content = f"[子Agent {subagent_type} 返回了空结果（执行了 {result.tool_calls_made} 次工具调用，耗时 {result.duration_ms}ms）]"
 
         # 映射 SubAgentResult → ToolResult
         status = "success" if result.status == "success" else "error"

@@ -228,8 +228,8 @@ class LLMInvoker:
                         )
 
                 elif isinstance(chunk, ReasoningChunk):
-                    # 推理过程不积累到文本输出，仅流式展示（Gateway 已处理）
-                    pass
+                    # 推理过程也积累到文本输出，确保子Agent（非流式 dispatch）能产出内容
+                    text_parts.append(chunk.content)
 
                 elif isinstance(chunk, ToolCallStartChunk):
                     tool_calls[chunk.tool_index] = ToolCall(
