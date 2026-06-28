@@ -87,20 +87,6 @@ class ApprovalRequest(BaseModel):
     reason: str = ""               # 需要审批的原因
 
 
-# ========================= 执行结果 =========================
-
-class ToolResult(BaseModel):
-    """工具执行结果（Pydantic 模型，自动校验）"""
-    tool_use_id: str
-    tool_name: str
-    status: str = "success"       # success | error | blocked | timeout
-    output: str = ""               # 工具输出文本
-    error: Optional[str] = None    # 错误详情
-    duration_ms: int = 0           # 耗时（毫秒）
-    truncated: bool = False        # 输出是否被截断
-    cache_key: str = ""             # 截断时的缓存 key（供 read_cached_output 续读）
-
-
 # ========================= 工具执行器 =========================
 
 class ToolExecutor:
@@ -170,9 +156,10 @@ class ToolExecutor:
         tool_fn = self._tools.get(tool_name)
         if tool_fn is None:
             return ToolResult(
-                tool_use_id=tool_use_id, tool_name=tool_name,
-                status="error", error=f"Tool '{tool_name}' not found",
-                duration_ms=0,
+                tool_name=tool_name,
+                status="error", content="", error=f"Tool '{tool_name}' not found",
+                error_type="invalid_argument",
+                execution_time_ms=0,
             )
 
         # 1. 策略评估
@@ -184,10 +171,11 @@ class ToolExecutor:
             )
             if not decision.allowed:
                 return ToolResult(
-                    tool_use_id=tool_use_id, tool_name=tool_name,
-                    status="blocked",
+                    tool_name=tool_name,
+                    status="error", content="",
                     error=decision.blocked_reason or "Policy blocked",
-                    duration_ms=int((time.monotonic() - t0) * 1000),
+                    error_type="blocked",
+                    execution_time_ms=int((time.monotonic() - t0) * 1000),
                 )
             if decision.needs_approval:
                 # 1. 构造审批请求
@@ -217,10 +205,11 @@ class ToolExecutor:
                 # 3. 审批结果
                 if not approved:
                     return ToolResult(
-                        tool_use_id=tool_use_id, tool_name=tool_name,
-                        status="blocked",
+                        tool_name=tool_name,
+                        status="error", content="",
                         error=f"用户拒绝了 '{tool_name}' 的执行",
-                        duration_ms=int((time.monotonic() - t0) * 1000),
+                        error_type="blocked",
+                        execution_time_ms=int((time.monotonic() - t0) * 1000),
                     )
 
                 # 4. 审批通过 → 记录到 PolicyEngine 缓存
@@ -242,10 +231,11 @@ class ToolExecutor:
             )
             if result.is_blocked():
                 return ToolResult(
-                    tool_use_id=tool_use_id, tool_name=tool_name,
-                    status="blocked",
+                    tool_name=tool_name,
+                    status="error", content="",
                     error=result.message or "Hooks blocked",
-                    duration_ms=int((time.monotonic() - t0) * 1000),
+                    error_type="blocked",
+                    execution_time_ms=int((time.monotonic() - t0) * 1000),
                 )
             if result.is_modified() and result.modified_tool_args:
                 arguments.update(result.modified_tool_args)
@@ -307,10 +297,21 @@ class ToolExecutor:
                 )
                 self._telemetry.logger.audit(record)
 
+        # Normalize for canonical ToolResult (status ∈ {success, error})
+        canonical_status = "success" if status == "success" else "error"
+        error_type = None
+        if status == "timeout":
+            error_type = "timeout"
+        elif status == "blocked":
+            error_type = "blocked"
+        elif status != "success":
+            error_type = "unknown"
+
         return ToolResult(
-            tool_use_id=tool_use_id, tool_name=tool_name,
-            status=status, output=output, error=error,
-            duration_ms=duration, truncated=truncated,
+            tool_name=tool_name,
+            status=canonical_status, content=output, error=error,
+            error_type=error_type,
+            execution_time_ms=duration, truncated=truncated,
             cache_key=cache_key,
         )
 

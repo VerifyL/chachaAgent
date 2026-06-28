@@ -9,7 +9,8 @@ import asyncio
 
 import pytest
 
-from core.tool_executor import ToolExecutor, ToolResult
+from core.tool_executor import ToolExecutor
+from capabilities.result import ToolResult
 
 
 # ========== Fixtures ==========
@@ -33,7 +34,7 @@ async def test_execute_success():
     result = await executor.execute("read_file", {"path": "/tmp/a.py"}, "s1", "c1")
     assert result.status == "success"
     assert "/tmp/a.py" in result.content
-    assert result.duration_ms >= 0
+    assert result.execution_time_ms >= 0
 
 
 @pytest.mark.asyncio
