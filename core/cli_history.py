@@ -22,6 +22,7 @@ class SessionHistory(History):
             sessions_base_dir: sessions 目录（如 ~/.chacha/projects/{pid}/memory/sessions）
             session_id: 当前 session ID
         """
+        super().__init__()
         self._sessions_base = Path(sessions_base_dir)
         self._file_history = self._make_file_history(session_id)
 
@@ -37,6 +38,8 @@ class SessionHistory(History):
         旧历史自动保持，新历史延迟加载（首次按 ↑ 时自动读取）。
         """
         self._file_history = self._make_file_history(session_id)
+        self._loaded = False
+        self._loaded_strings = []
 
     # ---- delegate all History methods to _file_history ----
 
@@ -48,9 +51,9 @@ class SessionHistory(History):
         """获取所有历史字符串。"""
         return self._file_history.get_strings()
 
-    def load_history_strings(self) -> None:
+    def load_history_strings(self):
         """延迟加载历史字符串。"""
-        self._file_history.load_history_strings()
+        return self._file_history.load_history_strings()
 
     def store_string(self, string: str) -> None:
         """存储并追加一条命令。"""
