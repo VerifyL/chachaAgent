@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 from prompt_toolkit import PromptSession
-from prompt_toolkit.history import FileHistory
+from core.cli_history import SessionHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.formatted_text import HTML
 
@@ -80,6 +80,7 @@ class ChachaCLI:
         write_default_theme()
         self._t = load_theme()
         self._show_reasoning = True  # Ctrl+R 切换
+        self._cli_history = None     # SessionHistory，initialize() 中创建
 
     # ====== 启动 ======
 
@@ -87,6 +88,10 @@ class ChachaCLI:
         self._ensure_default_constitution()
         self._session = SessionService(self._project)
         si = self._session.project_init
+
+        # Session 级 CLI 历史
+        sessions_base = self._session.memory_manager.session_dir.parent
+        self._cli_history = SessionHistory(sessions_base, self._session.session_id)
 
         self._bridge = AgentBridge(
             system_prompt=si.build_system_prompt(),
@@ -141,7 +146,7 @@ class ChachaCLI:
 
         # 输入循环
         session = PromptSession(
-            history=FileHistory(str(Path.home() / ".chacha" / "cli_history")),
+            history=self._cli_history,
             key_bindings=self._make_bindings(),
             multiline=False,  # Enter 发送，Ctrl+J 换行（key binding 实现）
             bottom_toolbar=self._status_text,
@@ -320,10 +325,6 @@ class ChachaCLI:
         # Session
         if cmd == "session":
             return await self._session_cmd(arg)
-        if cmd == "new":
-            sid = self._session.new()
-            await self._bridge.reset()
-            return f"🆕 新会话: {sid}"
         if cmd == "save":
             self._bridge.save_checkpoint()
             return f"💾 Checkpoint 已保存 ({len(self._bridge._messages)} 条)"
@@ -372,6 +373,7 @@ class ChachaCLI:
             return await self._del_by_index(sub_arg, sessions)
         if sub == "new":
             sid = self._session.new()
+            self._cli_history.switch_session(sid)
             await self._bridge.reset()
             return f"🆕 新 session: {sid}"
 
@@ -402,6 +404,7 @@ class ChachaCLI:
         old_sid = self._session.session_id
         result = await self._session.switch_to(sid)
         if "不存在" not in result and "已经" not in result:
+            self._cli_history.switch_session(sid)
             await self._reload_bridge(old_sid)
         return result
 
@@ -508,6 +511,7 @@ class ChachaCLI:
         @kb.add("c-n")
         def _(event):
             sid = self._session.new()
+            self._cli_history.switch_session(sid)
             asyncio.create_task(self._bridge.reset())
             self._print_system(f"🆕 新会话: {sid}")
 
@@ -619,7 +623,6 @@ class ChachaCLI:
                 ("/session <id>", "切换到指定 session"),
                 ("/session del <id>", "删除 session（含记忆）"),
                 ("/session new", "新建 session"),
-                ("/new", "新建 session（快捷）"),
                 ("/save", "保存 checkpoint"),
             ],
             "记忆": [
