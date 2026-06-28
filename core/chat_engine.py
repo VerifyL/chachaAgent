@@ -88,9 +88,6 @@ class ChatEngine:
                 idx = mgr.read()
                 if idx:
                     self._cm.set_memory_index(idx)
-                recent = mgr.read_recent_days(3)
-                if recent:
-                    self._cm.set_session_memory(recent)
                 perm = mgr.read_permanent_memory()
                 if perm:
                     self._cm.set_permanent_memory(perm)

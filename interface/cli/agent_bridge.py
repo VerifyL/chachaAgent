@@ -292,9 +292,6 @@ class AgentBridge:
             idx = mgr.read()
             if idx:
                 self._context_manager.set_memory_index(idx)
-            recent = mgr.read_recent_days(3)
-            if recent:
-                self._context_manager.set_session_memory(recent)
             user_path = Path.home() / ".chacha" / "USER_MEMORY.md"
             if user_path.exists():
                 self._context_manager.set_global_permanent_memory(
