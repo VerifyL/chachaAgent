@@ -2,56 +2,66 @@
 capabilities/registry.py
 ToolRegistry — 统一工具注册表。
 
-所有工具在此集中注册，`build_tools()` 和 CLI 共用同一来源，
-消除两处重复维护的问题。
+所有工具在此集中注册，`build_tools()` 和 CLI 共用同一来源。
+
+当前状态：10 工具全部就绪（read / write / edit / bash / grep / glob / task / memory / cache_read / approval_control）。
 """
 
 from pathlib import Path
 from typing import List, Optional
 
 
-def build_tools(root: Optional[Path] = None, memory_manager=None) -> List:
-    """返回完整的工具列表（单一路径）。"""
-    from capabilities.builtins.project_overview import ProjectOverviewTool
-    from capabilities.builtins.file_outline import FileOutlineTool
-    from capabilities.builtins.list_files import ListFilesTool
-    from capabilities.builtins.depe_analyzer import DepsAnalyzerTool
-    from capabilities.builtins.code_intel import CodeIntelTool
-    from capabilities.builtins.subagent_tool import SubAgentTool
-    from capabilities.builtins.expand_subagent import ExpandSubAgentTool
-    from capabilities.builtins.chunk_streamer import ReadFileTool, ReadFilesTool, GrepTool
-    from capabilities.builtins.code_patcher import EditFileTool
-    from capabilities.builtins.diff_patcher import ApplyPatchTool
-    from capabilities.sandbox import Sandbox
-    from capabilities.builtins.git_tools import GitDiffTool, GitLogTool, GitStatusTool
-    from capabilities.builtins.approval_control import ApprovalControlTool
-    from capabilities.builtins.cache_reader import CacheReaderTool
-    from capabilities.builtins.memory_tool import (
-        LoadMemoryTool, WriteTopicTool, ReadTopicTool,
-    )
+def build_tools(root: Optional[Path] = None, memory_manager=None, subagent_spawner=None) -> List:
+    """返回完整的工具列表（单一路径）。
+
+    逐个添加：read / write / edit / bash / grep / glob / task / memory / cache_read / approval_control
+    """
+    # ✅ read — 读取文件内容
+    from capabilities.builtins.read_tool import ReadTool
+    read_tool = ReadTool()
+    # ✅ write — 创建/覆盖文件
+    from capabilities.builtins.write_tool import WriteTool
+    write_tool = WriteTool()
+    # ✅ edit — 精确文本替换
+    from capabilities.builtins.edit_tool import EditTool
+    edit_tool = EditTool()
+    # ✅ bash — 执行 shell 命令
+    from capabilities.builtins.bash_tool import BashTool
+    bash_tool = BashTool()
+    # ✅ grep — 正则文本搜索
+    from capabilities.builtins.grep_tool import GrepTool
+    grep_tool = GrepTool()
+    # ✅ glob — 按模式查找文件
+    from capabilities.builtins.glob_tool import GlobTool
+    glob_tool = GlobTool()
+    # ✅ task — 委派子Agent 执行独立任务
+    from capabilities.builtins.task_tool import TaskTool
+    task_tool = TaskTool()
+    if subagent_spawner:
+        task_tool.configure(subagent_spawner=subagent_spawner)
+    # ✅ memory — 管理项目记忆
+    from capabilities.builtins.memory_tool import MemoryTool
+    memory_tool = MemoryTool()
+    memory_tool.memory_manager = memory_manager
+    # ✅ cache_read — 续读被截断的缓存输出
+    from capabilities.builtins.cache_read_tool import CacheReadTool
+    cache_read_tool = CacheReadTool()
+    # ✅ approval_control — 查询/设置审批旁路
+    from capabilities.builtins.approval_control import ApprovalControl
+    approval_control = ApprovalControl()
+    approval_control.project_root = root
 
     tools = [
-        ProjectOverviewTool(root=root),
-        FileOutlineTool(root=root),
-        ListFilesTool(root=root),
-        DepsAnalyzerTool(root=root),
-        CodeIntelTool(root=root),
-        SubAgentTool(),
-        ExpandSubAgentTool(),
-        ReadFileTool(root=root),
-        ReadFilesTool(root=root),
-        GrepTool(root=root),
-        EditFileTool(root=root),
-        ApplyPatchTool(root=root),
-        LoadMemoryTool(memory_manager=memory_manager),
-        WriteTopicTool(memory_manager=memory_manager),
-        ReadTopicTool(memory_manager=memory_manager),
-        GitDiffTool(root=root),
-        GitLogTool(root=root),
-        GitStatusTool(root=root),
-        ApprovalControlTool(),
-        CacheReaderTool(),
-        Sandbox(),
+        read_tool,
+        write_tool,
+        edit_tool,
+        bash_tool,
+        grep_tool,
+        glob_tool,
+        task_tool,
+        memory_tool,
+        cache_read_tool,
+        approval_control,
     ]
-    
+
     return tools

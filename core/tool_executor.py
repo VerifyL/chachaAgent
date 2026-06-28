@@ -10,9 +10,11 @@ ToolExecutor — 工具执行调度器：查找、审批、钩子、执行、遥
 5. 遥测透明：执行完成后自动调用 telemetry.agent.record_tool_call()（可选注入）
 
 用法:
-    registry = {"read_file": read_file_fn, "shell": shell_fn}
-    executor = ToolExecutor(registry, policy_engine, hook_orch, telemetry=telemetry)
-    result = await executor.execute("read_file", {"path": "/tmp/a.py"}, "session-1")
+    executor = ToolExecutor(
+        tools=[read_tool, write_tool, edit_tool, bash_tool, grep_tool, glob_tool],
+        policy_engine=policy, hook_orch=hooks,
+    )
+    result = await executor.execute("read", {"path": "main.py", "offset": 1}, "session-1")
 """
 
 import asyncio
@@ -21,6 +23,7 @@ import time
 from typing import Any, Callable, Coroutine, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field
+from capabilities.result import ToolResult
 from core.models.audit import audit_factory, AuditEventCategory
 
 logger = logging.getLogger(__name__)
@@ -316,7 +319,7 @@ class ToolExecutor:
         calls: List[Dict[str, Any]],
         session_id: str,
     ) -> List[ToolResult]:
-        """并发执行多个工具调用（参考 Claude Code StreamingToolExecutor）。"""
+        """并发执行多个工具调用。"""
         tasks = []
         for call in calls:
             tasks.append(

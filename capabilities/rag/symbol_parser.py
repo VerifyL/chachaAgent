@@ -8,7 +8,7 @@ TODO(阶段9): 实现调用图构建（who calls who）
 TODO(阶段9): 实现依赖关系分析
 TODO(阶段9): 实现符号搜索与跳转
 
-当前: LLM 通过 read_file + grep 理解代码结构。
+当前: LLM 通过 read + grep 理解代码结构。
 """
 
 import logging

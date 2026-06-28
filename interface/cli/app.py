@@ -18,6 +18,7 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.formatted_text import HTML
 
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 from rich import box
 
@@ -214,7 +215,7 @@ class ChachaCLI:
 
                 if isinstance(chunk, ReasoningEvent):
                     if self._show_reasoning:
-                        RICH_CONSOLE.print(f"[dim]{chunk.content}[/]", end="")
+                        RICH_CONSOLE.print(f"[dim]{escape(chunk.content)}[/]", end="")
                         in_reasoning = True
 
                 elif isinstance(chunk, TextEvent):
@@ -245,10 +246,12 @@ class ChachaCLI:
                     if tool_trace:
                         t = tool_trace[-1]
                         t["ms"] = int((time.monotonic() - t["t0"]) * 1000)
-                    if chunk.args:
-                        RICH_CONSOLE.print(f"  [{self._t['tool_thinking']}]🔧 {chunk.tool_name} — {chunk.args}[/]")
-                    else:
-                        RICH_CONSOLE.print(f"  [{self._t['tool_thinking']}]🔧 {chunk.tool_name}[/]")
+                    # 静默工具：不打印调用（memory, cache_read）
+                    if chunk.tool_name not in ("memory", "cache_read"):
+                        if chunk.args:
+                            RICH_CONSOLE.print(f"  [{self._t['tool_thinking']}]🔧 {escape(chunk.tool_name)} — {escape(chunk.args)}[/]")
+                        else:
+                            RICH_CONSOLE.print(f"  [{self._t['tool_thinking']}]🔧 {escape(chunk.tool_name)}[/]")
 
                 elif isinstance(chunk, ToolCallEndEvent):
                     if tool_trace:
@@ -257,7 +260,7 @@ class ChachaCLI:
 
                 elif isinstance(chunk, ErrorEvent):
                     errors.append(chunk.message)
-                    RICH_CONSOLE.print(f"[red]错误: {chunk.message}[/]")
+                    RICH_CONSOLE.print(f"[red]错误: {escape(chunk.message)}[/]")
 
                 elif isinstance(chunk, DoneEvent):
                     tokens = chunk.tokens
@@ -271,7 +274,7 @@ class ChachaCLI:
             RICH_CONSOLE.print(f"[yellow]⏹ 已中断[/]")
         except Exception as e:
             errors.append(str(e))
-            RICH_CONSOLE.print(f"[red]异常: {e}[/]")
+            RICH_CONSOLE.print(f"[red]异常: {escape(str(e))}[/]")
 
         # 审计
         elapsed_ms = int((time.monotonic() - t0) * 1000)
@@ -300,7 +303,7 @@ class ChachaCLI:
             steps = "; ".join(f"{t['tool']}({t.get('ms','?')}ms)" for t in tool_trace)
             audit += f"  |  🐛 {steps}"
         RICH_CONSOLE.print()
-        RICH_CONSOLE.print(f"[{self._t['audit']}]{audit}[/]")
+        RICH_CONSOLE.print(f"[{self._t['audit']}]{escape(audit)}[/]")
         RICH_CONSOLE.print(f"[{self._t['separator']}]" + "─" * 40 + "[/]")
 
     # ====== 命令 ======
@@ -576,13 +579,13 @@ class ChachaCLI:
         ))
 
     def _print_system(self, text: str) -> None:
-        RICH_CONSOLE.print(f"[{self._t['system']}]{text}[/]")
+        RICH_CONSOLE.print(f"[{self._t['system']}]{escape(text)}[/]")
 
     def _print_tool(self, text: str, style: str = "status") -> None:
         if style == "thinking":
-            RICH_CONSOLE.print(f"  [{self._t['tool_thinking']}]🔧 {text}[/]")
+            RICH_CONSOLE.print(f"  [{self._t['tool_thinking']}]🔧 {escape(text)}[/]")
         else:
-            RICH_CONSOLE.print(f"  [{self._t['tool_done']}]✅ {text}[/]")
+            RICH_CONSOLE.print(f"  [{self._t['tool_done']}]✅ {escape(text)}[/]")
 
     def _print_sidebar(self) -> None:
         sessions = self._session.list_sessions()

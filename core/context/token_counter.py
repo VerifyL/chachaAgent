@@ -3,7 +3,7 @@ core/context/token_counter.py
 TokenCounter — 基于 tiktoken 的精确 Token 计数。
 
 替换 ContextManager._estimate_tokens() 的 len(text)//4 粗略估算。
-参考 Harness TokenCounter + Claude Code 原生 SDK 计数。
+参考 Harness TokenCounter + 原生 SDK 计数。
 
 用法:
     counter = TokenCounter("gpt-4")

@@ -82,11 +82,11 @@ class MockTools:
                 return preset
             return ToolResult(
                 tool_use_id=tool_use_id, tool_name=tool_name,
-                output=str(preset), status="success",
+                content=str(preset), status="success",
             )
         return ToolResult(
             tool_use_id=tool_use_id, tool_name=tool_name,
-            output=f"read {arguments.get('path', '')}", status="success",
+            content=f"read {arguments.get('path', '')}", status="success",
         )
 
 
@@ -102,7 +102,8 @@ class BlockingTools:
         self.executed.append((tool_name, arguments))
         return ToolResult(
             tool_use_id=tool_use_id, tool_name=tool_name,
-            output="", status="blocked", error="Policy blocked",
+            content="", status="error", error="Policy blocked",
+            error_type="blocked",
         )
 
 
@@ -122,11 +123,11 @@ class FailingTools:
         if self._calls <= self._fail_count:
             return ToolResult(
                 tool_use_id=tool_use_id, tool_name=tool_name,
-                output="", status="error", error="ConnectionError: timeout",
+                content="", status="error", error="ConnectionError: timeout",
             )
         return ToolResult(
             tool_use_id=tool_use_id, tool_name=tool_name,
-            output="success at last", status="success",
+            content="success at last", status="success",
         )
 
 
@@ -151,7 +152,7 @@ class MultiToolMock:
             await asyncio.sleep(0.02)
         return ToolResult(
             tool_use_id=tool_use_id, tool_name=tool_name,
-            output=f"{tool_name} result: {arguments}", status="success",
+            content=f"{tool_name} result: {arguments}", status="success",
         )
 
 
@@ -489,11 +490,11 @@ async def test_dispatch_stream_circuit_breaker_resets():
             if tool_name == "flaky_tool":
                 return ToolResult(
                     tool_use_id=tool_use_id, tool_name=tool_name,
-                    output="", status="error", error="timeout",
+                    content="", status="error", error="timeout",
                 )
             return ToolResult(
                 tool_use_id=tool_use_id, tool_name=tool_name,
-                output=f"read ok", status="success",
+                content=f"read ok", status="success",
             )
 
     tools = MixedFailingTools()
@@ -680,7 +681,7 @@ async def test_dispatch_stream_freeze_triggers(memory):
         async def execute(self, tool_name, arguments, session_id="", tool_use_id="", **kwargs):
             return ToolResult(
                 tool_use_id=tool_use_id, tool_name=tool_name,
-                output=f"file content for {arguments.get('path','?')}: " + "x" * 300,
+                content=f"file content for {arguments.get('path','?')}: " + "x" * 300,
                 status="success",
             )
 

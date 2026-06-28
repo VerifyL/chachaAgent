@@ -7,7 +7,7 @@ PolicyEngine — 安全策略引擎：命令拦截、风险评估、成本熔断
 2. 加权风险模型（Harness）：数据敏感度、财务影响、不可逆性、置信度、用户授权
 3. 成本熔断器（Harness CircuitBreaker）：closed→open→half-open 三态
 4. 审批缓存 TTL：相同 session+tool 的审批结果缓存 N 秒，减少重复询问
-5. Claude Code 三级权限：Free(跳过) / AskFirst(每次问) / ApproveOnce(任务级一次授权)
+5. 三级权限：Free(跳过) / AskFirst(每次问) / ApproveOnce(任务级一次授权)
 """
 
 import hashlib
@@ -32,7 +32,7 @@ class RiskLevel(str, Enum):
 
 
 class PermissionLevel(str, Enum):
-    """权限级别（参考 Claude Code + Harness PermissionLevel）"""
+    """权限级别"""
     FREE = "free"              # 无需审批
     ASK_FIRST = "ask_first"    # 每次执行前询问
     APPROVE_ONCE = "approve_once"  # 任务级一次性授权（缓存至会话结束）

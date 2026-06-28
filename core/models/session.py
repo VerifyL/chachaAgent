@@ -2,7 +2,7 @@
 """
 会话状态模型：会话元数据、不可变事件日志、Agent循环运行时状态、检查点。
 
-设计原则（参考 Claude Code / OpenHands）：
+设计原则：
 1. 所有组件（agents, tools, LLMs）都是不可变的 Pydantic 模型。
 2. 唯一可变实体是 ConversationState，集中管理整个会话。
 3. 事件是不可变的、仅追加的日志，支持完整回放与审计。

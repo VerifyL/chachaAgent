@@ -24,7 +24,7 @@ class SkillPriority(IntEnum):
     SESSION = 2      # 会话上下文注入
     USER = 3         # 用户自定义（.chacha_agent/skills/user/）
     DOMAIN = 4       # 领域技能（CHACHA.md 声明的项目技能）
-    BUILTIN = 5      # 内置工具（BaseTool: read_file/shell）
+    BUILTIN = 5      # 内置工具（BaseTool: read/edit/bash 等）
     DISCOVERY = 6    # 动态发现（MCP/ClawHub）
 
 

@@ -1,5 +1,5 @@
 """
-capabilities/builtins/git_context.py
+core/git_context.py
 Git Context Hook — 可插拔的 Git 感知模块。
 
 注册为 PRE_CONTEXT_ASSEMBLY 钩子后，每轮 LLM 调用前自动注入 git 状态：
@@ -18,7 +18,7 @@ Git Context Hook — 可插拔的 Git 感知模块。
     {
       "git_context": {
         "branch": "feature/git-aware (based on main)",
-        "working_tree": {"files_changed": 2, "details": ["M core/context_manager.py", "?? capabilities/git_context.py"]},
+        "working_tree": {"files_changed": 2, "details": ["M core/context_manager.py", "?? core/git_context.py"]},
         "staging_area": {"files_staged": 1, "details": [...]},
         "recent_commits": [{"hash": "a1b2c3d", "message": "feat: add git context provider"}]
       }

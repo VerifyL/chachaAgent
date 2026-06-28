@@ -10,12 +10,13 @@ SubAgentSpawner — 子Agent 孵化器（参考 sub-agent 设计）。
 import asyncio
 import logging
 import time
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing import Any, Dict, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
-from core.context_manager import ContextManager
 from core.dispatcher import Dispatcher
+from core.models.hook import HookPoint
 from core.subagent.definitions import SUBAGENT_DEFINITIONS, SubAgentDef
 from core.tool_executor import ToolExecutor
 
@@ -78,21 +79,32 @@ class SubAgentSpawner:
         if self._hooks:
             try:
                 await self._hooks.run(
-                    session_id,
-                    "pre_subagent_spawn",
-                    agent_type=agent_type, task=task,
+                    session_id=session_id,
+                    hook_point=HookPoint.PRE_SUBAGENT_SPAWN,
+                    metadata={"agent_type": agent_type, "task": task},
                 )
             except Exception:
                 pass
 
         try:
             # 2. 构建隔离上下文
-            ctx_mgr = self._build_context(definition)
+            ctx_data = self._build_context(definition, session_id)
 
-            # 3. 构建有限工具
+            # 3. 组装子Agent system prompt（角色 + 项目记忆 + 宪法）
+            system_content = definition.system_prompt
+            if ctx_data.get("permanent_memory"):
+                system_content += f"\n\n--- 项目永久记忆 ---\n{ctx_data['permanent_memory']}"
+            if ctx_data.get("memory_index"):
+                system_content += f"\n\n--- 记忆索引 ---\n{ctx_data['memory_index']}"
+            if not definition.skip_claude_md:
+                chacha_path = Path(self._project_root) / "CHACHA.md" if self._project_root else None
+                if chacha_path and chacha_path.exists():
+                    system_content += f"\n\n--- 项目宪法 (CHACHA.md) ---\n{chacha_path.read_text(encoding='utf-8')}"
+
+            # 4. 构建有限工具
             tools = self._build_tools(definition)
 
-            # 4. 调度执行
+            # 5. 调度执行
             dispatcher = Dispatcher(
                 self._llm, tools,
                 memory_manager=None,  # 子Agent 短对话，缓存收益不大
@@ -101,7 +113,7 @@ class SubAgentSpawner:
             result = await asyncio.wait_for(
                 dispatcher.dispatch(
                     messages=[
-                        {"role": "system", "content": definition.system_prompt},
+                        {"role": "system", "content": system_content},
                         {"role": "user", "content": task},
                     ],
                     session_id=f"{session_id}-sub-{agent_type}",
@@ -125,9 +137,9 @@ class SubAgentSpawner:
             if self._hooks:
                 try:
                     await self._hooks.run(
-                        session_id,
-                        "post_subagent_spawn",
-                        agent_type=agent_type, result=sub_result,
+                        session_id=session_id,
+                        hook_point=HookPoint.POST_SUBAGENT_SPAWN,
+                        metadata={"agent_type": agent_type, "result": str(sub_result)},
                     )
                 except Exception:
                     pass
@@ -153,24 +165,23 @@ class SubAgentSpawner:
 
     # ====== 内部 ======
 
-    def _build_context(self, definition: SubAgentDef) -> ContextManager:
-        """构建子Agent 专用 ContextManager"""
-        mgr = ContextManager()
-        # 注入内存索引（让子Agent 了解项目历史）
+    def _build_context(self, definition: SubAgentDef, session_id: str = "") -> Dict[str, str]:
+        """构建子Agent 上下文数据。返回 {"memory_index": ..., "permanent_memory": ...}。"""
+        result: Dict[str, str] = {"memory_index": "", "permanent_memory": ""}
         if self._parent_tools:
             try:
                 from core.context.memory_manager import MemoryManager
                 if self._project_root:
-                    mm = MemoryManager(project_root=Path(self._project_root))
+                    mm = MemoryManager(project_root=Path(self._project_root), session_id=session_id or None)
                     idx = mm.read()
                     if idx:
-                        mgr.set_memory_index(idx)
+                        result["memory_index"] = idx
                     perm = mm.read_permanent_memory()
                     if perm:
-                        mgr.set_permanent_memory(perm)
+                        result["permanent_memory"] = perm
             except Exception:
                 pass
-        return mgr
+        return result
 
     def _build_tools(self, definition: SubAgentDef) -> ToolExecutor:
         """根据 whitelist 过滤父工具列表"""

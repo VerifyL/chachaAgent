@@ -9,7 +9,7 @@ TODO(阶段7): 实现插件版本管理与 update
 TODO(阶段7): 实现 manifest.json 校验与安全签名检查
 TODO(阶段7): 实现插件隔离（每个插件独立 venv）
 
-参考: OpenClaw ClawHub + Claude Code MCP marketplace
+参考: OpenClaw ClawHub
 """
 
 import logging

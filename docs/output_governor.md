@@ -6,7 +6,7 @@
 
 > Harness 工程指南："LLM 的输出是不可预测的。即使你在提示词中要求'请返回 JSON 格式'，LLM 也可能返回格式不完整的 JSON。输出治理就是应对这种不确定性的防线。"
 
-设计融合了 **Harness 四步防线 + Claude Code 结构化块类型**：
+设计融合了 **Harness 四步防线 + 结构化块类型**：
 
 - **块类型识别**：区分 TextBlock（纯文本）→ 透传 / ToolUseBlock（工具调用）→ 缓冲修复 / ThinkingBlock（思考过程）→ 透传
 - **5 级 JSON 修复**：补括号 → 截断不完整键 → 补引号 → 去尾逗号 → 兜底错误包装
@@ -18,20 +18,20 @@
 
 ```
 LLMInvoker 输出 chunk
-  │
-  ├─ _detect_json_start() → 检测块类型
-  │
-  ├─ ThinkingBlock ("thinking": "..." 开头)
-  │     → 透传，不缓冲，不修复
-  │
-  ├─ ToolUseBlock ("arguments": "..." 开头)
-  │     → 缓冲累积 all chunks
-  │     → flush() 时统一修复 JSON
-  │     → 返回 FlushResult(output, repaired, confidence, needs_llm_fix)
-  │
-  └─ TextBlock（其他）
-        → _filter_content() 检查非法内容
-        → 透传（可能被 block/sanitize）
+ │
+ ├─ _detect_json_start() → 检测块类型
+ │
+ ├─ ThinkingBlock ("thinking": "..." 开头)
+ │ → 透传，不缓冲，不修复
+ │
+ ├─ ToolUseBlock ("arguments": "..." 开头)
+ │ → 缓冲累积 all chunks
+ │ → flush() 时统一修复 JSON
+ │ → 返回 FlushResult(output, repaired, confidence, needs_llm_fix)
+ │
+ └─ TextBlock（其他）
+ → _filter_content() 检查非法内容
+ → 透传（可能被 block/sanitize）
 ```
 
 ---
@@ -40,9 +40,9 @@ LLMInvoker 输出 chunk
 
 ```python
 class BlockType(str, Enum):
-    TEXT = "text"          # 纯文本 → 透传 + 内容过滤
-    TOOL_USE = "tool_use"  # 工具调用 JSON → 缓冲累积后修复
-    THINKING = "thinking"  # 思考过程 → 透传（不缓冲）
+ TEXT = "text" # 纯文本 → 透传 + 内容过滤
+ TOOL_USE = "tool_use" # 工具调用 JSON → 缓冲累积后修复
+ THINKING = "thinking" # 思考过程 → 透传（不缓冲）
 ```
 
 **检测规则**：`_detect_json_start()` 扫描累积文本，匹配 `"arguments": "` → `TOOL_USE`，匹配 `"thinking": "` → `THINKING`，否则 `TEXT`。
@@ -55,10 +55,10 @@ class BlockType(str, Enum):
 
 ```python
 class RepairConfidence(str, Enum):
-    HIGH = "high"        # 仅补括号 → 几乎确定正确
-    MEDIUM = "medium"    # 截断/去尾逗号 → 可能丢失了部分参数
-    LOW = "low"          # 补引号 → 修复不精确
-    FAILED = "failed"    # 完全不可修复 → 触发 LLM 自愈
+ HIGH = "high" # 仅补括号 → 几乎确定正确
+ MEDIUM = "medium" # 截断/去尾逗号 → 可能丢失了部分参数
+ LOW = "low" # 补引号 → 修复不精确
+ FAILED = "failed" # 完全不可修复 → 触发 LLM 自愈
 ```
 
 | 置信度 | 修复策略 | LLM 自愈 | 原因 |
@@ -77,12 +77,12 @@ class RepairConfidence(str, Enum):
 **策略递进**：
 
 ```
-strategy 0: 已是合法 JSON                                         → HIGH
-strategy 1: _close_brackets() 补全缺失的 {}、[]                    → HIGH
-strategy 2: _trim_trailing_incomplete() 截断不完整键值对            → MEDIUM
-strategy 3: _fix_unclosed_string() 修复未闭合引号                   → LOW
-strategy 4: _remove_trailing_comma() 移除尾部逗号 + 补括号          → MEDIUM
-strategy fallback: 兜底 → json.dumps({"error": ..., "raw": ...})   → FAILED
+strategy 0: 已是合法 JSON → HIGH
+strategy 1: _close_brackets() 补全缺失的 {}、[] → HIGH
+strategy 2: _trim_trailing_incomplete() 截断不完整键值对 → MEDIUM
+strategy 3: _fix_unclosed_string() 修复未闭合引号 → LOW
+strategy 4: _remove_trailing_comma() 移除尾部逗号 + 补括号 → MEDIUM
+strategy fallback: 兜底 → json.dumps({"error": ..., "raw": ...}) → FAILED
 ```
 
 **示例**：
@@ -102,7 +102,7 @@ strategy fallback: 兜底 → json.dumps({"error": ..., "raw": ...})   → FAILE
 gov = OutputGovernor()
 valid, repaired = gov.validate_tool_call('{"path": "/tmp/main.py"')
 if valid:
-    args = json.loads(repaired)
+ args = json.loads(repaired)
 ```
 
 ---
@@ -114,10 +114,10 @@ if valid:
 ```python
 @dataclass
 class FlushResult:
-    output: str               # 修复后的文本
-    repaired: bool            # 是否进行了修复
-    confidence: RepairConfidence
-    needs_llm_fix: bool       # True → Orchestrator 触发 LLM 自愈
+ output: str # 修复后的文本
+ repaired: bool # 是否进行了修复
+ confidence: RepairConfidence
+ needs_llm_fix: bool # True → Orchestrator 触发 LLM 自愈
 ```
 
 ### 4.2 自愈触发的典型场景
@@ -140,9 +140,9 @@ class FlushResult:
 ```python
 @dataclass
 class ContentRule:
-    pattern: str        # 正则表达式
-    description: str    # 规则说明
-    severity: str = "block"  # block | sanitize | warn
+ pattern: str # 正则表达式
+ description: str # 规则说明
+ severity: str = "block" # block | sanitize | warn
 ```
 
 ### 5.2 默认规则
@@ -171,14 +171,14 @@ gov.remove_rule(original_pattern)
 gov = OutputGovernor()
 
 async for chunk in llm_stream:
-    output = gov.feed(chunk)
-    if output:
-        await send_to_frontend(output)
+ output = gov.feed(chunk)
+ if output:
+ await send_to_frontend(output)
 
 result = gov.flush()
 if result.needs_llm_fix:
-    # Orchestrator 触发 LLM 自愈
-    fixed = await ask_llm_to_fix(result.output)
+ # Orchestrator 触发 LLM 自愈
+ fixed = await ask_llm_to_fix(result.output)
 
 await send_to_frontend(result.output)
 ```

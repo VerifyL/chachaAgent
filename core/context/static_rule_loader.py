@@ -1,6 +1,6 @@
 """
 core/context/static_rule_loader.py
-StaticRuleLoader — 分层加载 CHACHA.md（参考 Claude Code CLAUDE.md 机制）。
+StaticRuleLoader — 分层加载 CHACHA.md。
 
 加载顺序（下层→上层，上层内容追加到下层之后）：
   1. ~/.chacha/CHACHA.md          用户级全局规则

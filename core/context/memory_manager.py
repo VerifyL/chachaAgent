@@ -1,11 +1,11 @@
 """
 core/context/memory_manager.py
-MemoryManager — 纯文件 I/O，LLM 通过工具自主驱动。
+MemoryManager — 纯文件 I/O，为 memory 工具提供底层存储。
 
-注册为内置工具（阶段 5）：
-  load_memory(query) → search(query)     搜索所有记忆文件
-  load_memory()      → list_days() + read(today)
-  remember(content)  → remember(content)
+内部方法：
+  search(query)           搜索所有记忆文件
+  list_days() + read(today)  加载当日记忆
+  remember(content)        追加记忆条目
 
 MEMORY.md 由 autoDream 管道定期构建（v1.0），作为轻量索引注入上下文。
 
@@ -332,7 +332,7 @@ class MemoryManager:
     # ====== 索引实时同步（write_topic → MEMORY.md 追加一行） ======
 
     # MEMORY.md 索引长度保护常量
-    _INDEX_MAX_SUMMARY_CHARS = 60   # 每条摘要最多 60 字符（索引，不是全文）
+    _INDEX_MAX_SUMMARY_CHARS = 200  # 每条摘要最多 200 字符（索引，不是全文）
     _INDEX_MAX_LINES = 200          # 超过则裁剪最旧条目
 
     def _append_to_index(self, topic_name: str, content: str) -> None:
@@ -342,7 +342,7 @@ class MemoryManager:
         DreamPipeline 后续全量重写 MEMORY.md 时会自然消化这些行。
 
         长度保护：
-        - 摘要最长 60 字符 + 省略号（索引只做指针，完整内容在 topics/）
+        - 摘要最长 200 字符 + 省略号（索引只做指针，完整内容在 topics/）
         - 条目严格单行（换行替换为空格）
         - MEMORY.md 超过 200 行时裁剪最旧条目
         """

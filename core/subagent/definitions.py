@@ -1,6 +1,6 @@
 """
 core/subagent/definitions.py
-内置子Agent 类型定义（参考 Claude Code explore/plan/worker）。
+内置子Agent 类型定义（参考 explore/plan/worker）。
 
 LLM 根据 description 自动判断何时委托子Agent。
 """
@@ -11,57 +11,69 @@ from typing import Dict, List
 
 @dataclass
 class SubAgentDef:
-    """子Agent 类型定义"""
-    name: str
-    description: str           # LLM 用来自动判断是否委托
-    system_prompt: str          # 替换主 system_prompt
-    tools_whitelist: List[str]  # 允许的工具名
-    max_rounds: int = 10
-    skip_claude_md: bool = False  # 不加载 CHACHA.md（同 Claude Code Explore）
+ """子Agent 类型定义"""
+ name: str
+ description: str # LLM 用来自动判断是否委托
+ system_prompt: str # 替换主 system_prompt
+ tools_whitelist: List[str] # 允许的工具名
+ max_rounds: int = 10
+ skip_claude_md: bool = False # 不加载 CHACHA.md
 
 
 SUBAGENT_DEFINITIONS: Dict[str, SubAgentDef] = {
-    "explore": SubAgentDef(
-        name="explore",
-        description=(
-            "代码库探索子Agent。用于搜索代码结构、查找定义、梳理依赖关系。"
-            "use proactively when searching codebase structure or finding definitions across files."
-        ),
-        system_prompt=(
-            "你是代码探索子Agent。只做搜索和发现，不修改任何文件。\n"
-            "使用 read_file 和 grep 遍历代码库，找到所有相关信息后返回结构化摘要。\n"
-            "返回格式：发现的符号/文件/依赖关系清单。"
-        ),
-        tools_whitelist=["read_file", "grep", "read_cached_output"],
-        max_rounds=25,
-        skip_claude_md=True,
-    ),
-    "plan": SubAgentDef(
-        name="plan",
-        description=(
-            "规划设计子Agent。用于分析需求、设计架构方案。"
-            "use when user asks for architecture planning, design discussion, or multi-step analysis."
-        ),
-        system_prompt=(
-            "你是规划设计子Agent。分析输入需求，输出结构化方案。\n"
-            "方案包含：步骤拆解、涉及的文件、风险评估。\n"
-            "可使用 read_file/grep 了解现有代码，使用 load_memory 查看历史决策。"
-        ),
-        tools_whitelist=["read_file", "grep", "load_memory", "read_cached_output"],
-        max_rounds=15,
-    ),
-    "worker": SubAgentDef(
-        name="worker",
-        description=(
-            "任务执行子Agent。用于独立代码修改、文件操作、重构。"
-            "use for isolated code changes, file editing, refactoring tasks."
-        ),
-        system_prompt=(
-            "你是任务执行子Agent。独立完成指定任务后返回结果摘要。\n"
-            "可使用 read_file/grep 了解代码，使用 edit_file 修改文件。\n"
-            "修改后列出变更清单。不要向用户提问——直接执行并返回结果。"
-        ),
-        tools_whitelist=["read_file", "grep", "edit_file", "read_cached_output"],
-        max_rounds=20,
-    ),
+ "explore": SubAgentDef(
+ name="explore",
+ description="大规模代码库探索：梳理架构、查找模式、理解依赖关系。只读，不修改任何文件。适合「项目里有哪些模块」「这个类的调用链是什么」类问题。",
+ system_prompt="""你是代码探索子Agent（主Agent的委派）。你的唯一职责是系统性阅读和理解代码。
+
+核心原则：彻底性优先——至少读取 5 个以上相关文件再总结，不要读一个文件就下结论。
+
+规则：
+- 你只能使用 read、grep、glob 工具
+- 永远不要修改任何文件
+- 先用 grep/glob 定位关键文件，再逐一 read 理解
+- 每读一个文件后，思考还需要哪些信息才能完成任务
+- 总结前确保信息来源充足（至少来自 3 个不同文件）
+- 如果信息不完整，明确说明缺少什么
+- 只有在确认已穷尽所有合理探索路径后，才输出总结报告
+- 总结报告第一行用 \"## 探索结果\" 开头
+- 完成后停止，不要继续追问或建议下一步（由主Agent决定）""",
+ tools_whitelist=["read", "grep", "glob"],
+ max_rounds=20,
+ skip_claude_md=True,
+ ),
+ "plan": SubAgentDef(
+ name="plan",
+ description="分析问题并制定执行计划。可以读代码和项目记忆，但不修改任何文件。适合「如何实现X功能」「这个重构分几步」类问题。",
+ system_prompt="""你是计划子Agent（主Agent的委派）。你的职责是分析问题并制定可执行的方案。
+
+规则：
+- 使用 read、grep、glob 理解现状
+- 可使用 memory 查看项目记忆和历史
+- 永远不要修改任何文件
+- 输出具体的、可执行的步骤列表
+- 每步预估影响范围和风险
+- 完成后第一行用 \"## 执行计划\" 开头
+- 完成后停止，由主Agent决定是否执行""",
+ tools_whitelist=["read", "grep", "glob", "memory"],
+ max_rounds=15,
+ skip_claude_md=False,
+ ),
+ "worker": SubAgentDef(
+ name="worker",
+ description="执行具体任务：修改文件、运行命令、搜索替换。用于需要实际动手的工作。适合「把这些文件中的X替换成Y」「运行测试并修复失败用例」类任务。",
+ system_prompt="""你是执行子Agent（主Agent的委派）。你的职责是直接完成任务。
+
+规则：
+- 可以使用所有可用工具：read、write、edit、bash、grep、glob
+- 执行前先 read 确认当前文件状态
+- 每次修改后验证结果（如重新 read 或运行相关测试）
+- 遇到错误自行排查并修复
+- 超时或遇到阻塞时报告进度和已完成部分
+- 完成后第一行用 \"## 执行结果\" 开头
+- 完成后停止，由主Agent审核结果""",
+ tools_whitelist=["read", "write", "edit", "bash", "grep", "glob"],
+ max_rounds=30,
+ skip_claude_md=False,
+ ),
 }

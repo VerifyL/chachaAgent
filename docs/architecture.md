@@ -9,81 +9,77 @@
 ## 1. 架构全景
 
 ```
-interface/                        表现层
-  ├── cli/app.py          ✅      prompt_toolkit + Rich 终端 (v0.2)
-  ├── cli/agent_bridge.py ✅      CLI ↔ 核心桥接层
-  └── web/                🚧      FastAPI + React (仅 __init__.py 占位)
+interface/ 表现层
+ ├── cli/app.py ✅ prompt_toolkit + Rich 终端 (v0.2)
+ ├── cli/agent_bridge.py ✅ CLI ↔ 核心桥接层
+ └── web/ 🚧 FastAPI + React (仅 __init__.py 占位)
 
-protocol/                         网关与协议层
-  ├── gateway.py          ✅      ChaChaAsyncGateway JSON-RPC 2.0 消息总线
-  └── rpc_schema.py       ✅      JSON-RPC 2.0 消息模型 (6 种事件类型)
+protocol/ 网关与协议层
+ ├── gateway.py ✅ ChaChaAsyncGateway JSON-RPC 2.0 消息总线
+ └── rpc_schema.py ✅ JSON-RPC 2.0 消息模型 (6 种事件类型)
 
-core/                             核心编排层 (微内核控制平面)
-  ├── orchestrator.py     ✅      编排主入口 (run_stream 13步流水线)
-  ├── chat_engine.py      ✅      消息存储 + 检查点持久化 (v2.1 降级)
-  ├── dispatcher.py       ✅      LLM ↔ 工具桥接调度器 (v2.1 并发 + Circuit Breaker)
-  ├── llm_invoker.py      ✅      流式 LLM 调用器 (StreamChunk 接口)
-  ├── tool_executor.py    ✅      工具执行调度器 (审批 + 钩子 + 重试)
-  ├── context_manager.py  ✅      上下文组装 (双区模型 protected/dynamic)
-  ├── policy_engine.py    ✅      安全策略引擎 (风险评估 + 成本熔断)
-  ├── hook_orchestrator.py ✅     钩子责任链引擎 (Python/外部进程双模式)
-  ├── output_governor.py  ✅      流式 JSON 修复 + 非法内容拦截
-  ├── rule_engine.py      ✅      YAML 声明式规则引擎
-  ├── telemetry.py        ✅      统一可观测性 (日志/指标/Span/Prometheus)
-  ├── config_manager.py   ✅      配置加载 + 热重载 + 环境变量覆盖
-  ├── checkpoint_manager.py ✅    会话检查点 (保存/恢复/清理)
-  ├── session_service.py  ✅      会话编排服务 (生命周期/Dream/审计)
-  ├── project_init.py     ✅      项目初始化器
-  ├── cli_theme.py        ✅      CLI 主题配置
-  ├── environment_validator.py ✅ 环境校验
-  ├── llm_clients/               LLM 客户端适配器
-  │   ├── openai_client.py ✅    OpenAI/DeepSeek 兼容流式适配器
-  │   ├── retry_handler.py ✅    指数退避重试
-  │   ├── factory.py       ✅   模型工厂 (OpenAI/DeepSeek/Ollama)
-  │   ├── router.py        ✅   模型路由 (priority/cost/random + 故障标记)
-  │   └── usage_tracker.py ✅   用量追踪 (per-model/per-session)
-  ├── context/                   记忆与上下文子系统
-  │   ├── memory_manager.py    ✅  记忆文件 I/O (每日/永久/Topic/Session)
-  │   ├── context_compressor.py ✅  混合压缩 (FROZEN→TRIMMED→SUMMARIZED→CONSOLIDATED)
-  │   ├── dream.py            ✅  DreamPipeline 项目级记忆整合
-  │   ├── global_dream.py     ✅  GlobalDream 跨项目永久记忆整合
-  │   ├── summarizer.py       ✅  LLM 摘要压缩
-  │   ├── token_counter.py    ✅  Token 估算
-  │   └── static_rule_loader.py ✅ CHACHA.md 分层加载
-  ├── subagent/                  子Agent 系统
-  │   ├── spawner.py         ✅  孵化器
-  │   └── definitions.py     ✅  类型定义 (explore/plan/worker)
-  ├── models/                    Pydantic 数据模型
-  │   ├── config.py          ✅  全配置模型 (含多模态预留)
-  │   ├── context.py         ✅  上下文模型 (9 BlockSource + 5 级压缩)
-  │   ├── session.py         ✅  会话模型 (ConversationState + 事件日志)
-  │   ├── hook.py            ✅  钩子模型 (9 HookPoint + 4 HookAction)
-  │   └── audit.py           ✅  审计模型 (6 种事件 + SensitiveString 脱敏)
-  └── debug/               🚧  调试工具 (仅 __init__.py)
+core/ 核心编排层 (微内核控制平面)
+ ├── orchestrator.py ✅ 编排主入口 (run_stream 13步流水线)
+ ├── chat_engine.py ✅ 消息存储 + 检查点持久化 (v2.1 降级)
+ ├── dispatcher.py ✅ LLM ↔ 工具桥接调度器 (v2.1 并发 + Circuit Breaker)
+ ├── llm_invoker.py ✅ 流式 LLM 调用器 (StreamChunk 接口)
+ ├── tool_executor.py ✅ 工具执行调度器 (审批 + 钩子 + 重试)
+ ├── context_manager.py ✅ 上下文组装 (双区模型 protected/dynamic)
+ ├── policy_engine.py ✅ 安全策略引擎 (风险评估 + 成本熔断)
+ ├── hook_orchestrator.py ✅ 钩子责任链引擎 (Python/外部进程双模式)
+ ├── output_governor.py ✅ 流式 JSON 修复 + 非法内容拦截
+ ├── rule_engine.py ✅ YAML 声明式规则引擎
+ ├── telemetry.py ✅ 统一可观测性 (日志/指标/Span/Prometheus)
+ ├── config_manager.py ✅ 配置加载 + 热重载 + 环境变量覆盖
+ ├── checkpoint_manager.py ✅ 会话检查点 (保存/恢复/清理)
+ ├── session_service.py ✅ 会话编排服务 (生命周期/Dream/审计)
+ ├── project_init.py ✅ 项目初始化器
+ ├── cli_theme.py ✅ CLI 主题配置
+ ├── environment_validator.py ✅ 环境校验
+ ├── llm_clients/ LLM 客户端适配器
+ │ ├── openai_client.py ✅ OpenAI/DeepSeek 兼容流式适配器
+ │ ├── retry_handler.py ✅ 指数退避重试
+ │ ├── factory.py ✅ 模型工厂 (OpenAI/DeepSeek/Ollama)
+ │ ├── router.py ✅ 模型路由 (priority/cost/random + 故障标记)
+ │ └── usage_tracker.py ✅ 用量追踪 (per-model/per-session)
+ ├── context/ 记忆与上下文子系统
+ │ ├── memory_manager.py ✅ 记忆文件 I/O (每日/永久/Topic/Session)
+ │ ├── context_compressor.py ✅ 混合压缩 (FROZEN→TRIMMED→SUMMARIZED→CONSOLIDATED)
+ │ ├── dream.py ✅ DreamPipeline 项目级记忆整合
+ │ ├── global_dream.py ✅ GlobalDream 跨项目永久记忆整合
+ │ ├── summarizer.py ✅ LLM 摘要压缩
+ │ ├── token_counter.py ✅ Token 估算
+ │ └── static_rule_loader.py ✅ CHACHA.md 分层加载
+ ├── subagent/ 子Agent 系统
+ │ ├── spawner.py ✅ 孵化器
+ │ └── definitions.py ✅ 类型定义 (explore/plan/worker)
+ ├── models/ Pydantic 数据模型
+ │ ├── config.py ✅ 全配置模型 (含多模态预留)
+ │ ├── context.py ✅ 上下文模型 (9 BlockSource + 5 级压缩)
+ │ ├── session.py ✅ 会话模型 (ConversationState + 事件日志)
+ │ ├── hook.py ✅ 钩子模型 (9 HookPoint + 4 HookAction)
+ │ └── audit.py ✅ 审计模型 (6 种事件 + SensitiveString 脱敏)
+ └── debug/ 🚧 调试工具 (仅 __init__.py)
 
-capabilities/                     能力与插件层
-  ├── base.py             ✅     BaseTool 抽象基类
-  ├── registry.py         ✅     工具注册表 (build_tools 单一来源)
-  ├── sandbox.py          ✅     沙箱执行器 (subprocess + 环境白名单 + 资源限制)
-  ├── atomic_writer.py    ✅     原子写入工具
-  ├── mcp_client.py       🚧    MCP 客户端 (骨架, 缺 stdio 通信)
-  ├── plugin_installer.py 🚧    插件安装器 (骨架)
-  ├── openclaw_loader.py  🚧    OpenClaw 加载器 (骨架)
-  ├── builtins/                 内置工具 (全部 ✅)
-  │   ├── chunk_streamer.py    read_file / read_files (流式读取)
-  │   ├── code_patcher.py      edit_file (精确替换)
-  │   ├── code_intel.py        跨文件语义分析 (AST)
-  │   ├── depe_analyzer.py     依赖分析 (imports/exports/graph)
-  │   ├── file_outline.py      文件骨架提取
-  │   ├── list_files.py        目录列表 (glob/深度/git状态)
-  │   ├── project_overview.py  项目总览 (README+结构)
-  │   ├── git_tools.py         git_diff / git_log / git_status
-  │   ├── git_context.py       Git 上下文钩子
-  │   ├── memory_tool.py       load_memory / write_topic / read_topic
-  │   ├── subagent_tool.py     子Agent 调度工具
-  │   └── http_tool.py         HTTP 请求工具
-  ├── multimodal/          🚧   多模态 (仅 __init__.py)
-  └── rag/                 🚧   Code-RAG (symbol_parser/vector_store 骨架)
+capabilities/ 能力与插件层
+ ├── base.py ✅ BaseTool 抽象基类
+ ├── registry.py ✅ 工具注册表 (build_tools 单一来源)
+ ├── mcp_client.py 🚧 MCP 客户端 (骨架, 缺 stdio 通信)
+ ├── plugin_installer.py 🚧 插件安装器 (骨架)
+ ├── openclaw_loader.py 🚧 OpenClaw 加载器 (骨架)
+ ├── builtins/ 内置工具 (全部 ✅, 10 个)
+ │ ├── read_tool.py read (读取文件)
+ │ ├── write_tool.py write (创建/覆盖文件)
+ │ ├── edit_tool.py edit (精确替换)
+ │ ├── bash_tool.py bash (执行 Shell 命令)
+ │ ├── grep_tool.py grep (正则搜索)
+ │ ├── glob_tool.py glob (文件查找)
+ │ ├── task_tool.py task (子Agent 委派)
+ │ ├── memory_tool.py memory (记忆管理)
+ │ ├── cache_read_tool.py cache_read (续读截断输出)
+ │ └── approval_control.py approval_control (审批旁路)
+ ├── multimodal/ 🚧 多模态 (仅 __init__.py)
+ └── rag/ 🚧 Code-RAG (symbol_parser/vector_store 骨架)
 ```
 
 > ✅ = 已实现　🚧 = 占位/骨架，待实现
@@ -98,26 +94,26 @@ capabilities/                     能力与插件层
 
 ```
 ChaChaConfig (config.py)
-  ├── ModelConfig → ModelProviderConfig (多提供商)
-  ├── ContextConfig (Token 预算/压缩参数)
-  ├── PolicyConfig (黑名单/成本上限/审批 TTL)
-  ├── SandboxConfig (命令白名单/超时)
-  ├── TelemetryConfig (日志/审计/Prometheus)
-  ├── MultimodalConfig (预留, v1.5+)
-  ├── MemoryConfig (记忆根目录/清理间隔)
-  └── InterfaceConfig (CLI 主题/Web 端口, Web 部分预留)
+ ├── ModelConfig → ModelProviderConfig (多提供商)
+ ├── ContextConfig (Token 预算/压缩参数)
+ ├── PolicyConfig (黑名单/成本上限/审批 TTL)
+ ├── SandboxConfig (命令白名单/超时)
+ ├── TelemetryConfig (日志/审计/Prometheus)
+ ├── MultimodalConfig (预留, v1.5+)
+ ├── MemoryConfig (记忆根目录/清理间隔)
+ └── InterfaceConfig (CLI 主题/Web 端口, Web 部分预留)
 
 HookContext → HookResult (hook.py)
-  - 不可变上下文 + 纯返回值，责任链模式
+ - 不可变上下文 + 纯返回值，责任链模式
 
 AssembledContext → ContextBlock (context.py)
-  - 双区模型 (protected/dynamic)，9 BlockSource，5 级压缩
+ - 双区模型 (protected/dynamic)，9 BlockSource，5 级压缩
 
 ConversationState (session.py)
-  - 会话唯一可变实体，不可变事件日志 + AgentLoopState + 检查点
+ - 会话唯一可变实体，不可变事件日志 + AgentLoopState + 检查点
 
 AuditRecord (audit.py)
-  - 6 种事件类型 + SensitiveString 脱敏，JSONL 输出
+ - 6 种事件类型 + SensitiveString 脱敏，JSONL 输出
 ```
 
 ### 2.2 不可变设计
@@ -141,21 +137,21 @@ ChachaAgent 采用 JSON-RPC 2.0 作为组件间统一通信协议。GatewayMessa
 
 ```
 GatewayMessage (路由包装)
-  ├─ seq: int                全局自增序列号
-  ├─ session_id / project_id 路由信息
-  └─ payload: Union[
-       RPCRequest,      # 客户端→服务端 (id + method + params)
-       RPCResponse,     # 服务端→客户端 (id + result/error)
-       RPCEvent,        # 服务端单向推送 (无 id)
-     ]
+ ├─ seq: int 全局自增序列号
+ ├─ session_id / project_id 路由信息
+ └─ payload: Union[
+ RPCRequest, # 客户端→服务端 (id + method + params)
+ RPCResponse, # 服务端→客户端 (id + result/error)
+ RPCEvent, # 服务端单向推送 (无 id)
+ ]
 
 RPCEvent 子类型 (6 种):
-  TokenChunkEvent          stream/token         流式文本 + tool_call 增量
-  ToolStatusEvent          tool/status          工具状态 (pending→done→error)
-  PermissionRequestEvent   permission/request   审批弹窗
-  AuditTrailEvent          audit/trail          复用 AuditRecord
-  SessionLifecycleEvent    session/lifecycle    会话启停/检查点
-  SystemNotificationEvent  system/notification  系统通知
+ TokenChunkEvent stream/token 流式文本 + tool_call 增量
+ ToolStatusEvent tool/status 工具状态 (pending→done→error)
+ PermissionRequestEvent permission/request 审批弹窗
+ AuditTrailEvent audit/trail 复用 AuditRecord
+ SessionLifecycleEvent session/lifecycle 会话启停/检查点
+ SystemNotificationEvent system/notification 系统通知
 ```
 
 ### 3.2 ChaChaAsyncGateway
@@ -181,22 +177,22 @@ RPCEvent 子类型 (6 种):
 
 ```
 Orchestrator.run_stream(user_input, session_id)
-  ├─ 1. ConversationState 初始化 + 消息追加
-  ├─ 2. Hook: PRE_CONTEXT_ASSEMBLY           ← Git 上下文注入等
-  ├─ 3. Policy 检查                           ← 速率/权限拦截
-  ├─ 4. Gateway: session_started
-  ├─ 5. ContextManager.assemble()             ← 双区模型 + MEMORY.md
-  ├─ 6. Dispatcher.dispatch_stream()          ← 直接调用（并发工具执行）
-  │     ├─ LLMInvoker.stream()
-  │     ├─ asyncio.gather(*tool_calls)        ← 同轮独立工具并发
-  │     └─ Circuit Breaker 按序检查
-  ├─ 7. ContextCompressor.auto_compact()       ← Token 压力触发
-  ├─ 8. 上下文利用率遥测
-  ├─ 9. 最终回答提取                           ← DeepSeek think 兼容
-  ├─ 10. save_checkpoint()
-  ├─ 11. _save_round_memory()
-  ├─ 12. Gateway: session_ended
-  └─ 13. 清理 + DreamPipeline 触发
+ ├─ 1. ConversationState 初始化 + 消息追加
+ ├─ 2. Hook: PRE_CONTEXT_ASSEMBLY ← Git 上下文注入等
+ ├─ 3. Policy 检查 ← 速率/权限拦截
+ ├─ 4. Gateway: session_started
+ ├─ 5. ContextManager.assemble() ← 双区模型 + MEMORY.md
+ ├─ 6. Dispatcher.dispatch_stream() ← 直接调用（并发工具执行）
+ │ ├─ LLMInvoker.stream()
+ │ ├─ asyncio.gather(*tool_calls) ← 同轮独立工具并发
+ │ └─ Circuit Breaker 按序检查
+ ├─ 7. ContextCompressor.auto_compact() ← Token 压力触发
+ ├─ 8. 上下文利用率遥测
+ ├─ 9. 最终回答提取 ← DeepSeek think 兼容
+ ├─ 10. save_checkpoint()
+ ├─ 11. _save_round_memory()
+ ├─ 12. Gateway: session_ended
+ └─ 13. 清理 + DreamPipeline 触发
 
 Orchestrator.run_stream() 为唯一编排入口，返回 `AsyncIterator[StreamEvent]`。
 ```
@@ -217,16 +213,16 @@ ChatEngine 不再参与运行时调度，专注消息存储 + 检查点持久化
 
 ```
 dispatch_stream(messages, session_id)
-  └─ while rounds < 200:
-       ├─ LLMInvoker.stream() → 收集 text + tool_calls
-       ├─ 无 tool_calls → yield done → 结束
-       ├─ 构造 assistant 消息 (含 tool_calls)
-       ├─ 工具执行三阶段:
-       │    Phase 1: 遍历 → tool_exec_start → 收集 tasks
-       │    Phase 2: asyncio.gather(*tasks, return_exceptions=True)  ← 并发
-       │    Phase 3: 按序处理结果 → Circuit Breaker 按序累加 → yield
-       └─ _freeze_old_tool_results(): 保留最近 8 个完整工具结果,
-            更早的替换为 JSON 占位符 {toolname, result_summary, cache_path}
+ └─ while rounds < 200:
+ ├─ LLMInvoker.stream() → 收集 text + tool_calls
+ ├─ 无 tool_calls → yield done → 结束
+ ├─ 构造 assistant 消息 (含 tool_calls)
+ ├─ 工具执行三阶段:
+ │ Phase 1: 遍历 → tool_exec_start → 收集 tasks
+ │ Phase 2: asyncio.gather(*tasks, return_exceptions=True) ← 并发
+ │ Phase 3: 按序处理结果 → Circuit Breaker 按序累加 → yield
+ └─ _freeze_old_tool_results(): 保留最近 8 个完整工具结果,
+ 更早的替换为 JSON 占位符 {toolname, result_summary, cache_path}
 ```
 
 ### 4.4 LLMInvoker — 流式 LLM 调用器
@@ -235,13 +231,13 @@ dispatch_stream(messages, session_id)
 
 ```
 invoke(messages, tools, session_id)
-  ├─ PolicyEngine.evaluate_cost()      成本熔断检查
-  ├─ model_client.stream()             StreamChunk 流
-  ├─ Gateway.publish(TokenChunkEvent)  前端实时推送
-  ├─ OutputGovernor.validate_tool_call() JSON 修复
-  ├─ RetryHandler (如果注入)           指数退避重试
-  ├─ Telemetry.record_llm_call()       遥测记录
-  └─ → LLMResponse(text, tool_calls, usage, duration_ms)
+ ├─ PolicyEngine.evaluate_cost() 成本熔断检查
+ ├─ model_client.stream() StreamChunk 流
+ ├─ Gateway.publish(TokenChunkEvent) 前端实时推送
+ ├─ OutputGovernor.validate_tool_call() JSON 修复
+ ├─ RetryHandler (如果注入) 指数退避重试
+ ├─ Telemetry.record_llm_call() 遥测记录
+ └─ → LLMResponse(text, tool_calls, usage, duration_ms)
 ```
 
 异常映射: 429→RateLimited | 401/403→Authentication (API Key 遮罩) | Timeout→超时 | Connection→连接错误
@@ -252,26 +248,26 @@ invoke(messages, tools, session_id)
 
 ```
 execute(tool_name, args, session_id)
-  ├─ Find tool → PolicyEngine.evaluate_tool()
-  │    ├─ 黑名单拦截
-  │    ├─ 权限级别 (FREE/ASK_FIRST/APPROVE_ONCE)
-  │    └─ 风险评估 (加权因子模型)
-  ├─ 审批: needs_approval → approval_handler() → 通过/拒绝
-  ├─ Pre-hooks (记忆工具豁免)
-  ├─ Execute: Semaphore(5) + asyncio.wait_for(60s) + 指数退避(2次)
-  │    可重试: TimeoutError/ConnectionError/OSError
-  │    不重试: ValueError/TypeError/PermissionError/FileNotFoundError
-  ├─ Truncate: 超 100K 字符截断
-  ├─ Post-hooks
-  ├─ Telemetry.record_tool_call()
-  └─ → ToolResult(status, output, error, duration_ms, truncated)
+ ├─ Find tool → PolicyEngine.evaluate_tool()
+ │ ├─ 黑名单拦截
+ │ ├─ 权限级别 (FREE/ASK_FIRST/APPROVE_ONCE)
+ │ └─ 风险评估 (加权因子模型)
+ ├─ 审批: needs_approval → approval_handler() → 通过/拒绝
+ ├─ Pre-hooks (记忆工具豁免)
+ ├─ Execute: Semaphore(5) + asyncio.wait_for(60s) + 指数退避(2次)
+ │ 可重试: TimeoutError/ConnectionError/OSError
+ │ 不重试: ValueError/TypeError/PermissionError/FileNotFoundError
+ ├─ Truncate: 超 100K 字符截断
+ ├─ Post-hooks
+ ├─ Telemetry.record_tool_call()
+ └─ → ToolResult(status, output, error, duration_ms, truncated)
 ```
 
 并发: `execute_batch()` 用 asyncio.gather 并发执行多个工具。
 
 ### 4.6 PolicyEngine — 安全策略引擎
 
-融合 Claude Code 权限模式 + Harness 加权风险评估：
+融合加权风险评估：
 
 | 机制 | 说明 |
 |------|------|
@@ -285,7 +281,7 @@ execute(tool_name, args, session_id)
 
 ### 4.7 HookOrchestrator — 钩子责任链
 
-双模式 handler：Python callable + ShellCommand (Claude Code 风格 stdin/stdout JSON)：
+双模式 handler：Python callable + ShellCommand (外部进程 stdin/stdout JSON)：
 
 - PRE 正序 (高 priority 先)，POST 倒序 (洋葱语义)
 - BLOCK 短路 → 终止整个操作
@@ -358,18 +354,18 @@ OpenAIClient(model=llama3, base_url=http://localhost:11434/v1, api_key=ollama)
 
 ```
 ~/.chacha/projects/{project_id}/
-  CHACHA_MEMORY.md              ← 永久记忆 (保护区，无条目上限，永不删除)
-  memory/
-    sessions/{session_id}/
-      MEMORY.md                 ← 该 session 的 DreamPipeline 产物
-      {YYYY-MM-DD}.md           ← 每日对话记忆 (7 天老化)
-      topics/                   ← 主题记忆 (5 主题 × N 条目)
-        user-preferences.md
-        project-decisions.md
-        lessons-learned.md
-        errors-fixed.md
-        project-progress.md
-      tool_cache/               ← 工具结果缓存 (会话结束自动清理)
+ CHACHA_MEMORY.md ← 永久记忆 (保护区，无条目上限，永不删除)
+ memory/
+ sessions/{session_id}/
+ MEMORY.md ← 该 session 的 DreamPipeline 产物
+ {YYYY-MM-DD}.md ← 每日对话记忆 (7 天老化)
+ topics/ ← 主题记忆 (5 主题 × N 条目)
+ user-preferences.md
+ project-decisions.md
+ lessons-learned.md
+ errors-fixed.md
+ project-progress.md
+ tool_cache/ ← 工具结果缓存 (会话结束自动清理)
 ```
 
 核心操作：`remember()` | `read()` | `list_days()` | `read_day()` | `read_recent_days()` | `read_permanent_memory()` | `cleanup_tool_cache()`
@@ -405,10 +401,10 @@ OpenAIClient(model=llama3, base_url=http://localhost:11434/v1, api_key=ollama)
 
 ```
 protected zone (永不截断):
-  SYSTEM_PROMPT → CHACHA.md(宪法) → USER_MEMORY → CHACHA_MEMORY → SKILLS
+ SYSTEM_PROMPT → CHACHA.md(宪法) → USER_MEMORY → CHACHA_MEMORY → SKILLS
 
 dynamic zone (按 importance 排序):
-  MEMORY.md(索引) → 今日会话记忆 → 对话历史 → 工具结果 → RAG → Hooks
+ MEMORY.md(索引) → 今日会话记忆 → 对话历史 → 工具结果 → RAG → Hooks
 ```
 
 Token 预算感知: utilization > trigger_ratio → needs_compression=True
@@ -423,14 +419,14 @@ Token 预算感知: utilization > trigger_ratio → needs_compression=True
 
 ```python
 class BaseTool(ABC):
-    name: str           # 工具名
-    description: str    # LLM 可见的描述
-    parameters: dict    # JSON Schema
-    risk: str           # low | medium | high
-    requires_approval: bool
+ name: str # 工具名
+ description: str # LLM 可见的描述
+ parameters: dict # JSON Schema
+ risk: str # low | medium | high
+ requires_approval: bool
 
-    async def execute(self, **kwargs) -> str: ...   # 子类实现
-    def to_function_schema(self) -> dict: ...        # 自动生成
+ async def execute(self, **kwargs) -> str: ... # 子类实现
+ def to_function_schema(self) -> dict: ... # 自动生成
 ```
 
 ### 7.2 工具注册表
@@ -480,32 +476,32 @@ class BaseTool(ABC):
 
 ```
 CLI app.py
-  └─ AgentBridge.send_message(user_input)
-       └─ AgentBridge.send_message_orchestrated(user_input)
-            └─ Orchestrator.run_stream()              ← 唯一编排入口
-                 ├─ 1. ConversationState 初始化
-                 ├─ 2. Hook.PRE_CONTEXT_ASSEMBLY      Git 上下文注入
-                 ├─ 3. Policy 检查                    速率/权限
-                 ├─ 4. Gateway: session_started
-                 ├─ 5. ContextManager.assemble()      上下文组装
-                 │     ├─ protected: SYSTEM_PROMPT + CHACHA.md + PERMANENT_MEMORY + SKILLS
-                 │     └─ dynamic: MEMORY.md + 今日记忆 + 历史
-                 ├─ 6. Dispatcher.dispatch_stream()   ← 直接调用，不经 ChatEngine
-                 │     ├─ LLMInvoker.stream()
-                 │     │    └─ OpenAIClient.stream()  → StreamChunk
-                 │     └─ asyncio.gather(*tools)      ← 同轮独立工具并发
-                 │          ├─ PolicyEngine.evaluate_tool()
-                 │          ├─ approval_handler()     CLI 交互审批
-                 │          ├─ HookOrchestrator.run() pre-tool hooks
-                 │          └─ Tool.execute()         实际执行
-                 ├─ 7. ContextCompressor.auto_compact() Token 压力触发
-                 ├─ 8. 上下文利用率遥测
-                 ├─ 9. 最终回答提取                    DeepSeek think 兼容
-                 ├─ 10. save_checkpoint()
-                 ├─ 11. _save_round_memory()
-                 ├─ 12. Gateway: session_ended
-                 └─ 13. 清理 + DreamPipeline.record_session()
-  └─ 审计: telemetry.agent.record_*()
+ └─ AgentBridge.send_message(user_input)
+ └─ AgentBridge.send_message_orchestrated(user_input)
+ └─ Orchestrator.run_stream() ← 唯一编排入口
+ ├─ 1. ConversationState 初始化
+ ├─ 2. Hook.PRE_CONTEXT_ASSEMBLY Git 上下文注入
+ ├─ 3. Policy 检查 速率/权限
+ ├─ 4. Gateway: session_started
+ ├─ 5. ContextManager.assemble() 上下文组装
+ │ ├─ protected: SYSTEM_PROMPT + CHACHA.md + PERMANENT_MEMORY + SKILLS
+ │ └─ dynamic: MEMORY.md + 今日记忆 + 历史
+ ├─ 6. Dispatcher.dispatch_stream() ← 直接调用，不经 ChatEngine
+ │ ├─ LLMInvoker.stream()
+ │ │ └─ OpenAIClient.stream() → StreamChunk
+ │ └─ asyncio.gather(*tools) ← 同轮独立工具并发
+ │ ├─ PolicyEngine.evaluate_tool()
+ │ ├─ approval_handler() CLI 交互审批
+ │ ├─ HookOrchestrator.run() pre-tool hooks
+ │ └─ Tool.execute() 实际执行
+ ├─ 7. ContextCompressor.auto_compact() Token 压力触发
+ ├─ 8. 上下文利用率遥测
+ ├─ 9. 最终回答提取 DeepSeek think 兼容
+ ├─ 10. save_checkpoint()
+ ├─ 11. _save_round_memory()
+ ├─ 12. Gateway: session_ended
+ └─ 13. 清理 + DreamPipeline.record_session()
+ └─ 审计: telemetry.agent.record_*()
 ```
 
 ---
@@ -553,30 +549,30 @@ CLI app.py
 
 ```
 interface/cli/app.py
-  └── interface/cli/agent_bridge.py
-        ├── core/orchestrator.py                      ← 唯一编排入口
-        │     ├── core/context_manager.py
-        │     │     ├── core/context/token_counter.py
-        │     │     └── core/models/context.py
-        │     ├── core/dispatcher.py                  ← 直接调用（并发工具执行）
-        │     │     ├── core/llm_invoker.py
-        │     │     │     ├── core/llm_clients/openai_client.py
-        │     │     │     ├── core/llm_clients/retry_handler.py
-        │     │     │     └── core/output_governor.py
-        │     │     └── core/tool_executor.py
-        │     │           ├── core/policy_engine.py
-        │     │           ├── core/hook_orchestrator.py
-        │     │           └── capabilities/builtins/*
-        │     ├── core/chat_engine.py                 ← 仅消息存储 + 检查点
-        │     ├── core/context/context_compressor.py
-        │     ├── core/session_service.py
-        │     │     └── core/context/memory_manager.py
-        │     └── core/telemetry.py
-        ├── core/project_init.py
-        │     ├── core/context/static_rule_loader.py
-        │     └── capabilities/registry.py
-        └── protocol/gateway.py (可选)
-              └── protocol/rpc_schema.py
+ └── interface/cli/agent_bridge.py
+ ├── core/orchestrator.py ← 唯一编排入口
+ │ ├── core/context_manager.py
+ │ │ ├── core/context/token_counter.py
+ │ │ └── core/models/context.py
+ │ ├── core/dispatcher.py ← 直接调用（并发工具执行）
+ │ │ ├── core/llm_invoker.py
+ │ │ │ ├── core/llm_clients/openai_client.py
+ │ │ │ ├── core/llm_clients/retry_handler.py
+ │ │ │ └── core/output_governor.py
+ │ │ └── core/tool_executor.py
+ │ │ ├── core/policy_engine.py
+ │ │ ├── core/hook_orchestrator.py
+ │ │ └── capabilities/builtins/*
+ │ ├── core/chat_engine.py ← 仅消息存储 + 检查点
+ │ ├── core/context/context_compressor.py
+ │ ├── core/session_service.py
+ │ │ └── core/context/memory_manager.py
+ │ └── core/telemetry.py
+ ├── core/project_init.py
+ │ ├── core/context/static_rule_loader.py
+ │ └── capabilities/registry.py
+ └── protocol/gateway.py (可选)
+ └── protocol/rpc_schema.py
 ```
 
 ---

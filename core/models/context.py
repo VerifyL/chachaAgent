@@ -2,8 +2,8 @@
 core/models/context.py
 上下文组装结果模型：ContextAssembler 的输出，ContextCompressor 的输入。
 
-设计理念（融合 Claude Code + Harness 工程指南）：
-1. Claude Code 压缩骨架：7层渐进式压缩（FROZEN→TRIMMED→SUMMARIZED→CONSOLIDATED），
+设计理念（融合 + Harness 工程指南）：
+1. 压缩骨架：7层渐进式压缩（FROZEN→TRIMMED→SUMMARIZED→CONSOLIDATED），
    通过显式化的 compression_pressure 参数化，变成可观测、可调参。
 2. DYNAMIC_BOUNDARY 策略：protected 区永不被截断（系统提示+当前任务），
    dynamic 区按 importance_score 排序，压缩时优先删低分块。
@@ -36,7 +36,7 @@ class BlockSource(str, Enum):
 
 class CompressionLevel(str, Enum):
     """
-    渐进式压缩层级（参考 Claude Code 7层，简化为4级+原始态）。
+    渐进式压缩层级。
 
     NONE          → 未压缩（原始内容）
     FROZEN        → 冻结：工具输出只保留前N行+退出码+状态，零 LLM 成本
@@ -84,7 +84,7 @@ class ContextBlock(BaseModel):
     role: str = Field(..., description="LLM 消息角色: system | user | assistant | tool")
     content: str = Field(..., description="文本内容")
 
-    # ---------- 空间管理（Claude Code DYNAMIC_BOUNDARY）----------
+    # ---------- 空间管理（DYNAMIC_BOUNDARY）----------
     zone: Literal["protected", "dynamic"] = Field(
         "dynamic",
         description="保护区永不被截断（系统提示+当前任务），动态区按重要性压缩"
@@ -102,13 +102,13 @@ class ContextBlock(BaseModel):
     )
     token_count: int = Field(0, ge=0, description="当前 token 数")
 
-    # ---------- 原文存档（Claude Code 占位引用模式）----------
+    # ---------- 原文存档（占位引用模式）----------
     persisted_path: Optional[str] = Field(
         None,
         description="压缩后原文存档路径（如 compressed/s1/b-abc.json），content 中仅保留占位引用"
     )
 
-    # ---------- 冻结保留详情（Claude Code 选择性保留）----------
+    # ---------- 冻结保留详情（选择性保留）----------
     frozen_kept_lines: Optional[int] = Field(
         None, ge=0,
         description="冻结时保留的行数（含 error/warning/首尾关键行）"
@@ -130,7 +130,7 @@ class ContextBlock(BaseModel):
         description="原文 SHA256 哈希（仅 NONE 状态有效），用于复用已有压缩结果"
     )
 
-    # ---------- 压缩决策（显式化 Claude Code 内部评分逻辑）----------
+    # ---------- 压缩决策（显式化 内部评分逻辑）----------
     importance_score: float = Field(
         0.5, ge=0.0, le=1.0,
         description="重要性评分（recency×0.4 + relevance×0.4 + initial×0.2），压缩时优先删低分块"
@@ -188,7 +188,7 @@ class ContextAssemblyMeta(BaseModel):
     protected_tokens: int = Field(0, ge=0, description="保护区 token 数")
     dynamic_tokens: int = Field(0, ge=0, description="动态区 token 数")
 
-    # ---------- 三级预算（Harness 指南 + Claude Code 窗口上限）----------
+    # ---------- 三级预算（Harness 指南 + 窗口上限）----------
     budget_per_request: int = Field(
         128000, ge=1,
         description="单次 LLM 调用的 token 上限（含输入输出）"

@@ -148,7 +148,7 @@ class AtomicWriter:
         """原子覆盖写入（分块版本，避免拼接全量字符串）。
 
         逐 chunk 编码写入，内存峰值 ≈ 单个 chunk 大小（64KB），
-        适合 edit_file 等已持有 chunk 列表的场景。
+        适合 edit 等已持有 chunk 列表的场景。
 
         Args:
             path: 目标文件路径
@@ -212,7 +212,7 @@ class AtomicWriter:
     def append(self, path: Path, entry: str) -> WriteResult:
         """原子追加写入（无备份）。
 
-        用于记忆文件：remember / write_topic。
+        用于记忆文件：memory。
         先读已有内容，追加新条目，再原子写入。
 
         Args:
