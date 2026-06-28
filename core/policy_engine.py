@@ -214,9 +214,12 @@ class PolicyEngine:
         # 分类名 -> 工具名映射
         self._category_map: Dict[str, Set[str]] = {
             "all":       {"*"},
+            "*":         {"*"},
+            "memory":    {"memory", "cache_read"},
+            "readonly":  {"read", "grep", "glob"},
+            "system":    {"bash", "task"},
+            "edit":      {"edit", "write"},
             "bash":      {"bash"},
-            "file_write": {"edit_file", "apply_patch"},
-            "shell":     {"bash", "git_diff", "git_log", "git_status"},
         }
         self._init_default_permissions()
 
@@ -224,21 +227,16 @@ class PolicyEngine:
 
     # ====== 工具分类常量 ======
 
-    MEMORY_TOOLS: Set[str] = {"load_memory", "write_topic", "read_topi", "read_topic"}
+    MEMORY_TOOLS: Set[str] = {"memory", "cache_read"}
     """记忆类工具：完全跳过审批"""
 
-    READONLY_TOOLS: Set[str] = {
-        "read_file", "read_files", "grep", "list_files", "file_outline",
-        "depe_analyze", "code_intel", "project_overview",
-        "git_diff", "git_log", "git_status",
-        "read_cached_output",   # 隐含的内部工具，不应让用户审批
-    }
+    READONLY_TOOLS: Set[str] = {"read", "grep", "glob"}
     """只读类工具：FREE 通行"""
 
-    SYSTEM_TOOLS: Set[str] = {"bash", "subagent", "set_approval_mode"}
+    SYSTEM_TOOLS: Set[str] = {"bash", "task"}
     """系统类工具：默认拒绝（ASK_FIRST + HIGH 风险）"""
 
-    EDIT_TOOLS: Set[str] = {"edit_file"}
+    EDIT_TOOLS: Set[str] = {"edit", "write"}
     """编辑类工具：需审批并展示 diff"""
 
     # ====== 工具风险预设 ======
@@ -246,9 +244,9 @@ class PolicyEngine:
     _RISK_PRESETS: Dict[str, Tuple[float, float, float, float, float]] = {
         # (data_sensitivity, financial_impact, irreversibility, model_confidence, user_authorization)
         "bash":        (0.9, 0.8, 0.95, 0.5, 0.3),   # 最高风险：可执行任意命令
-        "subagent":    (0.7, 0.6, 0.8,  0.5, 0.4),   # 高风险：可派生子任务
-        "edit_file":   (0.4, 0.1, 0.7,  0.7, 0.6),   # 中风险：修改文件
-        "http_tool":   (0.5, 0.4, 0.3,  0.7, 0.5),   # 中风险：网络请求
+        "task":        (0.7, 0.6, 0.8,  0.5, 0.4),   # 高风险：可派生子任务
+        "edit":        (0.4, 0.1, 0.7,  0.7, 0.6),   # 中风险：修改文件
+        "write":       (0.4, 0.1, 0.7,  0.7, 0.6),   # 中风险：覆盖文件
     }
 
 

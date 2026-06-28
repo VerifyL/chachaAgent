@@ -37,7 +37,14 @@ class GrepTool(BaseTool):
 
     async def execute(self, pattern: str, path: str = ".", glob: str = "*") -> ToolResult:
         # 1. 安全检查
-        resolved = self._resolve(path)
+        try:
+            resolved = self._resolve(path)
+        except ValueError as e:
+            return ToolResult(
+                status="error", error=str(e),
+                error_type="internal_error", content="",
+                data={"path": path}
+            )
         if not resolved.exists():
             return ToolResult(
                 status="error", error=f"目录不存在: {path}",
@@ -200,6 +207,8 @@ class GrepTool(BaseTool):
     # ── helpers ──────────────────────────────────────────────
 
     def _resolve(self, path: str) -> Path:
+        if self.project_root is None:
+            raise ValueError("project_root 未设置，无法解析路径")
         raw = Path(path)
         if raw.is_absolute():
             resolved = raw.resolve()
@@ -210,6 +219,8 @@ class GrepTool(BaseTool):
         return resolved
 
     def _rel(self, full: Path) -> Path:
+        if self.project_root is None:
+            return full.resolve()
         return full.resolve().relative_to(self.project_root.resolve())
 
     def _should_skip(self, p: Path) -> bool:

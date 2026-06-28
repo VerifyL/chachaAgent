@@ -15,6 +15,7 @@ def build_tools(root: Optional[Path] = None, memory_manager=None, subagent_spawn
     """返回完整的工具列表（单一路径）。
 
     逐个添加：read / write / edit / bash / grep / glob / task / memory / cache_read / approval_control
+    统一注入 project_root，确保所有工具可用。
     """
     # ✅ read — 读取文件内容
     from capabilities.builtins.read_tool import ReadTool
@@ -49,7 +50,6 @@ def build_tools(root: Optional[Path] = None, memory_manager=None, subagent_spawn
     # ✅ approval_control — 查询/设置审批旁路
     from capabilities.builtins.approval_control import ApprovalControl
     approval_control = ApprovalControl()
-    approval_control.project_root = root
 
     tools = [
         read_tool,
@@ -63,5 +63,11 @@ def build_tools(root: Optional[Path] = None, memory_manager=None, subagent_spawn
         cache_read_tool,
         approval_control,
     ]
+
+    # 统一注入 project_root（之前仅 approval_control 有）
+    if root is not None:
+        for tool in tools:
+            if hasattr(tool, 'project_root'):
+                tool.project_root = root
 
     return tools
