@@ -83,7 +83,7 @@ class ApprovalRequest(BaseModel):
     risk_score: float
     session_id: str
     tool_use_id: str
-    diff: Optional[str] = None     # edit_file 的变更 diff
+    diff: Optional[str] = None     # edit 的变更 diff
     reason: str = ""               # 需要审批的原因
 
 
@@ -180,7 +180,7 @@ class ToolExecutor:
             if decision.needs_approval:
                 # 1. 构造审批请求
                 diff = None
-                if tool_name == "edit_file":
+                if tool_name == "edit":
                     diff = self._compute_edit_diff(arguments)
 
                 req = ApprovalRequest(
@@ -217,7 +217,7 @@ class ToolExecutor:
                     self._policy.record_approval(decision.cache_key, True)
 
         # 2. 前置钩子（关键工具豁免：记忆读写不被拦截）
-        _HOOK_BYPASS_TOOLS = {"write_topic", "read_topic", "load_memory"}
+        _HOOK_BYPASS_TOOLS = {"memory"}
         if self._hooks and tool_name not in _HOOK_BYPASS_TOOLS:
             from core.models.hook import ToolCallContext, HookPoint
             tc = ToolCallContext(
@@ -391,17 +391,13 @@ class ToolExecutor:
     @staticmethod
     def _truncation_hint(tool_name: str, arguments: Dict[str, Any], remaining: int, cache_key: str = "") -> str:
         """根据工具类型生成分页/续读提示。"""
-        if tool_name in ("git_diff",):
-            return f"[hint] 输出过大，建议用 path 参数过滤；或用 read_cached_output(cache_key=\"{cache_key}\") 续读"
-        if tool_name == "git_log":
-            return '[hint] 可用 git_log(n=5, path="...") 缩小范围'
         if tool_name == "bash":
             return '[hint] 可用 bash("... | head -n N") 或 tail 缩小输出'
         if tool_name == "grep":
             offset = arguments.get("offset", 0)
             limit = arguments.get("limit", 200)
             return f"[hint] 可用 offset={offset + limit} 查看下一页"
-        if tool_name == "read_file":
+        if tool_name == "read":
             offset = arguments.get("offset", 1)
             limit = arguments.get("limit", 100)
             return f"[hint] 可用 offset={offset + limit} 续读下一页"
@@ -432,7 +428,7 @@ class ToolExecutor:
 
     @staticmethod
     def _compute_edit_diff(arguments: Dict[str, Any]) -> Optional[str]:
-        """为 edit_file 计算变更 diff。"""
+        """为 edit 计算变更 diff。"""
         path = arguments.get("path", "")
         old_str = arguments.get("old_string", "")
         new_str = arguments.get("new_string", "")
