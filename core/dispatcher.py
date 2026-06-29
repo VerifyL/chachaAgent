@@ -2,11 +2,9 @@
 core/dispatcher.py
 Dispatcher — 工具调度器：桥接 ToolExecutor + LLMInvoker。
 
-v2.0 Stage 1 工具结果缓存（宽松）:
-  - 保留最近 KEEP_TOOL_RESULTS(=10) 个完整工具结果
-  - 更早的结果 → JSON 占位符 {"toolname":"x","result_summary":"x","cache_path":"x"}
-  - 缓存到 session/{session_id}/tool_cache/ 目录
-  - 会话结束时清理整个 tool_cache 目录
+ v2.0 Stage 1 工具结果冻结（不缓存磁盘）:
+  - 保留最近 KEEP_TOOL_RESULTS(=8) 个完整工具结果
+  - 更早的结果 → JSON 占位符（含 toolname + result_summary，不缓存磁盘）
 
 职责:
   1. 取工具 schemas → 传给 LLM
@@ -423,12 +421,9 @@ class Dispatcher:
     def _freeze_old_tool_results(self, messages: List[Dict], session_id: str, tc_id_to_name: Optional[Dict[str, str]] = None) -> None:
         """保持最近 KEEP_TOOL_RESULTS 个工具结果完整，更早的替换为 JSON 占位符。
 
-        占位格式: {"toolname":"read","result_summary":"读取 main.py 前200行...","cache_path":"tool_caool_cache/t3.json"}
-
-        注意: 无 memory_manager 时跳过冻结（无缓存后端，占位符的 cache_ref 无效）。
+        占位格式: {"toolname":"read","result_summary":"读取 main.py 前200行..."}
+        不再写磁盘缓存——占位符中的摘要已足够 LLM 理解上下文。
         """
-        if not self._memory:
-            return
         tool_indices = [
             i for i, m in enumerate(messages)
             if m.get("role") == "tool" and not m.get("content", "").startswith("{")
@@ -444,7 +439,6 @@ class Dispatcher:
             if not original or len(original) < 100:
                 continue
 
-            tool_use_id = msg.get("tool_call_id", f"t{idx}")
             tool_name = self._guess_tool_name(messages, idx)
 
             # 摘要（前 120 字符）
@@ -452,21 +446,9 @@ class Dispatcher:
             if len(original) > 120:
                 summary += "..."
 
-            # 缓存到 session/tool_cache/
-            if self._memory:
-                cache_path = self._memory.cache_tool_result(
-                    tool_use_id=tool_use_id,
-                    tool_name=tool_name,
-                    result=original,
-                )
-                cache_ref = f"tool_cache/{cache_path.name}"
-            else:
-                cache_ref = f"tool_cache/{session_id}_{tool_use_id}.json"
-
             placeholder = json.dumps({
                 "toolname": tool_name,
                 "result_summary": summary,
-                "cache_path": cache_ref,
             }, ensure_ascii=False)
 
             messages[idx] = {

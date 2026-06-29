@@ -24,16 +24,12 @@ class MockEngine:
 class MockMemoryManager:
     def __init__(self):
         self.remembered = []
-        self.cleaned_up = False
 
     def remember(self, content, date_str=None):
         self.remembered.append(content)
         from pathlib import Path
         return Path("/fake")
 
-    def cleanup_tool_cache(self):
-        self.cleaned_up = True
-        return 3
 
 
 class MockDreamPipeline:
@@ -93,17 +89,27 @@ async def test_run_stream_yields_chunks():
 
 @pytest.mark.asyncio
 async def test_end_session_cleanup_via_run_stream():
-    """run_stream 正常结束后调用 cleanup_tool_cache。"""
+    """run_stream 正常结束后记录 DreamPipeline。"""
     memory = MockMemoryManager()
     engine = MockEngine()
     disp = MockDispatcher()
     orch = Orchestrator(memory_manager=memory, dispatcher=disp)
     orch.set_engine(engine)
+    # 注入 DreamPipeline mock
+    class MockDream:
+        def __init__(self):
+            self.recorded = False
+            self.should = False
+        def record_session(self):
+            self.recorded = True
+        def should_run(self):
+            return self.should
+    orch._dream = MockDream()
 
     async for _ in orch.run_stream("hello", session_id="s-clean"):
         pass
 
-    assert memory.cleaned_up is True
+    assert orch._dream.recorded is True
 
 
 # ====== DreamPipeline ======

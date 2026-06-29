@@ -289,8 +289,6 @@ class ChachaCLI:
         elapsed_ms = int((time.monotonic() - t0) * 1000)
         await self._session.add_round(
             tokens=tokens, duration_ms=elapsed_ms, errors=errors,
-            user_input=text, assistant_text="".join(response_parts),
-            skip_memory=True,  # 由 Orchestrator.run_stream() 接管
         )
 
         # 上下文利用率 + 缓存命中
@@ -438,7 +436,7 @@ class ChachaCLI:
         try:
             from core.context.context_compressor import ContextCompressor
             n = len(self._bridge._messages)
-            msgs, _ = ContextCompressor.auto_compact(
+            msgs, _ = await ContextCompressor.auto_compact(
                 self._bridge._messages,
                 getattr(self._bridge, "_context_window", 1_048_576),
                 llm=getattr(self._bridge, "_invoker", None),

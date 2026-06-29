@@ -173,7 +173,7 @@ class SubAgentSpawner:
                 from core.context.memory_manager import MemoryManager
                 if self._project_root:
                     mm = MemoryManager(project_root=Path(self._project_root), session_id=session_id or None)
-                    idx = mm.read()
+                    idx = mm.read_index()
                     if idx:
                         result["memory_index"] = idx
                     perm = mm.read_permanent_memory()

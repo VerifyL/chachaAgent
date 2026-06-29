@@ -4,7 +4,7 @@ Orchestrator — 主控制器：Think-Act-Observe 循环，协调所有子系统
 
 v2.0 新增:
   - 每轮 assistant 最终回答后异步保存 session/{date}.md 记忆
-  - 会话结束时清理 tool_cache 目录
+  - 会话结束时记录 DreamPipeline 触发
   - DreamPipeline 会话计数 + 条件触发
 
 用法:
@@ -18,12 +18,8 @@ import asyncio
 import logging
 from typing import Any, Optional
 
-from core.models.session import (
-    ConversationState, SessionMetadata, MessageEvent, ObservationEvent,
-    ToolCallEvent,
-)
 from core.models.stream_event import (
-    TextEvent, ErrorEvent, CompactEvent, ToolCallStartEvent, ToolExecEndEvent,
+    TextEvent, ErrorEvent, CompactEvent,
 )
 
 logger = logging.getLogger(__name__)
@@ -77,14 +73,7 @@ class Orchestrator:
         if not self._engine:
             raise RuntimeError("run_stream 需要 ChatEngine，请调用 set_engine()")
 
-        # ── 1. ConversationState ──
-        state = ConversationState(
-            metadata=SessionMetadata(
-                session_id=session_id,
-                project_id=project_id,
-            ),
-        )
-        state.add_event(MessageEvent(source="user", role="user", content=user_input))
+        # ── 1. 用户输入注入 ──
         self._engine._messages.append({"role": "user", "content": user_input})
 
         # ── 2. Hook: PRE_CONTEXT_ASSEMBLY ──
@@ -130,7 +119,7 @@ class Orchestrator:
         # ── 5. 上下文组装 ──
         from core.context_manager import ContextManager
         if self._context:
-            ctx = ContextManager.assemble_from_messages(
+            ctx = ContextManager.assemble_from_messages_direct(
                 self._engine._messages, self._context,
                 additional_contexts=additional_blocks or None,
             )
@@ -151,26 +140,7 @@ class Orchestrator:
                 session_id=session_id,
                 max_rounds=200,
             ):
-                # ConversationState 事件跟踪
-                if isinstance(chunk, ToolCallStartEvent):
-                    state.add_event(ToolCallEvent(
-                        source="tool",
-                        tool_name=chunk.tool_name,
-                        tool_use_id=getattr(chunk, 'tool_use_id', ''),
-                        arguments={},
-                    ))
-                elif isinstance(chunk, ToolExecEndEvent):
-                    state.add_event(ObservationEvent(
-                        source="tool",
-                        tool_use_id=getattr(chunk, 'tool_use_id', ''),
-                        content=getattr(chunk, 'preview', ''),
-                        status="success",
-                        error=None,
-                        truncated=False,
-                        cache_key=getattr(chunk, 'cache_key', ''),
-                        duration_ms=0,
-                    ))
-                elif isinstance(chunk, TextEvent):
+                if isinstance(chunk, TextEvent):
                     response_parts.append(chunk.content)
 
                 yield chunk
@@ -185,14 +155,10 @@ class Orchestrator:
         from core.context.context_compressor import ContextCompressor
         est = ContextCompressor.estimate_tokens(self._engine._messages)
         pct = est / self._engine._context_window if self._engine._context_window else 0
-        cache_dir = (self._engine._checkpoint_dir / "tool_cache"
-                      if self._engine._checkpoint_dir else None)
-        msgs, reason = ContextCompressor.auto_compact(
+        msgs, reason = await ContextCompressor.auto_compact(
             self._engine._messages,
             self._engine._context_window,
             llm=getattr(self._engine, '_llm', None),
-            cache_dir=cache_dir,
-            **getattr(self._engine, '_compress_cfg', {}),
         )
         if reason:
             self._engine._messages = msgs
@@ -268,14 +234,7 @@ class Orchestrator:
 
 
     async def _end_session_cleanup(self, session_id: str) -> None:
-        """会话结束时清理 tool_cache 目录 + 记录 DreamPipeline。"""
-        # 清理 tool_cache
-        if self._memory:
-            try:
-                self._memory.cleanup_tool_cache()
-            except Exception as e:
-                logger.warning("清理 tool_cache 失败: %s", e)
-
+        """会话结束时记录 DreamPipeline。"""
         # DreamPipeline 计数 + 异步触发
         if self._dream:
             self._dream.record_session()

@@ -197,7 +197,7 @@ class DreamPipeline:
         t0 = time.monotonic()
 
         # 1. Gather：收集所有数据
-        old_memory = memory_manager.read()
+        old_memory = memory_manager.read_index()
         old_permanent = memory_manager.read_permanent_memory()
         raw_text = self._gather(memory_manager)
         if not raw_text.strip() and not old_memory.strip():
@@ -211,7 +211,7 @@ class DreamPipeline:
 
         # 3. Write
         if memory_md.strip():
-            memory_manager.update_index(memory_md)
+            memory_manager.write_index(memory_md)
         if permanent_md.strip():
             memory_manager.write_permanent_memory(permanent_md)
 

@@ -23,11 +23,10 @@ from core.models.session import ConversationState, SessionMetadata, MessageEvent
 
 @pytest.fixture
 def compressor():
-    d = Path(tempfile.mkdtemp())
-    return ContextCompressor(base_dir=d)
+    return ContextCompressor()
 
 
-def test_compress_long_tool_output_then_chat(compressor):
+async def test_compress_long_tool_output_then_chat(compressor):
     """模拟：长工具输出 → 压缩 → 注入上下文 → 继续对话"""
     meta = SessionMetadata(project_id="p1")
     state = ConversationState(metadata=meta)
@@ -50,12 +49,12 @@ def test_compress_long_tool_output_then_chat(compressor):
         needs_compression=True,
         recommended_level=CompressionLevel.FROZEN.value,
     )
-    compressed = compressor.compress(ctx2, pressure=0.85)
+    compressed = await compressor.compress(ctx2, pressure=0.85)
 
     compressed_tool = [b for b in compressed.blocks if b.source == BlockSource.TOOL_RESULT]
     assert len(compressed_tool) == 1
     assert compressed_tool[0].token_count < 100
-    assert "工具结果已缓存" in compressed_tool[0].content
+    assert "工具结果摘要" in compressed_tool[0].content
     assert compressed_tool[0].original_token_count > 0
 
     messages = compressed.get_messages()
@@ -68,10 +67,10 @@ def test_compress_long_tool_output_then_chat(compressor):
 
 # ====== v2.0: 两阶段压缩协作 ======
 
-def test_two_stage_compression_pipeline(compressor):
+async def test_two_stage_compression_pipeline(compressor):
     """Stage 1 (Dispatcher) JSON 占位符 → Stage 2 (Compressor) key 最小化"""
     # Stage 1 产物: JSON 占位符
-    json_placeholder = '{"toolname": "read_file", "result_summary": "读取了 main.py 前200行，包含 import os, sys, json 等模块导入声明", "cache_path": "tool_cache/read_file_c1.json"}'
+    json_placeholder = '{"toolname": "read_file", "result_summary": "读取了 main.py 前200行，包含 import os, sys, json 等模块导入声明"}'
 
     blocks = [
         ContextBlock(
@@ -102,7 +101,7 @@ def test_two_stage_compression_pipeline(compressor):
         recommended_level=CompressionLevel.FROZEN.value,
     )
 
-    result = compressor.compress(ctx, pressure=0.85)
+    result = await compressor.compress(ctx, pressure=0.85)
 
     # protected 不变
     assert result.blocks[0].content == "system"
@@ -117,7 +116,7 @@ def test_two_stage_compression_pipeline(compressor):
     assert result.blocks[2].content == "帮我看一下 main.py"
 
 
-def test_compress_progressive_levels(compressor):
+async def test_compress_progressive_levels(compressor):
     """渐进压缩：FROZEN → TRIMMED → 验证各层"""
     specs = [(BlockSource.SYSTEM_PROMPT, "protected", "system")]
     specs += [(BlockSource.TOOL_RESULT, "dynamic", "tool " * 2000)]
@@ -137,23 +136,23 @@ def test_compress_progressive_levels(compressor):
     ctx = AssembledContext(meta=meta, blocks=list(blocks),
                            needs_compression=True,
                            recommended_level=CompressionLevel.FROZEN.value)
-    result = compressor.compress(ctx, pressure=0.6)
+    result = await compressor.compress(ctx, pressure=0.6)
     frozen_tools = [b for b in result.blocks if b.source == BlockSource.TOOL_RESULT]
-    assert all("工具结果已缓存" in b.content for b in frozen_tools)
+    assert all("工具结果摘要" in b.content for b in frozen_tools)
     assert all(b.original_token_count > 0 for b in frozen_tools)
 
     # Level: TRIMMED
     ctx = AssembledContext(meta=meta, blocks=list(blocks),
                            needs_compression=True,
                            recommended_level=CompressionLevel.TRIMMED.value)
-    result = compressor.compress(ctx, pressure=0.6)
+    result = await compressor.compress(ctx, pressure=0.6)
     frozen_tools = [b for b in result.blocks if b.source == BlockSource.TOOL_RESULT]
-    assert all("工具结果已缓存" in b.content for b in frozen_tools)
+    assert all("工具结果摘要" in b.content for b in frozen_tools)
 
 
 # ====== v2.0: 压缩不影响永久记忆 ======
 
-def test_compression_skips_permanent_memory_blocks(compressor):
+async def test_compression_skips_permanent_memory_blocks(compressor):
     """永久记忆在 protected zone，压缩跳过"""
     blocks = [
         ContextBlock(
@@ -175,9 +174,9 @@ def test_compression_skips_permanent_memory_blocks(compressor):
         recommended_level=CompressionLevel.FROZEN.value,
     )
 
-    result = compressor.compress(ctx, pressure=0.85)
+    result = await compressor.compress(ctx, pressure=0.85)
 
     # 永久记忆不变
     assert "关键信息" in result.blocks[0].content
     # 工具结果被压缩
-    assert "工具结果已缓存" in result.blocks[1].content
+    assert "工具结果摘要" in result.blocks[1].content

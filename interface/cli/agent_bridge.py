@@ -289,7 +289,7 @@ class AgentBridge:
             perm = mgr.read_permanent_memory()
             if perm:
                 self._context_manager.set_permanent_memory(perm)
-            idx = mgr.read()
+            idx = mgr.read_index()
             if idx:
                 self._context_manager.set_memory_index(idx)
             user_path = Path.home() / ".chacha" / "USER_MEMORY.md"
@@ -420,7 +420,7 @@ class AgentBridge:
             from core.context.memory_manager import MemoryManager
             mgr = getattr(self, '_session_memory', None) or MemoryManager(project_root=self._root)
             permanent = mgr.read_permanent_memory()
-            index = mgr.read()
+            index = mgr.read_index()
             days = mgr.list_days(limit=7)
             lines = ["--- 记忆状态 ---"]
             lines.append(f"永久记忆: {'已加载' if permanent else '无'} ({len(permanent)} 字符)")

@@ -28,13 +28,8 @@
 - 使用用户提问的语言回复
 
 ## 回复前检查
-每次回复末尾，快速自检以下场景是否发生，是则标注：
-- 用户表达了新偏好（编码风格、工具、语言等）？→ 📝 user-preferences: ...
-- 做了技术决策或命名约定？→ 📝 project-decisions: ...
-- 修复了有诊断价值的错误？→ 📝 errors-fixed: ...（含诊断-根因-解决方案）
-- 踩坑或发现反模式？→ 📝 lessons-learned: ...
-- 完成了功能/重构/里程碑？→ 📝 project-progress: ...
-无则跳过，有则一句话标注，不拘泥于格式。Agent 自动记录到 session 日志。
+有重要偏好/决策/错误修复时调用 memory 记录，无则跳过。
+记录格式: 📝 类型: 简述（如 user-preferences / project-decisions / errors-fixed / lessons-learned / project-progress）
 
 
 ## 计划与执行

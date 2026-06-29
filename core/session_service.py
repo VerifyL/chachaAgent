@@ -5,11 +5,9 @@ SessionService — 会话编排层。统一管理 session 生命周期 + 记忆 
 CLI / Web / API 前端只需调用此 service，不直接操作 MemoryManager。
 """
 
-import asyncio
-import time
 from datetime import timedelta,  datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from core.context.memory_manager import MemoryManager
 from core.project_init import ProjectInit
@@ -59,8 +57,6 @@ class SessionService:
         self.total_tokens = 0
         self.rounds = 0
         self._history: List[Dict[str, Any]] = []
-        self._dream_hints = 0
-        self._last_dream_at: Optional[float] = None
 
     # ====== Getters ======
 
@@ -93,7 +89,6 @@ class SessionService:
         self.total_tokens = 0
         self.rounds = 0
         self._history.clear()
-        self._dream_hints = 0
         return self._session_id
 
     async def switch_to(self, new_sid: str) -> str:
@@ -104,9 +99,6 @@ class SessionService:
         if new_sid == self._session_id:
             return "已经是当前 session"
 
-        # 切换前 dream 旧 session
-        await self._maybe_dream()
-
         # 切换
         self._session_id = new_sid
         self._init = ProjectInit(self._root, self._session_id)
@@ -114,7 +106,6 @@ class SessionService:
         self.total_tokens = 0
         self.rounds = 0
         self._history.clear()
-        self._dream_hints = 0
         return f"✅ 已切换到: {new_sid}"
 
     async def delete_session(self, sid: str) -> str:
@@ -177,8 +168,7 @@ class SessionService:
     # ====== 审计 ======
 
     async def add_round(self, tokens: int = 0, duration_ms: int = 0,
-                        errors=None, user_input: str = "", assistant_text: str = "",
-                        skip_memory: bool = False) -> None:
+                        errors=None) -> None:
         self.total_tokens += tokens
         self.rounds += 1
         self._history.append({
@@ -186,20 +176,6 @@ class SessionService:
             "duration_ms": duration_ms, "errors": errors or [],
             "time": datetime.now(tz=timezone(timedelta(hours=8))).isoformat(),
         })
-        # 写入记忆 / Dream / GlobalDream（由 Orchestrator 接管时可跳过）
-        if not skip_memory:
-            self._save_memory(user_input, assistant_text)
-            self._dream_hints += 1
-            await self._maybe_dream()
-            from core.context.global_dream import GlobalDream
-            gd = GlobalDream.get_instance(
-                dream_rounds=self._global_dream_rounds,
-                dream_hours=self._global_dream_hours,
-            )
-            gd.configure(llm_invoker=self._llm)
-            gd.record_round()
-            if gd.should_run() and self._llm:
-                await gd.run()
 
         # 遥测：会话统计
         tel = self._telemetry
@@ -213,7 +189,7 @@ class SessionService:
         lines = [
             f"会话: {self.current_id}",
             f"Token: {self.total_tokens} | 轮次: {self.rounds}",
-            f"记录: {len(self._history)} | Dream提示: {self._dream_hints}",
+            f"记录: {len(self._history)}",
         ]
         if self._history:
             avg = self.total_tokens // max(self.rounds, 1)
@@ -224,29 +200,10 @@ class SessionService:
 
     def status_report(self) -> str:
         return (
-            f"会话: {self.current_id}\nToken: {self.total_tokens} | 轮次: {self.rounds}\n"
-            f"Dream提示: {self._dream_hints}"
+            f"会话: {self.current_id}\nToken: {self.total_tokens} | 轮次: {self.rounds}"
         )
 
     # ====== 内部 ======
-
-    def _save_memory(self, user_input: str, assistant_text: str) -> None:
-        if not user_input and not assistant_text:
-            return
-        try:
-            entry = f"Q: {user_input.strip()[:80]}\nA: {assistant_text.strip()[:120]}"
-            self._memory.remember(entry)
-        except Exception:
-            pass
-
-    async def _maybe_dream(self) -> None:
-        rounds_ok = self._dream_hints >= self._dream_rounds
-        time_ok = (self._last_dream_at and
-                   time.time() - self._last_dream_at > self._dream_hours * 3600)
-        if (rounds_ok or time_ok) and self._llm:
-            await self.run_dream(self._session_id)
-            self._dream_hints = 0
-            self._last_dream_at = time.time()
 
     @staticmethod
     def _gen_id() -> str:

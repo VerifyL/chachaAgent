@@ -53,7 +53,7 @@ async def test_run_writes_memory_md(mgr):
     memory_md, permanent_md = await pipeline.run(mgr)
 
     assert "Prefers Python" in memory_md
-    assert "Prefers Python" in mgr.read()
+    assert "Prefers Python" in mgr.read_index()
 
 
 @pytest.mark.asyncio
@@ -236,7 +236,7 @@ def test_parse_fallback_no_markers():
 @pytest.mark.asyncio
 async def test_consolidate_with_old_memory(mgr):
     """旧 MEMORY.md 被传递给 LLM"""
-    mgr.update_index("## Old Index\n- old entry")
+    mgr.write_index("## Old Index\n- old entry")
     mgr.remember("new memory", date_str="2026-06-18")
 
     llm = MockLLM("===MEMORY_MD===\n## Updated\n- new+old\n\n===CHACHA_MEMORY_MD===")

@@ -186,47 +186,6 @@ def test_session_and_project_memory_separate(mgr, session_mgr):
     assert "session记忆" not in project_content
 
 
-# ====== v2.0: tool_cache ======
-
-def test_cache_tool_result(session_mgr):
-    """缓存工具结果到 tool_cache/"""
-    path = session_mgr.cache_tool_result(
-        tool_use_id="c1", tool_name="read_file",
-        result="print('hello')",
-    )
-    assert path.exists()
-    assert "tool_cache" in str(path)
-    import json
-    data = json.loads(path.read_text(encoding="utf-8"))
-    assert data["tool_name"] == "read_file"
-    assert data["result"] == "print('hello')"
-
-
-def test_read_cached_tool_result(session_mgr):
-    """读取缓存的工具结果"""
-    session_mgr.cache_tool_result("c1", "grep", "found: 5 matches")
-    result = session_mgr.read_cached_tool_result("grep_c1")
-    # 由于文件名含时间戳，用遍历方式查找
-    # 简化测试：确认缓存目录存在且非空
-    assert any(session_mgr.tool_cache_dir.iterdir())
-
-
-def test_cleanup_tool_cache(session_mgr):
-    """清理 tool_cache"""
-    session_mgr.cache_tool_result("c1", "read", "data")
-    session_mgr.cache_tool_result("c2", "grep", "results")
-
-    count = session_mgr.cleanup_tool_cache()
-    assert count == 2
-    assert not any(session_mgr.tool_cache_dir.iterdir())
-
-
-def test_cleanup_empty_cache_no_error(session_mgr):
-    """清理空缓存不报错"""
-    count = session_mgr.cleanup_tool_cache()
-    assert count == 0
-
-
 # ====== v2.0: prune_old_days (7天) ======
 
 def test_prune_old_days_removes_old_files(mgr):
@@ -253,9 +212,9 @@ def test_prune_old_days_keeps_recent_files(mgr):
 
 def test_prune_keeps_memory_md(mgr):
     """MEMORY.md 不被删除"""
-    mgr.update_index("## index\n- preserved")
+    mgr.write_index("## index\n- preserved")
     mgr.prune_old_days()
-    assert "preserved" in mgr.read()
+    assert "preserved" in mgr.read_index()
 
 
 def test_prune_keeps_permanent_memory(mgr):

@@ -141,34 +141,6 @@ def test_permanent_memory_shared_across_sessions():
     assert "ruff" in mgr2.read_permanent_memory()
 
 
-# ====== v2.0: tool_cache ======
-
-def test_tool_cache_write_and_read(session_mgr):
-    """缓存工具结果 → 可读取"""
-    session_mgr.cache_tool_result(
-        tool_use_id="c1", tool_name="read_file",
-        result="print('hello')",
-    )
-    session_mgr.cache_tool_result(
-        tool_use_id="c2", tool_name="grep",
-        result="found 42 matches",
-    )
-
-    # 缓存目录非空
-    files = list(session_mgr.tool_cache_dir.iterdir())
-    assert len(files) >= 2
-
-
-def test_tool_cache_cleanup(session_mgr):
-    """清理后目录为空"""
-    session_mgr.cache_tool_result("c1", "read", "data1")
-    session_mgr.cache_tool_result("c2", "grep", "data2")
-
-    count = session_mgr.cleanup_tool_cache()
-    assert count == 2
-    assert not any(session_mgr.tool_cache_dir.iterdir())
-
-
 # ====== v2.0: prune_old_days (7天) ======
 
 def test_prune_7_days_keeps_recent(session_mgr):
@@ -197,11 +169,11 @@ def test_prune_keeps_memory_and_permanent(session_mgr):
     # 通过项目级 mgr 写永久记忆
     d = session_mgr._project_dir.parents[2]  # root
     pmgr = MemoryManager(project_id="test", base_dir=d)
-    pmgr.update_index("## Index\n- preserved")
+    pmgr.write_index("## Index\n- preserved")
     pmgr.write_permanent_memory("## Permanent\n- forever")
 
     pmgr.remember("old day", date_str="2000-01-01")
     pmgr.prune_old_days()
 
-    assert "preserved" in pmgr.read()
+    assert "preserved" in pmgr.read_index()
     assert "forever" in pmgr.read_permanent_memory()

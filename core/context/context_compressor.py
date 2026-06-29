@@ -1,28 +1,27 @@
 """
 core/context/context_compressor.py
-ContextCompressor — 渐进式压缩：FROZEN → TRIMMED → SUMMARIZED。
+ContextCompressor — 渐进式压缩：FROZEN → TRIMMED → SUMMARIZED → CONSOLIDATED。
 
-v2.0 两阶段工具结果缓存:
-  Stage 1 (Dispatcher, 宽松): >10 个工具结果 → JSON 占位符 + 缓存文件
-  Stage 2 (Compressor FROZEN, 激进): JSON key 最小化 {"t":"x","s":"x","p":"x"}，
-      完整结果截断到 150 字符摘要
+v3.1: 统一压缩引擎。compress() 为唯一入口，auto_compact() 委托到 compress()。
 
-设计:
-  Level 1 FROZEN:   工具结果 → 激进占位 + 缓存文件
-  Level 2 TRIMMED:  历史消息 → 首尾裁剪
-  Level 3 SUMMARIZED: 最旧消息 → LLM 摘要
-  永不动：protected zone 所有块 + 最近 5 轮历史
+压缩级别依据 pressure（Token 窗口利用率）：
+  pressure < 0.7   → 仅 FROZEN（冻结超长工具结果）
+  pressure < 0.85  → + TRIMMED（裁剪中间，保留头尾）
+  pressure < 0.95  → + SUMMARIZED（LLM 摘要中间部分）
+  pressure >= 0.95 → + CONSOLIDATED（多轮摘要再压缩）
 
 用法:
-    compressor = ContextCompressor(llm_invoker, base_dir)
-    ctx = compressor.compress(ctx, pressure=0.85)
+    compressor = ContextCompressor(llm_invoker=llm)
+    ctx = await compressor.compress(ctx, pressure=0.85, session_id="s1")
+
+    # 便捷入口（从消息列表）
+    msgs, reason = await ContextCompressor.auto_compact(messages, context_window, ...)
 """
 
+import asyncio
 import json
 import logging
-from datetime import timedelta,  datetime, timezone
-from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Dict, List, Optional
 
 from core.models.context import (
     AssembledContext, BlockSource, CompressionLevel, ContextBlock,
@@ -31,348 +30,283 @@ from core.models.context import (
 logger = logging.getLogger(__name__)
 
 _PROTECTED_ZONE = "protected"
-_RECENT_KEEP = 5
-_CACHE_DIR = Path(".chacha_agent/tool_results")
+_DEFAULT_PRESERVE_RECENT = 5
+# 默认摘要模型
+_SUMMARY_MODEL = "deepseek-v4-flash"
 
 
 class ContextCompressor:
-    """渐进式上下文压缩器（v2.0 激进 FROZEN）"""
+    """渐进式上下文压缩器（v3.1 统一引擎）。"""
 
-    def __init__(self, llm_invoker: Optional[Any] = None, base_dir: Optional[Path] = None):
+    def __init__(
+        self,
+        llm_invoker: Optional[Any] = None,
+        *,
+        summary_model: str = _SUMMARY_MODEL,
+        preserve_recent: int = _DEFAULT_PRESERVE_RECENT,
+        tool_result_max_chars: int = 2000,
+        context_window: int = 1_048_576,
+        target_ratio: float = 0.85,
+    ):
         self._llm = llm_invoker
-        self._cache_dir = base_dir or _CACHE_DIR
-        self._cache_dir.mkdir(parents=True, exist_ok=True)
+        self._summary_model = summary_model
+        self._preserve_recent = preserve_recent
+        self._tool_result_max_chars = tool_result_max_chars
+        self._context_window = context_window
+        self._target_ratio = target_ratio
 
-    def compress(
+    # ====== 主入口 ======
+
+    async def compress(
         self,
         ctx: AssembledContext,
         pressure: float = 0.8,
         session_id: str = "",
     ) -> AssembledContext:
-        """根据 pressure 渐进压缩。返回压缩后的 AssembledContext。"""
-        level = ctx.recommended_level
-        blocks = list(ctx.blocks)
+        """渐进式压缩。pressure 越大压缩越激进。
 
-        if level in (CompressionLevel.NONE.value, "none"):
+        pressure < 0.7   → 仅 FROZEN
+        pressure < 0.85  → + TRIMMED
+        pressure < 0.95  → + SUMMARIZED
+        pressure >= 0.95 → + CONSOLIDATED
+        """
+        protected = [b for b in ctx.blocks if b.zone == _PROTECTED_ZONE]
+        dynamic = [b for b in ctx.blocks if b.zone != _PROTECTED_ZONE]
+
+        if not dynamic:
             return ctx
 
-        # Level 1: FROZEN — 激进工具结果冻结
-        if level in ("frozen", "trimmed", "summarized", "consolidated"):
-            blocks = self._freeze_tool_results(blocks, pressure, session_id)
+        # Level 1: FROZEN — 冻结超长工具结果 + JSON 占位符二次压缩
+        dynamic = self._freeze_tool_results_v2(dynamic, session_id)
 
-        # Level 2: TRIMMED — 裁剪历史消息
-        if level in ("trimmed", "summarized", "consolidated"):
-            blocks = self._trim_history(blocks, pressure)
+        if pressure < 0.7:
+            return self._rebuild(ctx, protected, dynamic)
 
-        # Level 3: SUMMARIZED — LLM 摘要
-        if level in ("summarized", "consolidated"):
-            if self._llm:
-                blocks = self._summarize_history(blocks, pressure, session_id)
-            else:
-                logger.warning("SUMMARIZED 需要 LLMInvoker，退回 TRIMMED")
-                blocks = self._trim_history(blocks, max(0.5, pressure))
+        # Level 2: TRIMMED — 裁剪中间，保留头尾（head=2 + tail=preserve_recent）
+        dynamic = self._trim_middle(dynamic)
 
-        return AssembledContext(
-            meta=ctx.meta,
-            blocks=blocks,
-            needs_compression=ctx.needs_compression,
-            recommended_level=ctx.recommended_level,
-        )
+        if pressure < 0.85:
+            return self._rebuild(ctx, protected, dynamic)
 
-    # ====== Level 1: FROZEN（激进版） ======
+        # Level 3: SUMMARIZED — LLM 摘要中间部分
+        dynamic = await self._summarize_core(dynamic, session_id)
 
-    def _freeze_tool_results(
-        self, blocks: list[ContextBlock], pressure: float, session_id: str,
-    ) -> list[ContextBlock]:
-        """v2.0 激进 FROZEN:
-        - 对已是 JSON 占位符的 → 二次压缩为最小化格式 {"t":"x","s":"x","p":"x"}
-        - 对完整工具结果 → 截断到 150 字符摘要 + 缓存
-        - protected zone 跳过
-        """
-        result: list[ContextBlock] = []
+        if pressure < 0.95:
+            return self._rebuild(ctx, protected, dynamic)
+
+        # Level 4: CONSOLIDATED — 摘要块再次压缩
+        dynamic = await self._consolidate(dynamic, session_id)
+        return self._rebuild(ctx, protected, dynamic)
+
+    # ====== Level 1: FROZEN ======
+
+    def _freeze_tool_results_v2(
+        self, blocks: List[ContextBlock], session_id: str
+    ) -> List[ContextBlock]:
+        """冻结超长工具结果：截断到阈值 + 摘要。JSON 占位符二次压缩。"""
+        result: List[ContextBlock] = []
         for b in blocks:
-            if b.zone == _PROTECTED_ZONE:
-                result.append(b)
-                continue
-
             if b.source in (BlockSource.TOOL_RESULT, str(BlockSource.TOOL_RESULT)):
-                content = b.content
-                original = content
-
-                # 已经是 Stage 1 占位符 → Stage 2 二次压缩
+                content = b.content or ""
                 if content.startswith("{") and '"toolname"' in content:
+                    # JSON 占位符 → 最小化 key
                     frozen = self._compress_json_placeholder(content, session_id)
-                else:
-                    # 完整结果 → 激进截断
+                    result.append(self._clone_block(b, frozen))
+                elif len(content) > self._tool_result_max_chars:
                     frozen = self._freeze_full_result(content, session_id)
-
-                result.append(self._clone_block(b, frozen))
+                    result.append(self._clone_block(b, frozen))
+                else:
+                    result.append(b)
             else:
                 result.append(b)
-
         return result
 
     def _compress_json_placeholder(self, content: str, session_id: str) -> str:
         """Stage 2: 将 Stage 1 的 JSON 占位符压缩为最小化格式。
 
-        Input:  {"toolname": "read", "result_summary": "读取 main.py...", "cache_path": "tool_cache/t3.json"}
-        Output: {"t":"read","s":"读取 main.py...","p":"tool_cache/t3.json"}
+        Input:  {"toolname": "read", "result_summary": "..."}
+        Output: {"t":"read","s":"..."}
         """
         try:
             data = json.loads(content)
             mini = {
                 "t": data.get("toolname", "?"),
-                "s": data.get("result_summary", "")[:80],  # 摘要截断到 80 字符
-                "p": data.get("cache_path", ""),
+                "s": data.get("result_summary", "")[:80],
             }
             return json.dumps(mini, ensure_ascii=False)
         except (json.JSONDecodeError, KeyError):
             return content[:150] + "..." if len(content) > 150 else content
 
     def _freeze_full_result(self, content: str, session_id: str) -> str:
-        """完整工具结果 → 激进截断 + 缓存。"""
+        """完整工具结果 → 截断摘要（不缓存落盘：工具结果随时变动）。"""
         summary = content[:150].replace("\n", " ").strip()
         if len(content) > 150:
-            summary += "..."
-
-        cache_path = self._cache_result(content, session_id)
-        return (
-            f"[工具结果已缓存: {cache_path.name}]\n"
-            f"摘要: {summary}"
-        )
+            summary += f"... (总计 {len(content)} 字符)"
+        return f"[工具结果摘要] {summary}"
 
     # ====== Level 2: TRIMMED ======
 
-    def _trim_history(
-        self, blocks: list[ContextBlock], pressure: float,
-    ) -> list[ContextBlock]:
-        """裁剪旧历史消息。最近 _RECENT_KEEP 个保持完整。"""
-        history_blocks = [(i, b) for i, b in enumerate(blocks)
-                          if b.source in (BlockSource.HISTORY, str(BlockSource.HISTORY))
-                          and b.zone != _PROTECTED_ZONE]
+    def _trim_middle(self, blocks: List[ContextBlock]) -> List[ContextBlock]:
+        """裁剪中间消息，保留 HEAD(前2) + TAIL(最近 preserve_recent)。"""
+        head_count = 2
+        tail_count = self._preserve_recent
 
-        if len(history_blocks) <= _RECENT_KEEP:
+        if len(blocks) <= head_count + tail_count:
             return blocks
 
-        # 需要裁剪的旧块数量
-        to_trim = history_blocks[:-_RECENT_KEEP]
-        result = list(blocks)
-
-        for idx, b in to_trim:
-            content = b.content
-            keep_chars = max(100, int(len(content) * max(0.1, 1 - pressure)))
-            head = content[:keep_chars // 2]
-            tail = content[-keep_chars // 2:] if len(content) > keep_chars else ""
-            new_content = f"{head}\n...[截断]...\n{tail}" if tail else f"{head}\n...[截断]..."
-
-            result[idx] = self._clone_block(b, new_content)
-
-        return result
+        head = blocks[:head_count]
+        tail = blocks[-tail_count:]
+        marker = ContextBlock(
+            source=BlockSource.HISTORY,
+            role="system",
+            content=f"……(中间 {len(blocks) - head_count - tail_count} 条消息已裁剪)……",
+            zone="dynamic",
+            priority=50,
+            compression_level=CompressionLevel.TRIMMED,
+            token_count=10,
+        )
+        return head + [marker] + tail
 
     # ====== Level 3: SUMMARIZED ======
 
-    async def _summarize_async(self, old_content: str) -> str:
-        if not self._llm:
-            return old_content[:200] + "..."
-        resp = await self._llm.invoke(
-            messages=[
-                {"role": "system", "content": "Summarize this conversation in 2-3 sentences in the original language."},
-                {"role": "user", "content": old_content},
-            ],
-            session_id="compression-summary",
-        )
-        return resp.text.strip()
+    async def _summarize_core(
+        self, blocks: List[ContextBlock], session_id: str
+    ) -> List[ContextBlock]:
+        """HEAD + LLM摘要(CORE) + TAIL。"""
+        head_count = 2
+        tail_count = self._preserve_recent
 
-    def _summarize_history(
-        self, blocks: list[ContextBlock], pressure: float, session_id: str,
-    ) -> list[ContextBlock]:
-        mark_old = self._mark_old_blocks(blocks)
-        return mark_old
-
-    def _mark_old_blocks(self, blocks: list[ContextBlock]) -> list[ContextBlock]:
-        history_blocks = [(i, b) for i, b in enumerate(blocks)
-                          if b.source in (BlockSource.HISTORY, str(BlockSource.HISTORY))]
-        if len(history_blocks) <= _RECENT_KEEP:
+        if len(blocks) <= head_count + tail_count:
             return blocks
 
-        old_indices = {i for i, _ in history_blocks[:-_RECENT_KEEP]}
-        result: list[ContextBlock] = []
-        for i, b in enumerate(blocks):
-            if b.zone == _PROTECTED_ZONE or i not in old_indices:
-                result.append(b)
-            else:
-                result.append(self._clone_block(b, f"[待LLM摘要: {len(b.content)} 字符]"))
-        return result
+        head = blocks[:head_count]
+        tail = blocks[-tail_count:]
+        core = blocks[head_count:-tail_count]
 
-    async def summarize_old_blocks(self, blocks: list[ContextBlock]) -> list[ContextBlock]:
-        if not self._llm:
+        if not core:
             return blocks
-        result: list[ContextBlock] = []
-        for b in blocks:
-            if b.content.startswith("[待LLM摘要:"):
-                summary = await self._summarize_async(b.content)
-                result.append(self._clone_block(b, f"[摘要] {summary}"))
-            else:
-                result.append(b)
-        return result
 
-    # ====== 工具 ======
+        # 构建 CORE 文本
+        core_text_parts = []
+        for b in core:
+            role = b.role or "unknown"
+            content = (b.content or "")[:300]
+            if content.strip():
+                core_text_parts.append(f"[{role}] {content}")
+        core_text = "\n".join(core_text_parts)
 
-    def _cache_result(self, content: str, session_id: str) -> Path:
-        ts = datetime.now(tz=timezone(timedelta(hours=8))).strftime("%Y%m%d_%H%M%S_%f")
-        path = self._cache_dir / f"{session_id}_{ts}.txt"
-        path.write_text(content, encoding="utf-8")
-        return path
+        # LLM 摘要（带容错降级）
+        summary = await self._llm_summarize(core_text, session_id)
 
-    # ====== 消息估算 & 三层压缩（供 CLI 调用） ======
-
-    @staticmethod
-    def estimate_tokens(messages: list) -> int:
-        """估算消息列表的 token 数（中英混合 ≈ 2.5 char/token）。"""
-        import json
-        total = sum(len(json.dumps(m, ensure_ascii=False)) for m in messages)
-        return int(total / 2.5)
-
-    @staticmethod
-    def auto_compact(
-        messages: list,
-        context_window: int,
-        *,
-        llm=None,
-        trigger_ratio: float = 0.7,
-        warn_ratio: float = 0.9,
-        frozen_keep: int = 5,
-        trim_head: int = 5,
-        trim_tail: int = 12,
-        summary_head: int = 3,
-        summary_tail: int = 8,
-        cache_dir=None,
-    ) -> tuple[list, str]:
-        """全自动压缩：判断 → 执行 → (压缩后消息, 理由)。不达阈值直接返回 (原消息, "")。"""
-        est = ContextCompressor.estimate_tokens(messages)
-        pct = est / context_window
-
-        if pct >= warn_ratio:
-            reason = f"⚠ {est//1000}K token ({int(pct*100)}% 窗口)"
-        elif pct >= trigger_ratio:
-            reason = f"压缩 {int(pct*100)}% 窗口"
-        else:
-            return messages, ""
-
-        compressed = ContextCompressor.smart_compact_messages(
-            messages, context_window, llm=llm,
-            frozen_keep=frozen_keep, trim_head=trim_head, trim_tail=trim_tail,
-            summary_head=summary_head, summary_tail=summary_tail,
-            cache_dir=cache_dir,
+        summary_block = ContextBlock(
+            source=BlockSource.HISTORY,
+            role="system",
+            content=f"[历史上下文摘要]\n{summary}",
+            zone="dynamic",
+            priority=50,
+            compression_level=CompressionLevel.SUMMARIZED,
+            token_count=len(summary) // 3 if summary else 10,
         )
-        return compressed, reason
+        return head + [summary_block] + tail
 
-    @staticmethod
-    def smart_compact_messages(
-        messages: list,
-        context_window: int,
-        llm=None,
-        *,
-        trigger_ratio: float = 0.7,
-        frozen_keep: int = 5,
-        trim_head: int = 5,
-        trim_tail: int = 12,
-        summary_head: int = 3,
-        summary_tail: int = 8,
-        cache_dir=None,
-    ) -> list:
-        """三层渐进压缩到 < trigger_ratio 窗口。
-        
-        参数可通过 ContextConfig 传入（config.toml context.xxx 配置）。
-        """
-        msgs = list(messages)
-        target = int(context_window * trigger_ratio)
+    async def _llm_summarize(self, text: str, session_id: str) -> str:
+        """调用 LLM 摘要，失败时退回纯规则。"""
+        if not self._llm or not text.strip():
+            return self._rule_summarize(text)
 
-        while ContextCompressor.estimate_tokens(msgs) > target and len(msgs) > 5:
-            # ── Level 1: FROZEN ──
-            tool_indices = [i for i, m in enumerate(msgs) if m.get("role") == "tool"]
-            if tool_indices and len(tool_indices) > frozen_keep:
-                freeze_idx = tool_indices[0]
-                original = msgs[freeze_idx]
-                preview = str(original.get("content", ""))[:80].split("\n")[0]
-                # 落盘缓存
-                raw_content = str(original.get("content", ""))
-                cache_path = ""
-                if cache_dir and raw_content:
-                    from pathlib import Path
-                    cache_dir_p = Path(cache_dir)
-                    cache_dir_p.mkdir(parents=True, exist_ok=True)
-                    ts = datetime.now(tz=timezone(timedelta(hours=8))).strftime("%Y%m%d_%H%M%S_%f")
-                    cache_file = cache_dir_p / f"tool_cache_{ts}.txt"
-                    cache_file.write_text(raw_content, encoding="utf-8")
-                    cache_path = cache_file.name
-                placeholder = f"[{preview}...]\n[工具结果已缓存: {cache_path}]" if cache_path else f"[{preview}...]\n[工具结果已缓存]"
-                msgs[freeze_idx] = dict(original, content=placeholder)
-                continue
-
-            # ── Level 2: TRIMMED ──
-            n = len(msgs)
-            trim_cutoff = 1 + trim_head + trim_tail  # system + head + tail
-            if n > trim_cutoff:
-                head = msgs[:1 + trim_head]   # system + head 条
-                tail = msgs[-trim_tail:]       # tail 条
-                head[-1] = dict(head[-1], content="……(中间对话已裁剪)……")
-                msgs = head + tail
-                continue
-
-            # ── Level 3: SUMMARIZED ──
-            summary_cutoff = 1 + summary_head + summary_tail
-            if n > summary_cutoff:
-                head = msgs[:1 + summary_head]
-                middle = msgs[1 + summary_head:-summary_tail]
-                tail = msgs[-summary_tail:]
-
-                old_content = ""
-                for m in middle:
-                    role = m.get("role", "")
-                    content = str(m.get("content", ""))[:150]
-                    if content:
-                        old_content += f"[{role}] {content}\n"
-
-                if llm and old_content.strip():
-                    try:
-                        import asyncio
-                        summary = asyncio.run(
-                            ContextCompressor._summarize_block(llm, old_content)
-                        )
-                        msgs = head + [
-                            {"role": "user", "content": f"[历史摘要] {summary}"},
-                        ] + tail
-                        continue
-                    except RuntimeError:
-                        pass  # 已在 async 上下文中，跳过摘要，降级为裁剪
-                    head[-1] = dict(head[-1], content="……(中间对话已裁剪)……")
-                    msgs = head + tail
-                else:
-                    head[-1] = dict(head[-1], content="……(中间对话已裁剪)……")
-                    msgs = head + tail
-                continue
-
-            break
-
-        return msgs
-
-    @staticmethod
-    async def _summarize_block(llm, text: str) -> str:
-        """LLM 摘要一段对话。"""
         try:
-            resp = await llm.invoke(
-                messages=[
-                    {"role": "system",
-                     "content": "将对话历史压缩为 1-3 句摘要，保留关键决策、代码变更和用户偏好。"},
-                    {"role": "user", "content": text},
-                ],
-                session_id="compact-summary",
+            resp = await asyncio.wait_for(
+                self._llm.invoke(
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": (
+                                "将以下对话历史压缩为 2-5 句摘要。"
+                                "保留：用户意图、关键决策、代码变更、工具调用及结果核心内容。"
+                                "使用原文语言。"
+                            ),
+                        },
+                        {"role": "user", "content": text},
+                    ],
+                    session_id=f"{session_id}-compression",
+                ),
+                timeout=10.0,
             )
-            summary = resp.text.strip()[:200]
-            return summary if summary else text[:80]
-        except Exception:
-            return text[:80]
+            summary = resp.text.strip()[:500]
+            return summary if summary else self._rule_summarize(text)
+        except asyncio.TimeoutError:
+            logger.warning("LLM 摘要超时，退回规则摘要")
+            return self._rule_summarize(text)
+        except Exception as e:
+            logger.warning("LLM 摘要失败: %s，退回规则摘要", e)
+            return self._rule_summarize(text)
+
+    @staticmethod
+    def _rule_summarize(text: str) -> str:
+        """纯规则摘要：取每行前 60 字符，最多 10 行。"""
+        lines = text.strip().split("\n")[:10]
+        return "\n".join(line[:60] for line in lines if line.strip())
+
+    # ====== Level 4: CONSOLIDATED ======
+
+    async def _consolidate(
+        self, blocks: List[ContextBlock], session_id: str
+    ) -> List[ContextBlock]:
+        """多轮摘要再压缩：将所有 SUMMARIZED 块合并为一条 LLM 摘要。"""
+        summary_blocks = [
+            b for b in blocks
+            if b.compression_level in (CompressionLevel.SUMMARIZED, "summarized")
+        ]
+        other_blocks = [
+            b for b in blocks
+            if b.compression_level not in (CompressionLevel.SUMMARIZED, "summarized")
+        ]
+
+        if len(summary_blocks) <= 1:
+            # 单条摘要降级为更激进裁剪
+            return self._trim_middle(blocks)
+
+        # 合并所有摘要块
+        combined = "\n---\n".join(b.content or "" for b in summary_blocks)
+        new_summary = await self._llm_summarize(combined, session_id)
+
+        merged = ContextBlock(
+            source=BlockSource.HISTORY,
+            role="system",
+            content=f"[合并历史摘要]\n{new_summary}",
+            zone="dynamic",
+            priority=50,
+            compression_level=CompressionLevel.CONSOLIDATED,
+            token_count=len(new_summary) // 3,
+        )
+        return other_blocks + [merged]
+
+    # ====== 重建 & 工具 ======
+
+    def _rebuild(
+        self,
+        ctx: AssembledContext,
+        protected: List[ContextBlock],
+        dynamic: List[ContextBlock],
+    ) -> AssembledContext:
+        """重组 AssembledContext，重新分配 priority。
+        
+        使用 model_copy 而非直接赋值，因为 ContextBlock 是 frozen Pydantic model。
+        """
+        new_blocks: List[ContextBlock] = []
+        for i, b in enumerate(protected + dynamic):
+            if b.zone != _PROTECTED_ZONE and b.priority != 100 + i:
+                new_blocks.append(b.model_copy(update={"priority": 100 + i}))
+            else:
+                new_blocks.append(b)
+
+        total_tokens = sum(b.token_count or 0 for b in new_blocks)
+        return AssembledContext(
+            meta=ctx.meta,
+            blocks=new_blocks,
+            needs_compression=total_tokens > int(self._target_ratio * self._context_window),
+            recommended_level=ctx.recommended_level,
+        )
 
     @staticmethod
     def _clone_block(b: ContextBlock, new_content: str) -> ContextBlock:
@@ -385,3 +319,106 @@ class ContextCompressor:
             frozen_kept_lines=b.frozen_kept_lines,
             frozen_total_lines=b.frozen_total_lines,
         )
+
+    # ====== 消息估算 & 便捷入口 ======
+
+    @staticmethod
+    def estimate_tokens(messages: list) -> int:
+        """估算消息列表的 token 数（中英混合 ≈ 2.5 char/token）。"""
+        total = sum(len(json.dumps(m, ensure_ascii=False)) for m in messages)
+        return int(total / 2.5)
+
+    @staticmethod
+    async def auto_compact(
+        messages: list,
+        context_window: int,
+        *,
+        llm=None,
+        trigger_ratio: float = 0.7,
+        warn_ratio: float = 0.9,
+        frozen_keep: int = 5,
+        trim_head: int = 5,
+        trim_tail: int = 12,
+        summary_head: int = 3,
+        summary_tail: int = 8,
+        **kwargs,
+    ) -> tuple:
+        """全自动压缩：判断 → dict→AssembledContext→compress()→dict。
+
+        返回 (压缩后消息列表, 原因字符串)。不达阈值返回 (原消息, "")。
+        已废弃的内部参数（frozen_keep/trim_head/summary_head/summary_tail）保留兼容。
+        """
+        est = ContextCompressor.estimate_tokens(messages)
+        pct = est / context_window if context_window else 0
+
+        if pct >= warn_ratio:
+            reason = f"⚠ {est//1000}K token ({int(pct*100)}% 窗口)"
+        elif pct >= trigger_ratio:
+            reason = f"压缩 {int(pct*100)}% 窗口"
+        else:
+            return messages, ""
+
+        # messages → AssembledContext（简化版，无 ContextManager）
+        ctx = ContextCompressor._messages_to_ctx(messages)
+
+        # compress
+        compressor = ContextCompressor(
+            llm_invoker=llm,
+            context_window=context_window,
+            preserve_recent=trim_tail,
+        )
+        ctx = await compressor.compress(ctx, pressure=pct, session_id="auto-compact")
+
+        # AssembledContext → messages
+        new_messages = ContextCompressor._ctx_to_messages(ctx)
+        return new_messages, reason
+
+    @staticmethod
+    def _messages_to_ctx(messages: list) -> AssembledContext:
+        """从消息 dict 列表构建简化 AssembledContext（供 auto_compact 使用）。"""
+        blocks: List[ContextBlock] = []
+
+        for i, m in enumerate(messages):
+            role = m.get("role", "")
+            content = str(m.get("content", "") or "")
+            tool_calls = m.get("tool_calls")
+
+            if role == "system":
+                blocks.append(ContextBlock(
+                    source=BlockSource.SYSTEM_PROMPT, role="system",
+                    content=content, zone="protected", priority=i,
+                    token_count=len(content) // 3,
+                ))
+            elif role == "tool":
+                blocks.append(ContextBlock(
+                    source=BlockSource.TOOL_RESULT, role="tool",
+                    content=content, zone="dynamic", priority=100 + i,
+                    token_count=len(content) // 3,
+                ))
+            elif role == "user":
+                blocks.append(ContextBlock(
+                    source=BlockSource.HISTORY, role="user",
+                    content=content, zone="dynamic", priority=100 + i,
+                    token_count=len(content) // 3,
+                ))
+            elif role == "assistant":
+                blocks.append(ContextBlock(
+                    source=BlockSource.HISTORY, role="assistant",
+                    content=content, zone="dynamic", priority=100 + i,
+                    token_count=len(content) // 3,
+                ))
+                if tool_calls:
+                    if not hasattr(blocks[-1], '_extra') or blocks[-1]._extra is None:
+                        blocks[-1]._extra = {}
+                    blocks[-1]._extra["tool_calls"] = tool_calls
+
+        total_tokens = sum(b.token_count or 0 for b in blocks)
+        from core.models.context import ContextAssemblyMeta
+        meta = ContextAssemblyMeta(total_tokens=total_tokens, trigger="auto_compact")
+        return AssembledContext(meta=meta, blocks=blocks, needs_compression=True)
+
+    @staticmethod
+    def _ctx_to_messages(ctx: AssembledContext) -> list:
+        """从 AssembledContext 构建消息 dict 列表。"""
+        from core.context_manager import ContextManager
+        return ContextManager.blocks_to_messages(ctx)

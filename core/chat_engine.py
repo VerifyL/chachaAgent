@@ -12,7 +12,6 @@ from typing import Any, AsyncIterator, Dict, List, Optional
 
 from core.llm_invoker import LLMInvoker
 from core.dispatcher import Dispatcher
-from core.context.context_compressor import ContextCompressor
 from core.tool_executor import ToolExecutor
 
 logger = logging.getLogger(__name__)
@@ -85,7 +84,7 @@ class ChatEngine:
             from pathlib import Path
             try:
                 mgr = MemoryManager(project_root=self._project_root)
-                idx = mgr.read()
+                idx = mgr.read_index()
                 if idx:
                     self._cm.set_memory_index(idx)
                 perm = mgr.read_permanent_memory()
@@ -102,65 +101,26 @@ class ChatEngine:
         if not self._checkpoint_dir:
             return
 
-        # 优先 CheckpointManager 格式
         if self._checkpoint_mgr and self._session_id:
             try:
-                state = self._checkpoint_mgr.restore(self._session_id)
-                if state:
-                    msgs = state.get_messages_for_llm()
-                    self._messages = [
-                        m for m in msgs if m.get("role") != "tool"
-                    ]
-                    for m in self._messages:
-                        m.pop("tool_calls", None)
+                msgs = self._checkpoint_mgr.restore(self._session_id)
+                if msgs:
+                    self._messages = msgs
                     return
-            except Exception:
-                pass
-
-        # 回退旧格式 checkpoint.json
-        cp = self._checkpoint_dir / "checkpoint.json"
-        if cp.exists():
-            try:
-                msgs = json.loads(cp.read_text(encoding="utf-8"))
-                if msgs and msgs[-1].get("role") == "assistant" and msgs[-1].get("tool_calls"):
-                    msgs[-1] = {"role": "assistant", "content": "[会话已恢复，工具结果已清理]"}
-                self._messages = msgs
             except Exception:
                 pass
 
     def save_checkpoint(self) -> None:
         if not self._checkpoint_dir:
             return
-        # CheckpointManager 格式（新）
         if self._checkpoint_mgr and self._session_id:
             try:
-                from core.context_manager import ContextManager
-                from core.models.session import SessionMetadata
-                state = ContextManager.messages_to_state(
+                self._checkpoint_mgr.save(
                     self._messages,
                     session_id=self._session_id,
                 )
-                self._checkpoint_mgr.save(state)
-                return
             except Exception:
                 pass
-
-        # 回退旧格式 checkpoint.json
-        try:
-            trimmed = []
-            for m in self._messages:
-                role = m.get("role")
-                if role == "tool":
-                    continue
-                if role == "assistant" and m.get("tool_calls"):
-                    continue
-                entry = dict(m)
-                entry.pop("reasoning_content", None)
-                trimmed.append(entry)
-            cp = self._checkpoint_dir / "checkpoint.json"
-            cp.write_text(json.dumps(trimmed, ensure_ascii=False, indent=2), encoding="utf-8")
-        except Exception:
-            pass
 
     # ====== 发送消息 ======
 

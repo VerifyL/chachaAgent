@@ -42,7 +42,6 @@ class MockReadFileClient:
 class MockMemoryTracker:
     def __init__(self):
         self.remembered_entries: list[str] = []
-        self.cleaned_up = False
         self.dream_recorded = False
 
     def remember(self, content: str, date_str=None):
@@ -50,9 +49,6 @@ class MockMemoryTracker:
         from pathlib import Path
         return Path("/fake")
 
-    def cleanup_tool_cache(self) -> int:
-        self.cleaned_up = True
-        return 3
 
     def read_permanent_memory(self) -> str:
         return ""
@@ -166,8 +162,8 @@ async def test_session_memory_saved_on_final_answer():
 
 @pytest.mark.skip(reason="run() removed in v2.1")
 @pytest.mark.asyncio
-async def test_tool_cache_cleaned_on_session_end():
-    """会话结束时 tool_cache 被清理"""
+async def test_end_session_cleanup_via_run():
+    """run() 正常结束后 DreamPipeline 被记录。"""
     memory = MockMemoryTracker()
 
     class SimpleTextClient:
@@ -181,9 +177,17 @@ async def test_tool_cache_cleaned_on_session_end():
         llm_invoker=llm,
         memory_manager=memory,
     )
+    # 注入 Dream mock
+    class FakeDream:
+        recorded = False
+        should = False
+        def record_session(self): self.recorded = True
+        def should_run(self): return self.should
+        async def run(self, mem): pass
+    orch._dream = FakeDream()
 
     await orch.run("hello", session_id="s-clean")
-    assert memory.cleaned_up is True
+    assert orch._dream.recorded is True
 
 
 # ====== v2.0: DreamPipeline ======

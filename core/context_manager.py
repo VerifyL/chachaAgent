@@ -139,7 +139,7 @@ class ContextManager:
         if permanent:
             sections.append(f"--- 项目永久记忆 ---\n{permanent}")
         if mgr.session_dir:
-            memory_index = mgr.read()
+            memory_index = mgr.read_index()
             if memory_index:
                 sections.append(f"--- 记忆索引 ---\n{memory_index}")
 
@@ -399,9 +399,198 @@ class ContextManager:
         cm: "ContextManager",
         **kwargs,
     ) -> AssembledContext:
-        """快捷：消息列表 → assemble()"""
-        state = ContextManager.messages_to_state(messages)
-        return cm.assemble(state, **kwargs)
+        """消息列表 → assemble()（保留兼容）。新代码请用 assemble_from_messages_direct()。"""
+        return ContextManager.assemble_from_messages_direct(messages, cm, **kwargs)
+
+    @staticmethod
+    def assemble_from_messages_direct(
+        messages: List[Dict[str, Any]],
+        cm: "ContextManager",
+        additional_contexts: Optional[List[ContextBlock]] = None,
+        **kwargs,
+    ) -> AssembledContext:
+        """直接从消息 dict 列表构建 AssembledContext，跳过 ConversationState 往返。
+
+        与 assemble() 产出相同，但绕过 events 中间态，减少转换损耗。
+        cm 为 None 时跳过 protected zone 构建（用于 auto_compact 等场景）。
+        """
+        import json
+
+        blocks: List[ContextBlock] = []
+
+        # ==================== protected zone（与 assemble() 一致）====================
+
+        # 1. System Prompt + CHACHA.md 合并为一条
+        system_text = cm._system_prompt
+        rules = kwargs.get("static_rules") or cm._static_rules
+        if rules:
+            system_text += f"\n\n{rules}"
+        blocks.append(cm._cached_block(
+            BlockSource.SYSTEM_PROMPT, "system", system_text,
+            zone="protected", priority=0, importance=1.0, ttl=600,
+        ))
+
+        # 2. USER_MEMORY.md 用户级永久记忆
+        if cm._global_permanent_memory:
+            blocks.append(cm._cached_block(
+                BlockSource.STATIC_RULE, "system",
+                f"[Global Permanent Memory]\n{cm._global_permanent_memory}",
+                zone="protected", priority=1, importance=0.92, ttl=300,
+            ))
+
+        # 3. CHACHA_MEMORY.md 项目永久记忆
+        if cm._permanent_memory:
+            blocks.append(cm._cached_block(
+                BlockSource.STATIC_RULE, "system",
+                f"[Permanent Memory]\n{cm._permanent_memory}",
+                zone="protected", priority=2, importance=0.9, ttl=300,
+            ))
+
+        # 4. SKILLS / Tool schemas
+        skill_content = kwargs.get("skills") or cm._skills
+        if skill_content:
+            blocks.append(cm._cached_block(
+                BlockSource.SKILL, "system", skill_content,
+                zone="protected", priority=3, importance=0.85, ttl=1200,
+            ))
+
+        protected_count = len(blocks)
+
+        # ==================== dynamic zone ====================
+
+        # 5. MEMORY.md 轻量索引
+        memory_content = kwargs.get("memory_content") or cm._memory_index
+        if memory_content:
+            blocks.append(ContextBlock(
+                source=BlockSource.MEMORY, role="system",
+                content=f"[Memory Index]\n{memory_content}",
+                zone="dynamic", priority=10, importance=0.7,
+                token_count=cm._estimate_tokens(memory_content),
+            ))
+
+        # 6. 今日会话记忆
+        if cm._session_memory:
+            blocks.append(ContextBlock(
+                source=BlockSource.MEMORY, role="system",
+                content=f"[Today's Session Memory]\n{cm._session_memory}",
+                zone="dynamic", priority=9, importance=0.6,
+                token_count=cm._estimate_tokens(cm._session_memory),
+            ))
+
+        # 7. 对话历史（直接遍历 dict，跳过已有 protected）
+        skipped_system = False
+        for i, m in enumerate(messages):
+            role = m.get("role", "")
+            content = m.get("content", "") or ""
+
+            if role == "system":
+                if not skipped_system:
+                    skipped_system = True
+                    continue  # 跳过第一条 system（已被 protected 替代）
+                # 后续 system 消息保留
+                blocks.append(ContextBlock(
+                    source=BlockSource.HISTORY, role="system", content=str(content),
+                    zone="dynamic", priority=100 + i,
+                    importance=cm._history_importance(i),
+                    token_count=cm._estimate_tokens(str(content)),
+                ))
+            elif role == "user":
+                blocks.append(ContextBlock(
+                    source=BlockSource.HISTORY, role="user", content=str(content),
+                    zone="dynamic", priority=100 + i,
+                    importance=cm._history_importance(i),
+                    token_count=cm._estimate_tokens(str(content)),
+                ))
+            elif role == "assistant":
+                tool_calls = m.get("tool_calls")
+                if tool_calls:
+                    # 工具调用：存到 _extra 供 blocks_to_messages 恢复
+                    tc_text = ""
+                    for tc in tool_calls:
+                        fn = tc.get("function", {})
+                        tc_text += f"[Tool Call: {fn.get('name', '?')}({fn.get('arguments', '{}')})] "
+                    blocks.append(ContextBlock(
+                        source=BlockSource.HISTORY, role="assistant",
+                        content=str(content) if content else tc_text.strip(),
+                        zone="dynamic", priority=100 + i,
+                        importance=cm._history_importance(i),
+                        token_count=cm._estimate_tokens(str(content) + tc_text),
+                    ))
+                    # 注入 _extra 保留 tool_calls
+                    if not hasattr(blocks[-1], '_extra') or blocks[-1]._extra is None:
+                        blocks[-1]._extra = {}
+                    blocks[-1]._extra["tool_calls"] = tool_calls
+                elif content:
+                    blocks.append(ContextBlock(
+                        source=BlockSource.HISTORY, role="assistant", content=str(content),
+                        zone="dynamic", priority=100 + i,
+                        importance=cm._history_importance(i),
+                        token_count=cm._estimate_tokens(str(content)),
+                    ))
+            elif role == "tool":
+                blocks.append(ContextBlock(
+                    source=BlockSource.TOOL_RESULT, role="tool", content=str(content),
+                    zone="dynamic", priority=100 + i, importance=0.5,
+                    token_count=cm._estimate_tokens(str(content)),
+                ))
+
+        # 8. RAG / SubAgent / 钩子注入
+        if additional_contexts:
+            blocks.extend(additional_contexts)
+
+        # ---- 计算统计 ----
+        total_tokens = sum(b.token_count for b in blocks)
+        protected_tokens = sum(b.token_count for b in blocks[:protected_count])
+        dynamic_tokens = total_tokens - protected_tokens
+        budget = cm._budget or 128000
+        utilization = total_tokens / budget if budget > 0 else 0
+        pressure = min(1.0, utilization * 1.25)
+
+        # Token 预算条
+        budget_hint = (
+            f"[Token Budget] 总预算: {budget} | 已用: {total_tokens} "
+            f"({utilization:.0%}) | 剩余: {budget - total_tokens} | 压力: {pressure:.0%}"
+        )
+        blocks.append(ContextBlock(
+            source=BlockSource.ADDITIONAL_CONTEXT, role="system",
+            content=budget_hint, zone="dynamic", priority=999,
+            importance=0.1, token_count=0,
+        ))
+
+        needs_compression = utilization > cm._trigger_ratio
+        recommended = cm._recommend_compression(pressure)
+
+        meta = ContextAssemblyMeta(
+            total_tokens=total_tokens,
+            budget_per_request=budget,
+            utilization_ratio=round(utilization, 4),
+            compression_pressure=round(pressure, 4),
+            trigger=TriggerReason.THRESHOLD.value if needs_compression else TriggerReason.NONE.value,
+            protected_tokens=protected_tokens,
+            dynamic_tokens=dynamic_tokens,
+            reasoning_budget_tokens=0,
+            reasoning_tokens_used=0,
+            blocks_by_source=cm._count_by_source(blocks),
+        )
+
+        ctx = AssembledContext(
+            meta=meta, blocks=blocks,
+            needs_compression=needs_compression,
+            recommended_level=recommended,
+        )
+
+        if cm._telemetry and cm._telemetry.agent:
+            cm._telemetry.agent.record_context(
+                total_tokens=total_tokens,
+                utilization=utilization,
+                compression_triggered=needs_compression,
+            )
+
+        logger.debug(
+            "上下文组装完成(direct): %d blocks, %d tokens (利用率 %.1f%%, 压缩=%s)",
+            len(blocks), total_tokens, utilization * 100, needs_compression,
+        )
+        return ctx
 
     @staticmethod
     def _estimate_tokens(text: str) -> int:

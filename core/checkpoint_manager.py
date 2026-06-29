@@ -3,27 +3,22 @@ core/checkpoint_manager.py
 CheckpointManager — 会话检查点保存与恢复。
 
 设计理念：
-1. 全量保存：ConversationState JSON 完整序列化（events + metadata + loop_state）
-2. 文件级快照：{dir}/{session_id}/{checkpoint_id}.json
-3. 恢复：加载指定或最新检查点 → model_validate_json() → ConversationState
+1. 轻量保存：消息 dict 列表直接 JSON 序列化，不再经过 ConversationState
+2. 文件级快照：{dir}/{session_id}/checkpoint.json
+3. 恢复：直接返回 List[dict]，可直接喂给 LLM
 4. 清理：purge() 删除 N 小时前的旧检查点
 
 用法:
     mgr = CheckpointManager()
-    await mgr.save(state, "用户手动保存")
-    state = await mgr.restore("session-abc")
+    mgr.save(messages, session_id="session-abc", description="手动保存")
+    messages = mgr.restore("session-abc")
 """
 
 import json
 import logging
-import os
-from datetime import timedelta,  datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional
-
-from core.models.session import (
-    ConversationState, SessionCheckpoint, SessionMetadata,
-)
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -40,58 +35,58 @@ class CheckpointManager:
 
     def save(
         self,
-        state: ConversationState,
+        messages: List[Dict[str, Any]],
+        session_id: str,
         description: Optional[str] = None,
-    ) -> SessionCheckpoint:
-        """保存当前会话状态为检查点。
+    ) -> None:
+        """保存消息列表为检查点。
 
-        返回创建的 SessionCheckpoint 对象。
+        Args:
+            messages: 消息 dict 列表 (role/content 格式)
+            session_id: 会话 ID
+            description: 保存原因/标签
         """
-        sid = state.metadata.session_id
-        event_index = len(state.events)
-
-        cp = SessionCheckpoint(
-            description=description,
-            event_index=event_index,
-            metadata_snapshot=state.metadata,
-            loop_state_snapshot=state.loop_state,
-        )
-
-        # 写入文件（每 session 仅保留一个，同名覆盖）
-        cp_dir = self._dir / sid
+        cp_dir = self._dir / session_id
         cp_dir.mkdir(parents=True, exist_ok=True)
-        cp_path = cp_dir / "checkpoint.json"
 
-        data = state.model_dump(mode="json")
+        # 过滤：去掉 tool 消息、tool_calls、reasoning_content
+        trimmed = []
+        for m in messages:
+            role = m.get("role")
+            if role == "tool":
+                continue
+            entry = {k: v for k, v in m.items()
+                     if k not in ("tool_calls", "reasoning_content")}
+            trimmed.append(entry)
+
+        data = {
+            "session_id": session_id,
+            "saved_at": datetime.now(tz=timezone(timedelta(hours=8))).isoformat(),
+            "description": description,
+            "message_count": len(trimmed),
+            "messages": trimmed,
+        }
+
+        cp_path = cp_dir / "checkpoint.json"
         cp_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
-        # 追加到 state 的检查点列表
-        state.checkpoints.append(cp)
-
-        logger.info("检查点已保存: %s (events=%d)", cp_path, event_index)
-        return cp
+        logger.info("检查点已保存: %s (messages=%d)", cp_path, len(trimmed))
 
     # ====== 恢复 ======
 
     def restore(
         self,
         session_id: str,
-        checkpoint_id: Optional[str] = None,
-    ) -> Optional[ConversationState]:
-        """恢复会话。
+    ) -> Optional[List[Dict[str, Any]]]:
+        """恢复会话的消息列表。
 
-        checkpoint_id=None 时恢复最新检查点。
         返回 None 表示无可用检查点。
         """
         cp_dir = self._dir / session_id
-
-        if checkpoint_id:
-            cp_path = cp_dir / f"{checkpoint_id}.json"
-        else:
-            cp_path = self._latest(cp_dir)
+        cp_path = self._latest(cp_dir)
 
         if not cp_path or not cp_path.exists():
-            logger.warning("检查点不存在: %s", cp_path)
+            logger.warning("检查点不存在: session=%s", session_id)
             return None
 
         try:
@@ -100,14 +95,14 @@ class CheckpointManager:
             logger.error("检查点文件损坏: %s", cp_path)
             return None
 
-        state = ConversationState.model_validate(data)
-        logger.info("会话已恢复: %s (events=%d)", session_id, len(state.events))
-        return state
+        messages = data.get("messages", [])
+        logger.info("会话已恢复: %s (messages=%d)", session_id, len(messages))
+        return messages
 
     # ====== 列表 ======
 
     def list(self, session_id: str) -> List[Dict]:
-        """列出会话的所有检查点"""
+        """列出会话的检查点摘要"""
         cp_dir = self._dir / session_id
         if not cp_dir.exists():
             return []
@@ -116,16 +111,12 @@ class CheckpointManager:
         for f in sorted(cp_dir.glob("*.json")):
             try:
                 data = json.loads(f.read_text(encoding="utf-8"))
-                meta = data.get("metadata", {})
-                checkpoints = data.get("checkpoints", [])
-                last_cp = checkpoints[-1] if checkpoints else {}
                 result.append({
                     "checkpoint_id": f.stem,
-                    "session_id": meta.get("session_id"),
-                    "events_count": len(data.get("events", [])),
-                    "total_tokens": meta.get("total_tokens", 0),
-                    "description": last_cp.get("description"),
-                    "created_at": meta.get("updated_at", ""),
+                    "session_id": data.get("session_id"),
+                    "message_count": data.get("message_count", 0),
+                    "description": data.get("description"),
+                    "saved_at": data.get("saved_at", ""),
                 })
             except Exception:
                 continue
@@ -133,17 +124,21 @@ class CheckpointManager:
 
     # ====== 删除 ======
 
-    def delete(self, session_id: str, checkpoint_id: str) -> bool:
-        """删除指定检查点"""
-        cp_path = self._dir / session_id / f"{checkpoint_id}.json"
+    def delete(self, session_id: str) -> bool:
+        """删除指定会话的检查点"""
+        cp_path = self._dir / session_id / "checkpoint.json"
         if cp_path.exists():
             cp_path.unlink()
+            # 如果目录为空也删除
+            cp_dir = cp_path.parent
+            if cp_dir.exists() and not any(cp_dir.iterdir()):
+                cp_dir.rmdir()
             logger.info("检查点已删除: %s", cp_path)
             return True
         return False
 
     def purge(self, session_id: str, max_age_hours: float = 72) -> int:
-        """清理 N 小时前的旧检查点，保留最新的至少 1 个。返回删除数量。"""
+        """清理 N 小时前的旧检查点。返回删除数量。"""
         cp_dir = self._dir / session_id
         if not cp_dir.exists():
             return 0
