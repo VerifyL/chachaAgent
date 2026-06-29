@@ -31,7 +31,7 @@ execute("bash", {"cmd": "ls"}, session_id)
  │ → 超时：指数退避 1s → 2s → 4s
  │ → 异常：不重试，直接返回 error
  │
- ├─ 4. Truncate (>100K chars → 截断 + "[truncated]")
+ ├─ 4. Truncate (>200K chars → 截断 + cache_key，可用 cache_read 续读)
  │
  ├─ 5. HookOrchestrator.run(POST_TOOL_EXECUTION)
  │
@@ -42,27 +42,42 @@ execute("bash", {"cmd": "ls"}, session_id)
 
 ---
 
-## 1. ToolResult
+## 1. ToolResult 处理
+
+### 1.1 `_execute_with_retry` 返回 5 元组
 
 ```python
-from pydantic import BaseModel
-
-class ToolResult(BaseModel):
- tool_use_id: str
- tool_name: str
- status: str = "success" # success | error | blocked | timeout
- output: str = "" # 工具输出文本
- error: Optional[str] = None # 错误详情
- duration_ms: int = 0 # 耗时（毫秒）
- truncated: bool = False # 输出是否被截断
+# 工具层返回 ToolResult → 执行层解包为 5 元组
+if isinstance(output, ToolResult):
+    return output.content, output.error, output.status, output.data, output.warnings
+return str(output), None, "success", {}, []
 ```
 
-| status | 含义 | 何时返回 |
-|--------|------|----------|
-| `success` | 执行成功 | 正常完成 |
-| `error` | 执行失败 | 工具未注册 / 运行时异常 |
-| `blocked` | 被拦截 | 黑名单命中 / 钩子 BLOCK / 需要审批 |
-| `timeout` | 超时 | 超过 `default_timeout` 且重试耗尽 |
+- `content`: 工具产出的纯净文本（非 Python repr）
+- `data`: 工具级结构化元数据（如 task 的 `agent_type`、read 的 `path`）
+- `warnings`: 非致命警告，透传到外层 ToolResult
+
+### 1.2 截断与缓存
+
+输出超过 `max_output_chars`（默认 200K 字符）时，截断作用在纯净 `content` 字符串上，
+**不破坏 JSON 结构**。完整内容存入 `_output_cache`，LLM 可用 `cache_read` 工具续读。
+
+```
+原始 content: 250K → 截断为 200K → ToolResult(truncated=true, cache_key="xxx")
+                                                    ↓
+                                          _output_cache["xxx"] = 完整 250K
+```
+
+缓存 10 分钟过期，`_cleanup_cache()` 定期清理。
+
+### 1.3 status 来源
+
+| 层级 | 谁给 | 何时 |
+|------|------|------|
+| 工具层 | 工具自身 | 工具判定成功/失败 → `"success"` / `"error"` |
+| 执行层 | ToolExecutor | 仅覆盖 timeout/blocked 等执行层异常 |
+
+正常路径下 status 由工具决定，ToolExecutor 透传。
 
 ---
 
@@ -110,14 +125,9 @@ attempt 3 → 超时 → ToolResult(status="timeout")
 
 ---
 
-## 4. 输出截断
+## 4. 输出截断与缓存
 
-输出超过 `max_output_chars`（默认 100K 字符）时自动截断：
-
-```
-原始输出: 150K chars → 截断为 100K + "\n... [truncated]"
-ToolResult.truncated = True
-```
+截断逻辑已统一到 [§1.2 截断与缓存](#12-截断与缓存)：200K 阈值，纯净 content 上截断，`cache_read` 续读。
 
 ---
 

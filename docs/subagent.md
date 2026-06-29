@@ -71,6 +71,15 @@ from core.models.hook import HookPoint
 orchestrator.register("cost-limit", HookPoint.PRE_SUBAGENT_SPAWN, async_handler)
 ```
 
+## 输出与截断
+
+子Agent 返回 `SubAgentResult` → `TaskTool` 包装为 `ToolResult` → 回到**主Agent** 的 `ToolExecutor`。
+
+主Agent 的 ToolExecutor 对子Agent 输出做统一截断/缓存处理：
+- content 超过 200K 字符 → 截断内容，设置 `truncated=true` + `cache_key`
+- 主Agent 可用 **`cache_read`** 工具读取被截断的完整内容
+- 截断作用在纯净文本（非 Python repr），`data`/`warnings` 原样透传
+
 ## 安全
 
 - 工具白名单：每个子Agent 类型只能使用指定工具

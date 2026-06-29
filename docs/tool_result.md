@@ -75,10 +75,8 @@
 | `bash` | `command`, `exit_code` |
 | `grep` | `matches`, `files`, `mode` |
 | `glob` | `pattern`, `count`, `max_depth` |
-| `task` | `subagent_type`, `description` |
+| `task` | `subagent_type`, `description`, `agent_type`, `task` |
 | `memory` | `action`, `topic` |
-| `cache_read` | `cache_key`, `offset`, `limit` |
-| `approval_control` | `action`, `categories`, `persist` |
 | `cache_read` | `cache_key`, `offset`, `limit` |
 | `approval_control` | `action`, `categories`, `persist` |
 

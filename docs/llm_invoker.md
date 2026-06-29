@@ -26,7 +26,7 @@ Orchestrator
   │    ├─ OutputGovernor.validate_tool_call() → JSON 修复
   │    └─ Telemetry.agent.record_llm_call() → 指标记录
   │
-  └─ → LLMResponse(text, tool_calls, usage, finish_reason)
+  └─ → LLMResponse(text, reasoning, tool_calls, usage, finish_reason)
 ```
 
 ---
@@ -105,13 +105,16 @@ class ToolCall(BaseModel):
 
 ```python
 class LLMResponse(BaseModel):
-    text: str = ""                         # 文本输出（所有 text chunk 拼接）
+    text: str = ""                         # 文本输出（所有 text chunk 拼接，不含 reasoning）
+    reasoning: str = ""                    # 推理/思考内容（DeepSeek-R1 等模型的 thinking）
     tool_calls: List[ToolCall] = Field(default_factory=list)
     finish_reason: str = "stop"            # stop | tool_calls | length | content_filter
     error: Optional[str] = None
     usage: Dict[str, int] = Field(default_factory=dict)  # {input, output, total}
     duration_ms: int = 0
 ```
+
+> **reasoning 与 text 分离**：`_invoke_impl`（非流式）将 `ReasoningChunk` 归入 `reasoning_parts`，`TextChunk` 归入 `text_parts`，两者不再混入同一字段。`dispatch_stream`（流式）同理，reasoning 通过 `ReasoningEvent` 单独推送。
 
 ---
 

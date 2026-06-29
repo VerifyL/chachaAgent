@@ -7,7 +7,7 @@ LLM ⇄ 工具循环 + 并发工具执行 + Circuit Breaker + 工具结果冻结
 | 方法 | 用途 |
 |------|------|
 | `dispatch_stream(messages, session_id)` | 流式：yield text/tool/error/done chunks（**生产主流程**） |
-| `dispatch(messages, session_id)` | 同步返回 `LLMResponse`（兼容旧 API） |
+| `dispatch(messages, session_id)` | 同步返回 `LLMResponse`（兼容旧 API）。assistant message 包含 `reasoning_content` |
 
 ## 工具执行流程（v2.1 并发）
 
