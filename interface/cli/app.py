@@ -277,6 +277,10 @@ class ChachaCLI:
         except KeyboardInterrupt:
             RICH_CONSOLE.print(f"\n[{self._t['separator']}]" + "─" * 30 + "[/]")
             RICH_CONSOLE.print(f"[yellow]⏹ 已中断[/]")
+            # 移除未完成轮次的 user message，避免下一轮残留旧提问
+            msgs = self._bridge._messages
+            if msgs and msgs[-1].get("role") == "user":
+                msgs.pop()
         except Exception as e:
             errors.append(str(e))
             RICH_CONSOLE.print(f"[red]异常: {escape(str(e))}[/]")
