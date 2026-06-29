@@ -76,7 +76,8 @@ def _tool_args_summary(name: str, args: dict) -> str:
         return f"edit {args.get('path','?')}: {len(old)}→{len(new)} chars"
     elif name == "bash":
         cmd = args.get("command", "")
-        return ("bash " + cmd[:120] + "…") if len(cmd) > 120 else ("bash " + cmd)
+        # bash 命令通常较长，给 300 字符展示空间
+        return ("bash " + cmd[:300] + "…") if len(cmd) > 300 else ("bash " + cmd)
     elif name == "grep":
         return f"grep {args.get('pattern','?')} [{args.get('path','.')}:{args.get('glob','*')}]"
     elif name == "glob":
