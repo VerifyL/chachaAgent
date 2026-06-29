@@ -184,7 +184,12 @@ class SubAgentSpawner:
         return result
 
     def _build_tools(self, definition: SubAgentDef) -> ToolExecutor:
-        """根据 whitelist 过滤父工具列表"""
+        """根据 whitelist 过滤父工具列表。
+
+        注意：cache_read 工具持有 _executor 引用，不能直接共享父实例，
+        否则子Agent内部截断缓存在子 executor 但 cache_read 仍指向父 executor。
+        为 cache_read 创建独立实例并绑定子Agent自己的 executor。
+        """
         if not self._parent_tools:
             return ToolExecutor(tools=[])
 
@@ -192,6 +197,18 @@ class SubAgentSpawner:
         filtered = []
         for t in self._parent_tools.get_tools():
             if hasattr(t, 'name') and t.name in allowed:
+                if t.name == 'cache_read':
+                    # 创建独立实例，避免共享 _executor 引用
+                    from capabilities.builtins.cache_read_tool import CacheReadTool
+                    t = CacheReadTool()
                 filtered.append(t)
 
-        return ToolExecutor(tools=filtered, telemetry=self._telemetry)
+        executor = ToolExecutor(tools=filtered, telemetry=self._telemetry)
+
+        # 重新配置 cache_read 指向子Agent自己的 executor
+        for t in filtered:
+            if hasattr(t, 'name') and t.name == 'cache_read' and hasattr(t, 'configure'):
+                t.configure(parent_tool_executor=executor)
+                break
+
+        return executor
