@@ -115,6 +115,7 @@ class ToolCall(BaseModel):
 class LLMResponse(BaseModel):
     """LLM 调用完整结果"""
     text: str = ""                         # 文本输出（所有 text chunk 拼接）
+    reasoning: str = ""                    # 推理过程（DeepSeek-R1 / o1 等思考链模型），不在 text 中
     tool_calls: List[ToolCall] = Field(default_factory=list)
     finish_reason: str = "stop"            # stop | tool_calls | length | content_filter
     error: Optional[str] = None
@@ -206,6 +207,7 @@ class LLMInvoker:
 
         # 2. 流式调用（带重试）
         text_parts: List[str] = []
+        reasoning_parts: List[str] = []
         tool_calls: Dict[int, ToolCall] = {}
         finish_reason = "stop"
         usage: Dict[str, int] = {}
@@ -228,8 +230,7 @@ class LLMInvoker:
                         )
 
                 elif isinstance(chunk, ReasoningChunk):
-                    # 推理过程也积累到文本输出，确保子Agent（非流式 dispatch）能产出内容
-                    text_parts.append(chunk.content)
+                    reasoning_parts.append(chunk.content)
 
                 elif isinstance(chunk, ToolCallStartChunk):
                     tool_calls[chunk.tool_index] = ToolCall(
@@ -254,6 +255,7 @@ class LLMInvoker:
                     mapped = self._map_error(Exception(chunk.error or "Unknown error"))
                     return LLMResponse(
                         text="".join(text_parts),
+                        reasoning="".join(reasoning_parts),
                         error=mapped,
                         duration_ms=int((time.monotonic() - t0) * 1000),
                     )
@@ -261,6 +263,7 @@ class LLMInvoker:
         except Exception as e:
             return LLMResponse(
                 text="".join(text_parts),
+                reasoning="".join(reasoning_parts),
                 error=self._map_error(e),
                 duration_ms=int((time.monotonic() - t0) * 1000),
             )
@@ -308,8 +311,11 @@ class LLMInvoker:
                 success=not bool(self._get_last_error()),
             )
 
+        reasoning = "".join(reasoning_parts)
+        text = "".join(text_parts)
         return LLMResponse(
-            text="".join(text_parts),
+            text=text,
+            reasoning=reasoning,
             tool_calls=final_tool_calls,
             finish_reason=finish_reason,
             usage=usage,

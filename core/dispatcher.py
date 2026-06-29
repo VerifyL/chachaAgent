@@ -344,6 +344,8 @@ class Dispatcher:
                     for tc in resp.tool_calls
                 ],
             }
+            if resp.reasoning:
+                assistant_tool_msg["reasoning_content"] = resp.reasoning
             messages.append(assistant_tool_msg)
 
             _tc_id_to_name: Dict[str, str] = {}

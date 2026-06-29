@@ -241,7 +241,7 @@ class ToolExecutor:
                 arguments.update(result.modified_tool_args)
 
         # 3. 执行（带超时 + 重试）
-        output, error, status = await self._execute_with_retry(tool_name, arguments)
+        output, error, status, tool_data, tool_warnings = await self._execute_with_retry(tool_name, arguments)
 
         # 错误透传：output 为空时把 error 注入，避免 LLM 误判为"文件空"
         if not output and error:
@@ -313,6 +313,8 @@ class ToolExecutor:
             error_type=error_type,
             execution_time_ms=duration, truncated=truncated,
             cache_key=cache_key,
+            data=tool_data,
+            warnings=tool_warnings,
         )
 
     async def execute_batch(
@@ -337,8 +339,17 @@ class ToolExecutor:
 
     async def _execute_with_retry(
         self, tool_name: str, arguments: Dict[str, Any]
-    ) -> tuple[str, Optional[str], str]:
-        """超时退避重试（参考 Harness：权限/黑名单不重试，超时/网络错误重试）。"""
+    ) -> tuple:
+        """超时退避重试（参考 Harness：权限/黑名单不重试，超时/网络错误重试）。
+
+        Returns:
+            (content, error, status, data, warnings):
+              - content (str): 主体内容（ToolResult 时取 .content，否则 str()）
+              - error (str|None): 错误描述
+              - status (str): "success" | "timeout" | "error"
+              - data (dict): 工具元数据（ToolResult 透传，否则 {}）
+              - warnings (list[str]): 非致命警告（ToolResult 透传，否则 []）
+        """
         last_error = None
 
         for attempt in range(self._max_retries + 1):
@@ -356,7 +367,11 @@ class ToolExecutor:
                             tool(arguments),
                             timeout=self._timeout,
                         )
-                return str(output), None, "success"
+                # ToolResult: 解包，避免双重包装；保留 data/warnings 元数据
+                from capabilities.result import ToolResult as _TR
+                if isinstance(output, _TR):
+                    return output.content, output.error, output.status, output.data, output.warnings
+                return str(output), None, "success", {}, []
 
             except asyncio.TimeoutError:
                 last_error = f"Tool '{tool_name}' timed out after {self._timeout}s (attempt {attempt + 1}/{self._max_retries + 1})"
@@ -365,7 +380,7 @@ class ToolExecutor:
                     logger.warning("%s, retrying in %ds", last_error, backoff)
                     await asyncio.sleep(backoff)
                 else:
-                    return "", last_error, "timeout"
+                    return "", last_error, "timeout", {}, []
 
             except RETRYABLE_EXCEPTIONS as e:
                 last_error = (
@@ -377,13 +392,13 @@ class ToolExecutor:
                     logger.warning("%s, retrying in %ds", last_error, backoff)
                     await asyncio.sleep(backoff)
                 else:
-                    return "", last_error, "error"
+                    return "", last_error, "error", {}, []
 
             except NON_RETRYABLE_EXCEPTIONS as e:
                 # 永久性错误不重试，立即失败
-                return "", f"{type(e).__name__}: {e}", "error"
+                return "", f"{type(e).__name__}: {e}", "error", {}, []
 
-        return "", last_error or "unknown", "timeout"
+        return "", last_error or "unknown", "timeout", {}, []
 
 
     # ====== 截断辅助 ======
