@@ -584,7 +584,6 @@ class AgentBridge:
             return {
                 "trigger_ratio": ctx.compression_trigger_ratio,
                 "warn_ratio": ctx.warn_ratio,
-                "frozen_keep": ctx.frozen_keep_latest,
                 "trim_head": ctx.trim_keep_head,
                 "trim_tail": ctx.trim_keep_tail,
                 "summary_head": ctx.summarize_keep_head,

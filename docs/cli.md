@@ -192,8 +192,7 @@ default_model = "deepseek-v4-pro"
 compression_trigger_ratio = 0.7     # 超过 70% 窗口触发压缩
 warn_ratio = 0.9                    # 超过 90% 触发警告
 
-# 三层压缩参数
-frozen_keep_latest = 5              # FROZEN: 保留最新 N 个工具结果
+# 压缩参数
 trim_keep_head = 5                  # TRIMMED: 保留前 N 条
 trim_keep_tail = 12                 # TRIMMED: 保留后 N 条
 summarize_keep_head = 3             # SUMMARIZED: 保留前 N 条

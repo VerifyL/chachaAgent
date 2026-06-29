@@ -96,13 +96,15 @@ class Dispatcher:
     """桥接 LLM ↔ 工具执行（v2.0）"""
 
     def __init__(self, llm_invoker, tool_executor, memory_manager=None,
-                 telemetry=None, project_id="", context_window=1_048_576):
+                 telemetry=None, project_id="", context_window=1_048_576,
+                 max_keep_tool_results: int = 20):
         self._llm = llm_invoker
         self._tools = tool_executor
         self._memory = memory_manager
         self._telemetry = telemetry
         self._project_id = project_id
         self._max_context_window = context_window
+        self._max_keep_tool_results = max_keep_tool_results
         self.tool_calls_made = 0
         self._last_failed_call = ""           # circuit breaker: (tool_name, args_hash)
         self._same_call_failures = 0         # 同一调用连续失败计数
@@ -201,13 +203,13 @@ class Dispatcher:
                     args = json.loads(tc_info["args"]) if tc_info["args"] else {}
                 except json.JSONDecodeError:
                     args = {}
-                safe_args = {k: str(v)[:100] for k, v in args.items()}
+                summary = _tool_args_summary(tc_info["name"], args)
                 safe_tool_calls.append({
                     "id": tc_info["id"],
                     "type": "function",
                     "function": {
                         "name": tc_info["name"],
-                        "arguments": json.dumps(safe_args, ensure_ascii=False),
+                        "arguments": json.dumps(summary, ensure_ascii=False),
                     },
                 })
                 _tc_id_to_name[tc_info["id"]] = tc_info["name"]
@@ -422,14 +424,14 @@ class Dispatcher:
     def _freeze_old_tool_results(self, messages: List[Dict], session_id: str, tc_id_to_name: Optional[Dict[str, str]] = None) -> None:
         """保持最近 KEEP_TOOL_RESULTS 个工具结果完整，更早的替换为 JSON 占位符。
 
-        占位格式: {"toolname":"read","result_summary":"读取 main.py 前200行..."}
+        占位格式: {"t":"read","s":"读取 main.py 前200行..."}
         不再写磁盘缓存——占位符中的摘要已足够 LLM 理解上下文。
         """
         tool_indices = [
             i for i, m in enumerate(messages)
             if m.get("role") == "tool" and not m.get("content", "").startswith("{")
         ]
-        keep = max(KEEP_TOOL_RESULTS, self._max_context_window // 8000)
+        keep = max(KEEP_TOOL_RESULTS, min(self._max_context_window // 8000, self._max_keep_tool_results))
         freeze_count = len(tool_indices) - keep
         if freeze_count <= 0:
             return
@@ -448,8 +450,8 @@ class Dispatcher:
                 summary += "..."
 
             placeholder = json.dumps({
-                "toolname": tool_name,
-                "result_summary": summary,
+                "t": tool_name,
+                "s": summary,
             }, ensure_ascii=False)
 
             messages[idx] = {

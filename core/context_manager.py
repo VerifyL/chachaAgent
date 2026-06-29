@@ -279,7 +279,7 @@ class ContextManager:
         total_tokens = sum(b.token_count for b in blocks)
         protected_tokens = sum(b.token_count for b in blocks[:protected_count])
         dynamic_tokens = total_tokens - protected_tokens
-        budget = self._budget or 128000
+        budget = self._budget or 1_048_576
         utilization = total_tokens / budget if budget > 0 else 0
         pressure = min(1.0, utilization * 1.25)
 
@@ -542,7 +542,7 @@ class ContextManager:
         total_tokens = sum(b.token_count for b in blocks)
         protected_tokens = sum(b.token_count for b in blocks[:protected_count])
         dynamic_tokens = total_tokens - protected_tokens
-        budget = cm._budget or 128000
+        budget = cm._budget or 1_048_576
         utilization = total_tokens / budget if budget > 0 else 0
         pressure = min(1.0, utilization * 1.25)
 
@@ -625,10 +625,8 @@ class ContextManager:
         return block
 
     def _recommend_compression(self, pressure: float) -> CompressionLevel:
-        if pressure < 0.5:
-            return CompressionLevel.NONE
         if pressure < 0.7:
-            return CompressionLevel.FROZEN
+            return CompressionLevel.NONE  # 冻结已由 Dispatcher 实时完成，此处无需 FROZEN
         if pressure < 0.85:
             return CompressionLevel.TRIMMED
         if pressure < 0.95:

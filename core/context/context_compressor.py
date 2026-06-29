@@ -1,14 +1,15 @@
 """
 core/context/context_compressor.py
-ContextCompressor — 渐进式压缩：FROZEN → TRIMMED → SUMMARIZED → CONSOLIDATED。
+ContextCompressor — 渐进式压缩：TRIMMED → SUMMARIZED → CONSOLIDATED。
 
-v3.1: 统一压缩引擎。compress() 为唯一入口，auto_compact() 委托到 compress()。
+v3.2: 冻结逻辑已迁移至 dispatcher（每轮实时执行），compressor 不再包含 FROZEN 阶段。
+compress() 为唯一入口，auto_compact() 委托到 compress()。
 
 压缩级别依据 pressure（Token 窗口利用率）：
-  pressure < 0.7   → 仅 FROZEN（冻结超长工具结果）
-  pressure < 0.85  → + TRIMMED（裁剪中间，保留头尾）
-  pressure < 0.95  → + SUMMARIZED（LLM 摘要中间部分）
-  pressure >= 0.95 → + CONSOLIDATED（多轮摘要再压缩）
+  pressure < 0.70  → 不压缩（dispatcher 已实时冻结旧工具结果）
+  pressure < 0.85  → TRIMMED（裁剪中间，保留头尾）
+  pressure < 0.95  → SUMMARIZED（LLM 摘要中间部分）
+  pressure >= 0.95 → CONSOLIDATED（多轮摘要再压缩）
 
 用法:
     compressor = ContextCompressor(llm_invoker=llm)
@@ -44,14 +45,12 @@ class ContextCompressor:
         *,
         summary_model: str = _SUMMARY_MODEL,
         preserve_recent: int = _DEFAULT_PRESERVE_RECENT,
-        tool_result_max_chars: int = 2000,
         context_window: int = 1_048_576,
         target_ratio: float = 0.85,
     ):
         self._llm = llm_invoker
         self._summary_model = summary_model
         self._preserve_recent = preserve_recent
-        self._tool_result_max_chars = tool_result_max_chars
         self._context_window = context_window
         self._target_ratio = target_ratio
 
@@ -65,10 +64,9 @@ class ContextCompressor:
     ) -> AssembledContext:
         """渐进式压缩。pressure 越大压缩越激进。
 
-        pressure < 0.7   → 仅 FROZEN
-        pressure < 0.85  → + TRIMMED
-        pressure < 0.95  → + SUMMARIZED
-        pressure >= 0.95 → + CONSOLIDATED
+        pressure < 0.85  → TRIMMED（裁剪中间）
+        pressure < 0.95  → SUMMARIZED（LLM 摘要）
+        pressure >= 0.95 → CONSOLIDATED（摘要合并）
         """
         protected = [b for b in ctx.blocks if b.zone == _PROTECTED_ZONE]
         dynamic = [b for b in ctx.blocks if b.zone != _PROTECTED_ZONE]
@@ -76,13 +74,7 @@ class ContextCompressor:
         if not dynamic:
             return ctx
 
-        # Level 1: FROZEN — 冻结超长工具结果 + JSON 占位符二次压缩
-        dynamic = self._freeze_tool_results_v2(dynamic, session_id)
-
-        if pressure < 0.7:
-            return self._rebuild(ctx, protected, dynamic)
-
-        # Level 2: TRIMMED — 裁剪中间，保留头尾（head=2 + tail=preserve_recent）
+        # Level 1: TRIMMED — 裁剪中间，保留头尾（head=2 + tail=preserve_recent）
         dynamic = self._trim_middle(dynamic)
 
         if pressure < 0.85:
@@ -98,53 +90,7 @@ class ContextCompressor:
         dynamic = await self._consolidate(dynamic, session_id)
         return self._rebuild(ctx, protected, dynamic)
 
-    # ====== Level 1: FROZEN ======
-
-    def _freeze_tool_results_v2(
-        self, blocks: List[ContextBlock], session_id: str
-    ) -> List[ContextBlock]:
-        """冻结超长工具结果：截断到阈值 + 摘要。JSON 占位符二次压缩。"""
-        result: List[ContextBlock] = []
-        for b in blocks:
-            if b.source in (BlockSource.TOOL_RESULT, str(BlockSource.TOOL_RESULT)):
-                content = b.content or ""
-                if content.startswith("{") and '"toolname"' in content:
-                    # JSON 占位符 → 最小化 key
-                    frozen = self._compress_json_placeholder(content, session_id)
-                    result.append(self._clone_block(b, frozen))
-                elif len(content) > self._tool_result_max_chars:
-                    frozen = self._freeze_full_result(content, session_id)
-                    result.append(self._clone_block(b, frozen))
-                else:
-                    result.append(b)
-            else:
-                result.append(b)
-        return result
-
-    def _compress_json_placeholder(self, content: str, session_id: str) -> str:
-        """Stage 2: 将 Stage 1 的 JSON 占位符压缩为最小化格式。
-
-        Input:  {"toolname": "read", "result_summary": "..."}
-        Output: {"t":"read","s":"..."}
-        """
-        try:
-            data = json.loads(content)
-            mini = {
-                "t": data.get("toolname", "?"),
-                "s": data.get("result_summary", "")[:80],
-            }
-            return json.dumps(mini, ensure_ascii=False)
-        except (json.JSONDecodeError, KeyError):
-            return content[:150] + "..." if len(content) > 150 else content
-
-    def _freeze_full_result(self, content: str, session_id: str) -> str:
-        """完整工具结果 → 截断摘要（不缓存落盘：工具结果随时变动）。"""
-        summary = content[:150].replace("\n", " ").strip()
-        if len(content) > 150:
-            summary += f"... (总计 {len(content)} 字符)"
-        return f"[工具结果摘要] {summary}"
-
-    # ====== Level 2: TRIMMED ======
+    # ====== Level 1: TRIMMED ======
 
     def _trim_middle(self, blocks: List[ContextBlock]) -> List[ContextBlock]:
         """裁剪中间消息，保留 HEAD(前2) + TAIL(最近 preserve_recent)。"""
@@ -336,7 +282,6 @@ class ContextCompressor:
         llm=None,
         trigger_ratio: float = 0.7,
         warn_ratio: float = 0.9,
-        frozen_keep: int = 5,
         trim_head: int = 5,
         trim_tail: int = 12,
         summary_head: int = 3,
@@ -346,7 +291,7 @@ class ContextCompressor:
         """全自动压缩：判断 → dict→AssembledContext→compress()→dict。
 
         返回 (压缩后消息列表, 原因字符串)。不达阈值返回 (原消息, "")。
-        已废弃的内部参数（frozen_keep/trim_head/summary_head/summary_tail）保留兼容。
+        已废弃的内部参数（trim_head/summary_head/summary_tail）保留兼容。
         """
         est = ContextCompressor.estimate_tokens(messages)
         pct = est / context_window if context_window else 0

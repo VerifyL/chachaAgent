@@ -62,16 +62,16 @@ class SandboxConfig(BaseModel):
 # ==========================
 class ContextConfig(BaseModel):
     """上下文管理配置"""
-    max_tokens: int = Field(128000, ge=1, description="上下文窗口总 token 上限")
+    max_tokens: int = Field(1_048_576, ge=1, description="上下文窗口总 token 上限")
     compression_trigger_ratio: float = Field(0.7, ge=0.5, le=1.0, description="触发压缩的 token 使用比例 (0-1)")
     warn_ratio: float = Field(0.9, ge=0.5, le=1.0, description="触发告警的 token 使用比例 (0-1)")
+    max_keep_tool_results: int = Field(20, ge=8, description="保留完整工具结果的上限（硬保底 8）")
     memory_max_lines: int = Field(200, ge=1, description="MEMORY.md 最大行数，超出自动剪枝")
     enable_memory_injection: bool = Field(True, description="是否在上下文组装时注入 MEMORY.md 索引（UI 可开关）")
     keep_system_prompt_first: bool = Field(True, description="系统提示是否始终位于消息列表最前")
     enable_summarization: bool = Field(True, description="是否启用 LLM 摘要压缩")
 
-    # 三层压缩参数
-    frozen_keep_latest: int = Field(5, ge=1, description="FROZEN: 保留最新 N 个工具结果")
+    # 压缩参数
     trim_keep_head: int = Field(5, ge=1, description="TRIMMED: 保留前 N 条消息")
     trim_keep_tail: int = Field(12, ge=1, description="TRIMMED: 保留后 N 条消息")
     summarize_keep_head: int = Field(3, ge=1, description="SUMMARIZED: 保留前 N 条消息")
