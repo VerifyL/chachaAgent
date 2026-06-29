@@ -9,10 +9,15 @@ from prompt_toolkit.history import FileHistory, History
 
 
 class SessionHistory(History):
-    """支持 session 切换的 prompt_toolkit History 包装。
+    """支持 session 切换的 prompt_toolkit History。
 
-    内部持有 FileHistory 引用，切换 session 时替换为指向不同文件的 FileHistory。
-    prompt_toolkit 的 PromptSession 无需感知变化，所有调用透明委托给内部 FileHistory。
+    内部持有 FileHistory 引用，仅用于 I/O（读写文件）。
+    prompt_toolkit 的 History 基类已正确实现内存管理（_loaded_strings + _loaded），
+    子类只需重写 load_history_strings() 和 store_string() 两个 I/O 方法。
+
+    注意：不要重写 get_strings() / append_string() / load()，
+    否则会导致 SessionHistory._loaded_strings 与 FileHistory._loaded_strings 分裂，
+    使历史导航（↑↓）和去重失效。
     """
 
     def __init__(self, sessions_base_dir: Path, session_id: str):
@@ -35,26 +40,18 @@ class SessionHistory(History):
     def switch_session(self, session_id: str) -> None:
         """切换到另一个 session 的历史文件。
 
-        旧历史自动保持，新历史延迟加载（首次按 ↑ 时自动读取）。
+        重置 _loaded 标志，下次 load() 时将自动从新文件读取。
         """
         self._file_history = self._make_file_history(session_id)
         self._loaded = False
         self._loaded_strings = []
 
-    # ---- delegate all History methods to _file_history ----
-
-    def append_string(self, string: str) -> None:
-        """追加一条命令到历史。"""
-        self._file_history.append_string(string)
-
-    def get_strings(self):
-        """获取所有历史字符串。"""
-        return self._file_history.get_strings()
+    # ---- 仅重写 I/O 方法（History 基类负责内存管理） ----
 
     def load_history_strings(self):
-        """延迟加载历史字符串。"""
+        """从当前 session 文件读取历史字符串（最新在前）。"""
         return self._file_history.load_history_strings()
 
     def store_string(self, string: str) -> None:
-        """存储并追加一条命令。"""
+        """将一条命令持久化到当前 session 文件。"""
         self._file_history.store_string(string)
