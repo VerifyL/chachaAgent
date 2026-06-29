@@ -123,7 +123,7 @@ class GrepTool(BaseTool):
                 "path": str(self._rel(search_dir)),
                 "glob": glob,
                 "engine": "rg",
-                "truncated_count": truncated,
+                "output_limited": truncated,
             }
         )
 
@@ -200,7 +200,7 @@ class GrepTool(BaseTool):
                 "path": str(self._rel(search_dir)),
                 "glob": glob,
                 "engine": "python",
-                "truncated_count": truncated,
+                "output_limited": truncated,
             }
         )
 

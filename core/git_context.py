@@ -87,7 +87,7 @@ class GitContextProvider:
                     "details": lines[:self._max_status_lines],
                 }
                 if len(lines) > self._max_status_lines:
-                    data["git_context"]["working_tree"]["truncated"] = True
+                    data["git_context"]["working_tree"]["limited"] = True
                     data["git_context"]["working_tree"]["total_lines"] = len(lines)
             else:
                 data["git_context"]["working_tree"] = {
