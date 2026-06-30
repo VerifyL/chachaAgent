@@ -1,6 +1,6 @@
 # ChachaAgent CLI
 
-基于 prompt_toolkit + Rich 的命令行界面。Enter 发送，Shift+Enter 换行，支持多行粘贴。
+基于 prompt_toolkit + Rich 的命令行界面。Enter 发送，Ctrl+J 换行，支持多行粘贴/编辑。
 
 ## 运行
 
@@ -73,14 +73,18 @@ prompt = "bold"
 | 快捷键 | 功能 |
 |--------|------|
 | `Enter` | 发送消息 |
-| `Shift+Enter` | 换行（多行输入） |
-| `Ctrl+C` | 清空当前输入，重来 |
-| `Ctrl+D` | 退出 |
+| `Ctrl+J` | 插入换行（多行输入） |
+| `Ctrl+C` | 中断当前回答 |
+| `Ctrl+D` | 退出程序 |
 | `Ctrl+N` | 新 Session |
-| `Ctrl+B` | 会话列表 |
 | `Ctrl+S` | 保存 checkpoint |
+| `Ctrl+F` | 切换调试模式 |
+| `Ctrl+B` | 会话列表 |
 | `Ctrl+X` | 压缩上下文 |
 | `Ctrl+L` | 清屏 |
+| `Ctrl+R` | 切换推理过程显示 |
+| `Ctrl+T` | 遥测仪表盘 |
+| `Ctrl+\` | 强制退出 |
 
 ## 命令
 
@@ -108,14 +112,20 @@ prompt = "bold"
 |------|------|
 | `/memory` | 查看记忆文件 |
 | `/dream` | 运行 Session Dream |
-| `/dream global` | 运行 GlobalDream |
+| `/dreamglobal` | 运行 GlobalDream |
 
 ### 调试
 | 命令 | 功能 |
 |------|------|
 | `/debug` | 切换调试（开启后显示工具链） |
-| `/audit` | 完整审计报告 |
-| `/compact` | 压缩上下文（冻结旧工具结果） |
+| `/telemetry` | 遥测仪表盘（P50/P99/成本） |
+| `/telemetry on/off` | 运行时开关遥测 |
+| `/logs [n] [level] [kw]` | 查看/过滤调试日志 |
+| `/auditlog [n]` | 查看审计日志 |
+| `/trace` | Span 追踪链 |
+| `/cost` | API 成本汇总 |
+| `/compact` | 压缩上下文 |
+| `/status` | 系统状态报告 |
 
 ## 自动行为
 
@@ -159,7 +169,7 @@ app.py (CLI 层)
 |------|------|
 | `app.py` | prompt_toolkit + Rich 主 CLI |
 | `agent_bridge.py` | CLI ↔ 核心编排，含自动压缩 |
-| `core/context/context_compressor.py` | 三层渐进压缩：FROZEN → TRIMMED → SUMMARIZED |
+| `core/context/context_compressor.py` | 四层渐进压缩：FROZEN → TRIMMED → SUMMARIZED → CONSOLIDATED |
 | `core/cli_theme.py` | 主题加载（~/.chacha/clirc.toml） |
 | `core/config_manager.py` | 配置加载（自动生成 ~/.chacha/config.toml） |
 | `core/session_service.py` | Session 编排 + Dream + 审计 |
@@ -240,17 +250,23 @@ global_dream_rounds = 100
 指标 `MetricsCollector` 支持 counter / gauge / histogram + P50/P99 百分位，可对接 Prometheus。
 Span 追踪 `Tracer` 支持单进程 trace_id → span_id 全链路关联。
 
-## 待接入组件
+## 当前架构集成状态
 
-| 组件 | 文件 | 计划 |
-|------|------|------|
-| `HookOrchestrator` | `core/hook_orchestrator.py` | 需要钩子扩展时接入 |
-| `ModelRouter` | `core/llm_clients/router.py` | 多模型路由/降级 |
-| `ModelFactory` | `core/llm_clients/factory.py` | 多模型客户端工厂 |
-| `UsageTracker` | `core/llm_clients/usage_tracker.py` | 精确成本计算 |
-| `Orchestrator` | `core/orchestrator.py` | 需策略引擎+钩子时接入 |
-| `SubAgent` | `core/subagent/` | 沙箱子 Agent |
-| `PolicyEngine` | `core/policy_engine.py` | 已接入工具列表式，需配置后才可用 |
-| `TokenCounter` | `core/context/token_counter.py` | 已在 ContextManager 内部使用 |
+以下组件已在  13 步流水线中**全部接入**，无需额外配置：
 
-接入方式: `agent_bridge.initialize()` 中创建实例并注入到对应的 `LLMInvoker`/`ToolExecutor`/`ContextManager` 构造函数即可。
+| 组件 | 文件 | 集成方式 |
+|------|------|----------|
+| `Orchestrator` | `core/orchestrator.py` | ✅ 主入口，13 步流水线 |
+| `HookOrchestrator` | `core/hook_orchestrator.py` | ✅ 第 2 步 PRE_CONTEXT_ASSEMBLY |
+| `PolicyEngine` | `core/policy_engine.py` | ✅ 第 3 步策略检查 + 工具审批 |
+| `ChaChaAsyncGateway` | `protocol/gateway.py` | ✅ 第 4/12 步事件发布 |
+| `ContextManager` | `core/context_manager.py` | ✅ 第 5 步上下文组装 |
+| `Dispatcher` | `core/dispatcher.py` | ✅ 第 6 步 LLM ↔ 工具桥接 |
+| `ContextCompressor` | `core/context/context_compressor.py` | ✅ 第 7 步自动压缩 |
+| `ModelRouter` | `core/llm_clients/router.py` | ✅ 模型选择 + 故障转移 |
+| `ModelFactory` | `core/llm_clients/factory.py` | ✅ 客户端工厂创建 |
+| `UsageTracker` | `core/llm_clients/usage_tracker.py` | ✅ 按模型统计 token/成本 |
+| `TokenCounter` | `core/context/token_counter.py` | ✅ ContextManager 内部 |
+| `SubAgentSpawner` | `core/subagent/spawner.py` | ✅ task 工具触发 |
+| `MemoryManager` | `core/context/memory_manager.py` | ✅ 第 11 步会话记忆 |
+| `DreamPipeline` | `core/context/dream.py` | ✅ 第 13 步条件触发 |

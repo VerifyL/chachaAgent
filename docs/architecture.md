@@ -1,6 +1,6 @@
 # ChachaAgent 架构设计文档
 
-> **当前版本 v3.1.4** — 架构统一：`Orchestrator.run_stream()` 成为唯一编排入口（13 步流水线），
+> **当前版本 v3.1.6** — 架构统一：`Orchestrator.run_stream()` 成为唯一编排入口（13 步流水线），
 > Dispatcher 工具执行并发化，ChatEngine 降级为消息存储层。
 > 各模块详细文档：session.md | config.md | audit.md | hook.md | context.md | configuration.md
 
@@ -334,15 +334,15 @@ OpenAIClient(model=llama3, base_url=http://localhost:11434/v1, api_key=ollama)
 
 `core/llm_clients/retry_handler.py` — 指数退避重试，429 感知，认证错误不重试。
 
-### 5.3 占位模块 🚧
+### 5.3 已实现模块 ✅
 
 | 模块 | 文件 | 当前状态 |
 |------|------|---------|
-| ModelFactory | factory.py | 骨架，待实现 Provider → Client 映射 |
-| ModelRouter | router.py | 骨架，待实现 priority/cost/random 策略 |
-| UsageTracker | usage_tracker.py | 骨架，待实现精确 Token 成本计算 |
-| Anthropic Client | 未创建 | 待实现 |
-| Ollama Client | 未创建 | 待实现 |
+| ModelFactory | factory.py | ✅ OpenAI/DeepSeek/Ollama 统一工厂 |
+| ModelRouter | router.py | ✅ priority/cost/random + 故障隔离 + 降级链 |
+| UsageTracker | usage_tracker.py | ✅ 按模型统计 token + 成本计算 |
+| Ollama | openai_client.py | ✅ 通过 OpenAI 兼容 API 接入 |
+| Anthropic Client | 未创建 | 🚧 待实现 |
 
 ---
 
@@ -433,11 +433,11 @@ class BaseTool(ABC):
 
 `capabilities/registry.py` 的 `build_tools()` 是工具列表单一来源，CLI 和 Web 共用：
 
-16 个工具: ProjectOverviewTool, FileOutlineTool, ListFilesTool, DepsAnalyzerTool, CodeIntelTool, SubAgentTool, ReadFileTool, ReadFilesTool, GrepTool, EditFileTool, LoadMemoryTool, WriteTopicTool, ReadTopicTool, GitDiffTool, GitLogTool, GitStatusTool, Sandbox
+10 个内置工具: ReadTool, WriteTool, EditTool, BashTool, GrepTool, GlobTool, TaskTool, MemoryTool, CacheReadTool, ApprovalControl
 
 ### 7.3 沙箱执行器
 
-`capabilities/sandbox.py` — bash 命令安全执行：
+`core/tool_executor.py` — bash 命令安全执行（沙箱执行器）：
 
 - shell=False + shlex.split() — 命令注入防护
 - start_new_session + os.killpg() — 进程组隔离
