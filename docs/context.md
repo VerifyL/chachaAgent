@@ -102,3 +102,129 @@ ContextCompressor 按策略执行：
         ├─ 4. TRIMMED: 旧历史消息裁剪
         └─ 5. total_tokens 回到安全区
 ```
+
+---
+
+## 5. ContextManager 使用示例
+
+`core/context_manager.py` 是上下文组装的核心入口，负责将对话状态、记忆、规则、钩子注入组装为 `AssembledContext`。
+
+### 基本初始化
+
+```python
+from core.context_manager import ContextManager
+from core.models.config import ContextConfig
+
+# 使用默认配置（max_tokens=1048576, trigger_ratio=0.8）
+mgr = ContextManager()
+
+# 或自定义配置
+mgr = ContextManager(ContextConfig(
+    max_tokens=200_000,
+    compression_trigger_ratio=0.75,
+    enable_summarization=True,
+))
+```
+
+### 注入各类内容
+
+```python
+# —— protected zone（永不截断）——
+mgr.set_system_prompt("你是 ChachaAgent...")
+mgr.set_static_rules(chacha_md_content)           # CHACHA.md 宪法
+mgr.set_global_permanent_memory(user_memory)       # ~/.chacha/USER_MEMORY.md
+mgr.set_permanent_memory(project_permanent_memory) # CHACHA_MEMORY.md
+mgr.set_skills(tool_schemas)                       # 工具/技能定义
+
+# —— dynamic zone（可压缩）——
+mgr.set_memory_index(memory_md_content)           # MEMORY.md 轻量索引
+mgr.set_session_memory(today_session_text)         # 今日会话记忆
+```
+
+### 组装上下文
+
+```python
+from core.models.session import ConversationState
+
+state = ConversationState()  # 从对话历史构建
+
+ctx = mgr.assemble(
+    state=state,
+    session_id="abc-123",
+    static_rules=None,           # None → 使用已注入的
+    skills=None,
+    memory_content=None,
+    additional_contexts=None,    # 钩子注入的额外 ContextBlock
+)
+
+# 检查压缩状态
+print(f"Token: {ctx.meta.total_tokens}/{ctx.meta.budget_per_request}")
+print(f"利用率: {ctx.meta.utilization_ratio:.1%}")
+print(f"需压缩: {ctx.needs_compression}")
+print(f"推荐级别: {ctx.recommended_level}")
+
+# 转为 OpenAI 消息格式
+messages = ContextManager.blocks_to_messages(ctx)
+```
+
+### 完整示例：从零构建一次 LLM 调用
+
+```python
+from core.context_manager import ContextManager
+from core.models.config import ContextConfig
+from core.models.session import ConversationState, MessageEvent
+
+# 1. 初始化
+mgr = ContextManager(ContextConfig(max_tokens=500_000, compression_trigger_ratio=0.8))
+mgr.set_system_prompt("你是 ChachaAgent，一个 AI 助手。")
+mgr.set_static_rules("--- 项目宪法 ---\n- 代码风格: PEP 8")
+mgr.set_permanent_memory("### 关键决策\n- 使用 SQLite 数据库")
+mgr.set_memory_index("### 用户偏好\n- 偏好简洁回复")
+
+# 2. 构建对话状态
+state = ConversationState()
+state.add_event(MessageEvent(source="user", role="user", content="帮我写一个 hello world"))
+
+# 3. 组装
+ctx = mgr.assemble(state, session_id="demo-1")
+messages = ContextManager.blocks_to_messages(ctx)
+
+# 4. 发送给 LLM Invoker
+# response = await invoker.invoke(messages=messages, session_id="demo-1")
+```
+
+### build_system_prompt() 静态方法
+
+快速加载项目的所有静态上下文，不经过完整的 assemble 流程：
+
+```python
+from core.context_manager import ContextManager
+from core.context.memory_manager import MemoryManager
+
+system_prompt = ContextManager.build_system_prompt(
+    project_root="/path/to/project",
+    base_prompt="你是 ChachaAgent...",
+    memory_manager=MemoryManager(project_root="/path/to/project"),
+)
+
+# 返回的 system_prompt 包含：
+# 1. base_prompt
+# 2. ~/.chacha/CHACHA.md（用户级宪法）
+# 3. {project_root}/CHACHA.md（项目级宪法）
+# 4. CHACHA_MEMORY.md（项目永久记忆）
+# 5. MEMORY.md（轻量索引）
+```
+
+### 消息格式互转
+
+```python
+# AssembledContext → OpenAI 消息列表
+messages = ContextManager.blocks_to_messages(ctx)
+
+# OpenAI 消息列表 → ConversationState（用于恢复对话）
+state = ContextManager.messages_to_state(
+    messages,
+    session_id="restored-session",
+    project_id="my-project",
+)
+```
