@@ -150,22 +150,15 @@ class ContextManager:
 
     # ====== 公开接口 ======
 
-    def assemble(
+    def _build_protected_and_memory_blocks(
         self,
-        state: ConversationState,
-        session_id: str = "",
         static_rules: Optional[str] = None,
         skills: Optional[str] = None,
         memory_content: Optional[str] = None,
-        additional_contexts: Optional[List[ContextBlock]] = None,
-        history_trimmed: bool = False,   # 历史被裁剪后才注入 MEMORY.md
-    ) -> AssembledContext:
-        """
-        从 ConversationState 组装 AssembledContext。
+    ) -> tuple[list[ContextBlock], int]:
+        """构建 protected zone（4 blocks）+ dynamic zone 记忆注入（2 blocks）。
 
-        顺序 (v3.0)：
-            protected: SYSTEM_PROMPT+CHACHA.md → USER_MEMORY → CHACHA_MEMORY → SKILLS
-            dynamic:   MEMORY.md(条件) → 对话历史 → 工具结果 → RAG/Hooks
+        返回 (blocks, protected_count)。
         """
         blocks: list[ContextBlock] = []
 
@@ -209,16 +202,17 @@ class ContextManager:
 
         # ==================== dynamic zone ====================
 
-        # 5. MEMORY.md 轻量索引（常驻动态区）
-        if memory_content or self._memory_index:
+        # 5. MEMORY.md 轻量索引
+        mem_content = memory_content or self._memory_index
+        if mem_content:
             blocks.append(ContextBlock(
                 source=BlockSource.MEMORY, role="system",
-                content=f"[Memory Index]\n{memory_content or self._memory_index}",
+                content=f"[Memory Index]\n{mem_content}",
                 zone="dynamic", priority=10, importance=0.7,
-                token_count=self._estimate_tokens(memory_content or self._memory_index),
+                token_count=self._estimate_tokens(mem_content),
             ))
 
-        # 6. 今日会话记忆（跨 session 切换后由 set_session_memory 注入）
+        # 6. 今日会话记忆
         if self._session_memory:
             blocks.append(ContextBlock(
                 source=BlockSource.MEMORY, role="system",
@@ -226,6 +220,92 @@ class ContextManager:
                 zone="dynamic", priority=9, importance=0.6,
                 token_count=self._estimate_tokens(self._session_memory),
             ))
+
+        return blocks, protected_count
+
+    @staticmethod
+    def _finalize_context(
+        blocks: list[ContextBlock],
+        protected_count: int,
+        cm: "ContextManager",
+        log_suffix: str = "",
+    ) -> "AssembledContext":
+        """计算统计、追加预算提示条、构建 AssembledContext 并记录 telemetry。
+
+        assemble() 和 assemble_from_messages_direct() 共享的尾部逻辑。
+        """
+        total_tokens = sum(b.token_count for b in blocks)
+        protected_tokens = sum(b.token_count for b in blocks[:protected_count])
+        dynamic_tokens = total_tokens - protected_tokens
+        budget = cm._budget or 1_048_576
+        utilization = total_tokens / budget if budget > 0 else 0
+        pressure = min(1.0, utilization * 1.25)
+
+        budget_hint = (
+            f"[Token Budget] 总预算: {budget} | 已用: {total_tokens} "
+            f"({utilization:.0%}) | 剩余: {budget - total_tokens} | 压力: {pressure:.0%}"
+        )
+        blocks.append(ContextBlock(
+            source=BlockSource.ADDITIONAL_CONTEXT, role="system",
+            content=budget_hint, zone="dynamic", priority=999,
+            importance=0.1, token_count=0,
+        ))
+
+        needs_compression = utilization > cm._trigger_ratio
+        recommended = cm._recommend_compression(pressure)
+
+        meta = ContextAssemblyMeta(
+            total_tokens=total_tokens,
+            budget_per_request=budget,
+            utilization_ratio=round(utilization, 4),
+            compression_pressure=round(pressure, 4),
+            trigger=TriggerReason.THRESHOLD.value if needs_compression else TriggerReason.NONE.value,
+            protected_tokens=protected_tokens,
+            dynamic_tokens=dynamic_tokens,
+            reasoning_budget_tokens=0,
+            reasoning_tokens_used=0,
+            blocks_by_source=cm._count_by_source(blocks),
+        )
+
+        ctx = AssembledContext(
+            meta=meta, blocks=blocks,
+            needs_compression=needs_compression,
+            recommended_level=recommended,
+        )
+
+        if cm._telemetry and cm._telemetry.agent:
+            cm._telemetry.agent.record_context(
+                total_tokens=total_tokens,
+                utilization=utilization,
+                compression_triggered=needs_compression,
+            )
+
+        logger.debug(
+            "上下文组装完成%s: %d blocks, %d tokens (利用率 %.1f%%, 压缩=%s)",
+            log_suffix, len(blocks), total_tokens, utilization * 100, needs_compression,
+        )
+        return ctx
+
+    def assemble(
+        self,
+        state: ConversationState,
+        session_id: str = "",
+        static_rules: Optional[str] = None,
+        skills: Optional[str] = None,
+        memory_content: Optional[str] = None,
+        additional_contexts: Optional[List[ContextBlock]] = None,
+        history_trimmed: bool = False,   # 历史被裁剪后才注入 MEMORY.md
+    ) -> AssembledContext:
+        """
+        从 ConversationState 组装 AssembledContext。
+
+        顺序 (v3.0)：
+            protected: SYSTEM_PROMPT+CHACHA.md → USER_MEMORY → CHACHA_MEMORY → SKILLS
+            dynamic:   MEMORY.md(条件) → 对话历史 → 工具结果 → RAG/Hooks
+        """
+        blocks, protected_count = self._build_protected_and_memory_blocks(
+            static_rules=static_rules, skills=skills, memory_content=memory_content,
+        )
 
         # 6. 对话历史
         for i, event in enumerate(state.events):
@@ -275,59 +355,7 @@ class ContextManager:
         if additional_contexts:
             blocks.extend(additional_contexts)
 
-        # ---- 计算统计 ----
-        total_tokens = sum(b.token_count for b in blocks)
-        protected_tokens = sum(b.token_count for b in blocks[:protected_count])
-        dynamic_tokens = total_tokens - protected_tokens
-        budget = self._budget or 1_048_576
-        utilization = total_tokens / budget if budget > 0 else 0
-        pressure = min(1.0, utilization * 1.25)
-
-        # Token 预算条（帮助 LLM 感知上下文压力）
-        budget_hint = (
-            f"[Token Budget] 总预算: {budget} | 已用: {total_tokens} "
-            f"({utilization:.0%}) | 剩余: {budget - total_tokens} | 压力: {pressure:.0%}"
-        )
-        blocks.append(ContextBlock(
-            source=BlockSource.ADDITIONAL_CONTEXT, role="system",
-            content=budget_hint, zone="dynamic", priority=999,
-            importance=0.1, token_count=0,
-        ))
-
-        needs_compression = utilization > self._trigger_ratio
-        recommended = self._recommend_compression(pressure)
-
-        meta = ContextAssemblyMeta(
-            total_tokens=total_tokens,
-            budget_per_request=budget,
-            utilization_ratio=round(utilization, 4),
-            compression_pressure=round(pressure, 4),
-            trigger=TriggerReason.THRESHOLD.value if needs_compression else TriggerReason.NONE.value,
-            protected_tokens=protected_tokens,
-            dynamic_tokens=dynamic_tokens,
-            reasoning_budget_tokens=0,
-            reasoning_tokens_used=0,
-            blocks_by_source=self._count_by_source(blocks),
-        )
-
-        ctx = AssembledContext(
-            meta=meta, blocks=blocks,
-            needs_compression=needs_compression,
-            recommended_level=recommended,
-        )
-
-        if self._telemetry and self._telemetry.agent:
-            self._telemetry.agent.record_context(
-                total_tokens=total_tokens,
-                utilization=utilization,
-                compression_triggered=needs_compression,
-            )
-
-        logger.debug(
-            "上下文组装完成: %d blocks, %d tokens (利用率 %.1f%%, 压缩=%s)",
-            len(blocks), total_tokens, utilization * 100, needs_compression,
-        )
-        return ctx
+        return ContextManager._finalize_context(blocks, protected_count, self)
 
     def get_messages(self, state: ConversationState) -> List[Dict[str, Any]]:
         """兼容旧 API：直接返回原始 state 的消息。"""
@@ -416,66 +444,11 @@ class ContextManager:
         """
         import json
 
-        blocks: List[ContextBlock] = []
-
-        # ==================== protected zone（与 assemble() 一致）====================
-
-        # 1. System Prompt + CHACHA.md 合并为一条
-        system_text = cm._system_prompt
-        rules = kwargs.get("static_rules") or cm._static_rules
-        if rules:
-            system_text += f"\n\n{rules}"
-        blocks.append(cm._cached_block(
-            BlockSource.SYSTEM_PROMPT, "system", system_text,
-            zone="protected", priority=0, importance=1.0, ttl=600,
-        ))
-
-        # 2. USER_MEMORY.md 用户级永久记忆
-        if cm._global_permanent_memory:
-            blocks.append(cm._cached_block(
-                BlockSource.STATIC_RULE, "system",
-                f"[Global Permanent Memory]\n{cm._global_permanent_memory}",
-                zone="protected", priority=1, importance=0.92, ttl=300,
-            ))
-
-        # 3. CHACHA_MEMORY.md 项目永久记忆
-        if cm._permanent_memory:
-            blocks.append(cm._cached_block(
-                BlockSource.STATIC_RULE, "system",
-                f"[Permanent Memory]\n{cm._permanent_memory}",
-                zone="protected", priority=2, importance=0.9, ttl=300,
-            ))
-
-        # 4. SKILLS / Tool schemas
-        skill_content = kwargs.get("skills") or cm._skills
-        if skill_content:
-            blocks.append(cm._cached_block(
-                BlockSource.SKILL, "system", skill_content,
-                zone="protected", priority=3, importance=0.85, ttl=1200,
-            ))
-
-        protected_count = len(blocks)
-
-        # ==================== dynamic zone ====================
-
-        # 5. MEMORY.md 轻量索引
-        memory_content = kwargs.get("memory_content") or cm._memory_index
-        if memory_content:
-            blocks.append(ContextBlock(
-                source=BlockSource.MEMORY, role="system",
-                content=f"[Memory Index]\n{memory_content}",
-                zone="dynamic", priority=10, importance=0.7,
-                token_count=cm._estimate_tokens(memory_content),
-            ))
-
-        # 6. 今日会话记忆
-        if cm._session_memory:
-            blocks.append(ContextBlock(
-                source=BlockSource.MEMORY, role="system",
-                content=f"[Today's Session Memory]\n{cm._session_memory}",
-                zone="dynamic", priority=9, importance=0.6,
-                token_count=cm._estimate_tokens(cm._session_memory),
-            ))
+        blocks, protected_count = cm._build_protected_and_memory_blocks(
+            static_rules=kwargs.get("static_rules"),
+            skills=kwargs.get("skills"),
+            memory_content=kwargs.get("memory_content"),
+        )
 
         # 7. 对话历史（直接遍历 dict，跳过已有 protected）
         skipped_system = False
@@ -538,59 +511,7 @@ class ContextManager:
         if additional_contexts:
             blocks.extend(additional_contexts)
 
-        # ---- 计算统计 ----
-        total_tokens = sum(b.token_count for b in blocks)
-        protected_tokens = sum(b.token_count for b in blocks[:protected_count])
-        dynamic_tokens = total_tokens - protected_tokens
-        budget = cm._budget or 1_048_576
-        utilization = total_tokens / budget if budget > 0 else 0
-        pressure = min(1.0, utilization * 1.25)
-
-        # Token 预算条
-        budget_hint = (
-            f"[Token Budget] 总预算: {budget} | 已用: {total_tokens} "
-            f"({utilization:.0%}) | 剩余: {budget - total_tokens} | 压力: {pressure:.0%}"
-        )
-        blocks.append(ContextBlock(
-            source=BlockSource.ADDITIONAL_CONTEXT, role="system",
-            content=budget_hint, zone="dynamic", priority=999,
-            importance=0.1, token_count=0,
-        ))
-
-        needs_compression = utilization > cm._trigger_ratio
-        recommended = cm._recommend_compression(pressure)
-
-        meta = ContextAssemblyMeta(
-            total_tokens=total_tokens,
-            budget_per_request=budget,
-            utilization_ratio=round(utilization, 4),
-            compression_pressure=round(pressure, 4),
-            trigger=TriggerReason.THRESHOLD.value if needs_compression else TriggerReason.NONE.value,
-            protected_tokens=protected_tokens,
-            dynamic_tokens=dynamic_tokens,
-            reasoning_budget_tokens=0,
-            reasoning_tokens_used=0,
-            blocks_by_source=cm._count_by_source(blocks),
-        )
-
-        ctx = AssembledContext(
-            meta=meta, blocks=blocks,
-            needs_compression=needs_compression,
-            recommended_level=recommended,
-        )
-
-        if cm._telemetry and cm._telemetry.agent:
-            cm._telemetry.agent.record_context(
-                total_tokens=total_tokens,
-                utilization=utilization,
-                compression_triggered=needs_compression,
-            )
-
-        logger.debug(
-            "上下文组装完成(direct): %d blocks, %d tokens (利用率 %.1f%%, 压缩=%s)",
-            len(blocks), total_tokens, utilization * 100, needs_compression,
-        )
-        return ctx
+        return cm._finalize_context(blocks, protected_count, cm, log_suffix="(direct)")
 
     @staticmethod
     def _estimate_tokens(text: str) -> int:
