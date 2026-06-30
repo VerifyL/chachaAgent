@@ -26,7 +26,7 @@ cp = mgr.save(state, description="高危操作前保存")
 # → SessionCheckpoint(checkpoint_id, event_index=4, ...)
 ```
 
-**文件位置**：`.chacha_agent/checkpoints/{session_id}/{checkpoint_id}.json`
+**文件位置**：`.chacha/checkpoints/{session_id}/{checkpoint_id}.json`
 
 ### 1.2 自动保存时机
 

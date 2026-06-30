@@ -34,7 +34,7 @@ class GlobTool(BaseTool):
     }
 
     _SKIP_DIRS = {
-        ".git", ".chacha_agent", "node_modules", "__pycache__",
+        ".git", ".chacha", "node_modules", "__pycache__",
         ".venv", ".mypy_cache", ".pytest_cache", ".tox", ".eggs", "build",
     }
 

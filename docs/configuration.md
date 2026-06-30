@@ -86,11 +86,11 @@
 
 ## 记忆存储 `[memory]`
 
-配置 `.chacha_agent/memory/` 目录下的记忆持久化行为。
+配置 `.chacha/memory/` 目录下的记忆持久化行为。
 
 | 字段名 | 类型 | 默认值 | 描述 |
 |-------------------------------|---------------|---------------------------------------------|-------------------------------------------------------------------|
-| `project_dir` | 路径字符串 | `".chacha_agent/memory"` (相对于项目根) | 记忆存储根目录。 |
+| `project_dir` | 路径字符串 | `".chacha/memory"` (相对于项目根) | 记忆存储根目录。 |
 | `auto_clean_interval_hours` | 整数 (≥1) | `24` | 后台自动清理（Auto Dream）的执行间隔（小时）。 |
 | `max_topic_files` | 整数 (≥1) | `10` | 主题文件（`topics/*.md`）的最大数量，超出按 LRU 清理。 |
 
@@ -147,8 +147,8 @@
 | `enable_audit` | 布尔值 | `true` | 是否写入审计日志（`audit.jsonl`）。 |
 | `enable_prometheus` | 布尔值 | `false` | 是否暴露 Prometheus `/metrics` 端点。 |
 | `prometheus_port` | 整数 (1~65535) | `9090` | Prometheus 监听端口。 |
-| `audit_log_path` | 路径字符串 | `".chacha_agent/logs/audit.jsonl"` | 审计日志文件路径。 |
-| `debug_log_path` | 路径字符串 | `".chacha_agent/logs/debug.jsonl"` | 调试日志文件路径。 |
+| `audit_log_path` | 路径字符串 | `".chacha/logs/audit.jsonl"` | 审计日志文件路径。 |
+| `debug_log_path` | 路径字符串 | `".chacha/logs/debug.jsonl"` | 调试日志文件路径。 |
 
 **环境变量覆盖**：
 - `CHA_CHA_TELEMETRY__LOG_LEVEL`
@@ -256,7 +256,7 @@ enable_summarization = true
 multimodal_compression = "describe"
 
 [memory]
-project_dir = ".chacha_agent/memory"
+project_dir = ".chacha/memory"
 auto_clean_interval_hours = 12
 max_topic_files = 20
 

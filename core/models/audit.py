@@ -145,7 +145,7 @@ class MemoryChangeAuditEvent(AuditEvent):
     operation: Literal["read", "write", "delete", "prune", "auto_clean"] = Field(
         ..., description="操作类型"
     )
-    file_path: str = Field(..., description="变动的记忆文件路径（相对 .chacha_agent/memory）")
+    file_path: str = Field(..., description="变动的记忆文件路径（相对 .chacha/memory）")
     change_summary: Optional[str] = Field(None, description="变更内容摘要（最大 500 字符）")
     lines_before: Optional[int] = Field(None, description="变更前行数")
     lines_after: Optional[int] = Field(None, description="变更后行数")

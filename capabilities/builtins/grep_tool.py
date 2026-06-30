@@ -26,8 +26,8 @@ class GrepTool(BaseTool):
         "required": ["pattern"],
     }
 
-    SKIP_DIRS = {".git", ".chacha_agent", "node_modules", "__pycache__", ".venv",
-                 ".chacha", "build", "dist", ".mypy_cache", ".pytest_cache"}
+    SKIP_DIRS = {".git", ".chacha", "node_modules", "__pycache__", ".venv",
+                 "build", "dist", ".mypy_cache", ".pytest_cache"}
     MAX_MATCHES = 500
     MAX_FILE_SIZE = 20 * 1024 * 1024  # 20MB
     TIMEOUT_RG = 30

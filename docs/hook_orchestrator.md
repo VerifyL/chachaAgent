@@ -289,7 +289,7 @@ def main():
  ctx = json.loads(sys.stdin.read())
  tool = ctx.get("tool_call", {})
 
- with open(".chacha_agent/logs/project_audit.jsonl", "a") as f:
+ with open(".chacha/logs/project_audit.jsonl", "a") as f:
  f.write(json.dumps({
  "ts": ctx.get("timestamp", ""),
  "tool": tool.get("tool_name"),

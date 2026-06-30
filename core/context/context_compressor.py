@@ -61,6 +61,8 @@ class ContextCompressor:
         ctx: AssembledContext,
         pressure: float = 0.8,
         session_id: str = "",
+        *,
+        force: bool = False,
     ) -> AssembledContext:
         """渐进式压缩。pressure 越大压缩越激进。
 
@@ -68,6 +70,8 @@ class ContextCompressor:
         pressure < 0.85  → TRIMMED（裁剪中间）
         pressure < 0.95  → SUMMARIZED（LLM 摘要）
         pressure >= 0.95 → CONSOLIDATED（摘要合并）
+
+        force=True 时跳过 pressure < 0.70 的早退，至少执行 TRIMMED。
         """
         protected = [b for b in ctx.blocks if b.zone == _PROTECTED_ZONE]
         dynamic = [b for b in ctx.blocks if b.zone != _PROTECTED_ZONE]
@@ -76,7 +80,7 @@ class ContextCompressor:
             return ctx
 
         # pressure < 0.70: 不压缩（dispatcher 已实时冻结旧工具结果）
-        if pressure < 0.70:
+        if pressure < 0.70 and not force:
             return ctx
 
         # Level 1: TRIMMED — 裁剪中间，保留头尾（head=2 + tail=preserve_recent）
@@ -291,6 +295,7 @@ class ContextCompressor:
         trim_tail: int = 12,
         summary_head: int = 3,
         summary_tail: int = 8,
+        force: bool = False,
         **kwargs,
     ) -> tuple:
         """全自动压缩：判断 → dict→AssembledContext→compress()→dict。
@@ -305,7 +310,7 @@ class ContextCompressor:
             reason = f"⚠ {est//1000}K token ({int(pct*100)}% 窗口)"
         elif pct >= trigger_ratio:
             reason = f"压缩 {int(pct*100)}% 窗口"
-        else:
+        elif not force:
             return messages, ""
 
         # messages → AssembledContext（简化版，无 ContextManager）
@@ -317,7 +322,7 @@ class ContextCompressor:
             context_window=context_window,
             preserve_recent=trim_tail,
         )
-        ctx = await compressor.compress(ctx, pressure=pct, session_id="auto-compact")
+        ctx = await compressor.compress(ctx, pressure=pct, session_id="auto-compact", force=force)
 
         # AssembledContext → messages
         new_messages = ContextCompressor._ctx_to_messages(ctx)

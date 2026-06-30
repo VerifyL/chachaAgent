@@ -73,7 +73,7 @@ class ContextBlock(BaseModel):
 
     TODO(阶段4): ContextAssembler 从 StaticRuleLoader/MemoryManager/RAG 收集块
     TODO(阶段4): ContextCompressor 实现 FROZEN/TRIMMED/SUMMARIZED 压缩策略
-    TODO(阶段4): persisted_path 的实际读写逻辑（写入 .chacha_agent/compressed/）
+    TODO(阶段4): persisted_path 的实际读写逻辑（写入 .chacha/compressed/）
     """
     model_config = ConfigDict(frozen=True, use_enum_values=True)
 

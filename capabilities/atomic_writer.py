@@ -26,7 +26,7 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-BACKUP_DIR_NAME = ".chacha_agent/backups"
+BACKUP_DIR_NAME = ".chacha/backups"
 MAX_BACKUP_VERSIONS = 5
 BACKUP_RETENTION_DAYS = 7
 PREVIEW_LENGTH = 80
@@ -251,7 +251,7 @@ class AtomicWriter:
         """创建版本化备份。
 
         如果文件在 git 仓库内则跳过 .bak（由 git 做版本控制），
-        否则创建时间戳 .bak 文件到 .chacha_agent/backups/。
+        否则创建时间戳 .bak 文件到 .chacha/backups/。
         """
         # 有 git → 跳过 .bak，用 git 做版本控制
         if self._is_in_git_repo(file_path):

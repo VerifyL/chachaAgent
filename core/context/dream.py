@@ -86,7 +86,7 @@ continue from the highest existing number + 1.
 ### Step 3 — Output the merged result
 Output the COMPLETE merged CHACHA_MEMORY.md containing ALL [KEEP] + [UPDATE] + [NEW] entries.
 Remove only [DELETE] entries.
-NO entry limit — keep all truly persistent information.
+Total output under ~3000 tokens. Use [KEEP]/[UPDATE]/[DELETE]/[NEW] as appropriate. If over budget, merge related entries or drop low-priority ones.
 Sort entries by importance within each category.
 
 ### Entry format for CHACHA_MEMORY.md:

@@ -10,7 +10,7 @@ from core.environment_validator import validate_host_environment
 
 @pytest.fixture
 def temp_workdir():
-    """临时切换工作目录，避免污染真实 .chacha_agent"""
+    """临时切换工作目录，避免污染真实 .chacha"""
     old_cwd = Path.cwd()
     with tempfile.TemporaryDirectory() as tmpdir:
         os.chdir(tmpdir)
@@ -26,8 +26,8 @@ def test_valid_environment(temp_workdir):
             result = validate_host_environment()
             assert result is True
             # 验证目录已创建
-            assert (temp_workdir / ".chacha_agent").exists()
-            assert (temp_workdir / ".chacha_agent/checkpoints").exists()
+            assert (temp_workdir / ".chacha").exists()
+            assert (temp_workdir / ".chacha/checkpoints").exists()
 
 def test_invalid_encoding(temp_workdir):
     """编码不是 UTF-8 时应返回 False"""

@@ -72,18 +72,18 @@ def test_creates_directory_structure(test_env):
     tmp_path, script_path = test_env
     result = run_script(script_path)
     assert result.returncode == 0
-    assert (tmp_path / ".chacha_agent" / "checkpoints").is_dir()
-    assert (tmp_path / ".chacha_agent" / "memory" / "projects" / "default" / "memory").is_dir()
-    assert (tmp_path / ".chacha_agent" / "memory" / "projects" / "default" / "topics").is_dir()
-    assert (tmp_path / ".chacha_agent" / "rag_store").is_dir()
-    assert (tmp_path / ".chacha_agent" / "logs").is_dir()
+    assert (tmp_path / ".chacha" / "checkpoints").is_dir()
+    assert (tmp_path / ".chacha" / "memory" / "projects" / "default" / "memory").is_dir()
+    assert (tmp_path / ".chacha" / "memory" / "projects" / "default" / "topics").is_dir()
+    assert (tmp_path / ".chacha" / "rag_store").is_dir()
+    assert (tmp_path / ".chacha" / "logs").is_dir()
 
 
 def test_creates_memory_file(test_env):
     tmp_path, script_path = test_env
     result = run_script(script_path)
     assert result.returncode == 0
-    memory_file = tmp_path / ".chacha_agent" / "memory" / "projects" / "default" / "memory" / "MEMORY.md"
+    memory_file = tmp_path / ".chacha" / "memory" / "projects" / "default" / "memory" / "MEMORY.md"
     assert memory_file.is_file()
     content = memory_file.read_text()
     assert "# MEMORY.md - 项目 default 的核心记忆" in content
@@ -105,7 +105,7 @@ def test_sets_correct_permissions(test_env):
     tmp_path, script_path = test_env
     result = run_script(script_path)
     assert result.returncode == 0
-    runtime_dir = tmp_path / ".chacha_agent"
+    runtime_dir = tmp_path / ".chacha"
     mode = runtime_dir.stat().st_mode
     # 检查 owner 拥有读写执行权限，group 和 other 无权限
     assert (mode & stat.S_IRWXU) == stat.S_IRWXU
@@ -117,7 +117,7 @@ def test_force_overwrites(test_env):
     tmp_path, script_path = test_env
     result = run_script(script_path)
     assert result.returncode == 0
-    memory_file = tmp_path / ".chacha_agent" / "memory" / "projects" / "default" / "memory" / "MEMORY.md"
+    memory_file = tmp_path / ".chacha" / "memory" / "projects" / "default" / "memory" / "MEMORY.md"
     memory_file.write_text("old content")
     result = run_script(script_path, "--force")
     assert result.returncode == 0
@@ -132,9 +132,9 @@ def test_custom_project_id(test_env):
     tmp_path, script_path = test_env
     result = run_script(script_path, "-p", "custom_project")
     assert result.returncode == 0
-    custom_memory = tmp_path / ".chacha_agent" / "memory" / "projects" / "custom_project" / "memory"
+    custom_memory = tmp_path / ".chacha" / "memory" / "projects" / "custom_project" / "memory"
     assert custom_memory.is_dir()
-    custom_topics = tmp_path / ".chacha_agent" / "memory" / "projects" / "custom_project" / "topics"
+    custom_topics = tmp_path / ".chacha" / "memory" / "projects" / "custom_project" / "topics"
     assert custom_topics.is_dir()
     memory_file = custom_memory / "MEMORY.md"
     content = memory_file.read_text()
@@ -152,7 +152,7 @@ def test_help_message(test_env):
 
 def test_skip_existing_dirs_without_force(test_env):
     tmp_path, script_path = test_env
-    (tmp_path / ".chacha_agent" / "checkpoints").mkdir(parents=True)
+    (tmp_path / ".chacha" / "checkpoints").mkdir(parents=True)
     result = run_script(script_path)
     assert result.returncode == 0
     assert "目录已存在，跳过" in result.stdout
@@ -171,7 +171,7 @@ def test_env_var_project_id(test_env):
         cwd=os.getcwd(),
     )
     assert result.returncode == 0
-    env_memory = tmp_path / ".chacha_agent" / "memory" / "projects" / "env_project" / "memory"
+    env_memory = tmp_path / ".chacha" / "memory" / "projects" / "env_project" / "memory"
     assert env_memory.is_dir()
     config_file = tmp_path / "chachaConfig.toml"
     assert 'project_id = "env_project"' in config_file.read_text()
@@ -190,8 +190,8 @@ def test_cli_overrides_env_var(test_env):
         cwd=os.getcwd(),
     )
     assert result.returncode == 0
-    assert (tmp_path / ".chacha_agent" / "memory" / "projects" / "cli_project" / "memory").is_dir()
-    assert not (tmp_path / ".chacha_agent" / "memory" / "projects" / "env_project").exists()
+    assert (tmp_path / ".chacha" / "memory" / "projects" / "cli_project" / "memory").is_dir()
+    assert not (tmp_path / ".chacha" / "memory" / "projects" / "env_project").exists()
     config_file = tmp_path / "chachaConfig.toml"
     assert 'project_id = "cli_project"' in config_file.read_text()
 

@@ -21,7 +21,7 @@ class VectorStore:
     """代码向量存储骨架"""
 
     def __init__(self, index_path: Optional[Path] = None):
-        self._path = index_path or Path(".chacha_agent/rag_index")
+        self._path = index_path or Path(".chacha/rag_index")
 
     async def index(self, project_root: Path) -> int:
         """索引项目代码。

@@ -23,7 +23,7 @@ class PluginInstaller:
     """插件安装器骨架"""
 
     def __init__(self, plugins_dir: Optional[Path] = None):
-        self._dir = plugins_dir or Path(".chacha_agent/skills")
+        self._dir = plugins_dir or Path(".chacha/skills")
         self._dir.mkdir(parents=True, exist_ok=True)
 
     async def install(self, name: str, source: str = "") -> bool:

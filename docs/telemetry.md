@@ -46,8 +46,8 @@ class LogLevel(str, Enum):
 
 | 轨道 | 文件 | 消费者 | 格式 |
 |------|------|--------|------|
-| debug | `.chacha_agent/logs/debug.jsonl` | 开发者 | `{"ts":"...","level":"INFO","msg":"...","key":"value"}` |
-| audit | `.chacha_agent/logs/audit.jsonl` | `AuditRecord` | 调用 `record.model_dump()` |
+| debug | `.chacha/logs/debug.jsonl` | 开发者 | `{"ts":"...","level":"INFO","msg":"...","key":"value"}` |
+| audit | `.chacha/logs/audit.jsonl` | `AuditRecord` | 调用 `record.model_dump()` |
 
 ### 1.3 使用
 

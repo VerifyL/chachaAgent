@@ -442,7 +442,7 @@ class ConversationState(BaseModel):
 ### 9.6 会话结束
 
 - **最终元数据更新**：会话结束时，`orchestrator` 调用 `update_metadata` 更新 `total_tokens`、`total_cost_usd`、`total_duration_ms`（通过 `usage_tracker` 和 `telemetry` 汇总）。
-- **归档**：可选将 `ConversationState` 序列化（JSON）存储到 `.chacha_agent/checkpoints/` 作为持久化备份，用于后续审计或恢复。
+- **归档**：可选将 `ConversationState` 序列化（JSON）存储到 `.chacha/checkpoints/` 作为持久化备份，用于后续审计或恢复。
 
 ### 9.7 持久化与恢复
 

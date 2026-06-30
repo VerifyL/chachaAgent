@@ -23,7 +23,7 @@ def main():
     print(f"项目ID: {project_id}")
     print(f"强制模式: {force}\n")
 
-    runtime_dir = Path(".chacha_agent")
+    runtime_dir = Path(".chacha")
     subdirs = [
         "checkpoints",
         f"memory/projects/{project_id}/memory",

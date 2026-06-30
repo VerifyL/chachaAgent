@@ -64,7 +64,7 @@ Continue numbering from highest existing + 1.
 ### Step 3 — Output the merged result
 Output the COMPLETE merged USER_MEMORY.md.
 Sort by importance within each category.
-No entry limit.
+Total output under ~2000 tokens (shared across all projects). Use [KEEP]/[UPDATE]/[DELETE]/[NEW] as appropriate. Drop low-priority entries if over budget.
 
 ## Entry format:
 ```

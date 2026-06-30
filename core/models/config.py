@@ -85,8 +85,8 @@ class ContextConfig(BaseModel):
 # 记忆存储配置
 # ==========================
 class MemoryConfig(BaseModel):
-    """记忆子系统（.chacha_agent/memory）配置"""
-    project_dir: Path = Field(Path.cwd() / ".chacha_agent" / "memory", description="记忆根目录")
+    """记忆子系统（.chacha/memory）配置"""
+    project_dir: Path = Field(Path.cwd() / ".chacha" / "memory", description="记忆根目录")
     auto_clean_interval_hours: int = Field(24, ge=1, description="Auto Dream 自动清理间隔（小时）")
     max_topic_files: int = Field(10, ge=1, description="最多保留的主题文件数，超出按 LRU 清理")
 

@@ -218,7 +218,7 @@ __marimo__/
 .streamlit/secrets.toml
 
 # 运行时数据
-.chacha_agent/
+.chacha/
 
 # Python 缓存
 __pycache__/
@@ -258,4 +258,4 @@ harness.local.toml
 .DS_Store
 Thumbs.db
 
-.chacha_agent/
+.chacha/

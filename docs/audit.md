@@ -7,7 +7,7 @@
 审计模型遵循 **"不可变事件 + JSONL 序列化"** 的设计范式：
 
 - **不可变事件**：所有审计记录均为 `frozen=True`，创建后不可修改，保证审计链的完整性。
-- **JSONL 输出**：每条事件通过 `to_jsonl()` 序列化为一行 JSON，直接对接到 `.chacha_agent/logs/audit.jsonl`。
+- **JSONL 输出**：每条事件通过 `to_jsonl()` 序列化为一行 JSON，直接对接到 `.chacha/logs/audit.jsonl`。
 - **敏感信息脱敏**：`SensitiveString` 包装器标记敏感字段，序列化时自动脱敏，原始值仅在内存中存在。
 - **事件分类覆盖**：工具调用、记忆变更、成本、权限审批、会话生命周期、模型调用、配置变更、系统事件。
 
@@ -184,7 +184,7 @@ class MemoryChangeAuditEvent(AuditEvent):
 | 字段 | 说明 |
 |------|------|
 | `operation` | `read`=读取，`write`=写入，`delete`=删除，`prune`=手动剪枝，`auto_clean`=Auto Dream 自动清理 |
-| `file_path` | 变动的记忆文件路径（相对于 `.chacha_agent/memory`） |
+| `file_path` | 变动的记忆文件路径（相对于 `.chacha/memory`） |
 | `change_summary` | 变更内容摘要，最大 500 字符 |
 | `lines_before` / `lines_after` | 变更前后的行数，用于判断是否触发剪枝 |
 

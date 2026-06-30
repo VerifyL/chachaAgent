@@ -3,7 +3,7 @@ capabilities/openclaw_loader.py
 SkillLoader — 6 级优先级技能加载器（参考 OpenClaw SkillPriority）。
 
 TODO(阶段7): 实现 SYSTEM 级核心技能（echo/help/self-check）
-TODO(阶段7): 实现 USER 级自定义技能（.chacha_agent/skills/user/ 目录扫描）
+TODO(阶段7): 实现 USER 级自定义技能（.chacha/skills/user/ 目录扫描）
 TODO(阶段7): 实现 DOMAIN 级领域技能（CHACHA.md 声明的项目技能）
 TODO(阶段7): 实现 DISCOVERY 级 ClawHub 技能市场集成
 TODO(阶段7): 实现技能 Schema 校验与版本管理
@@ -22,7 +22,7 @@ class SkillPriority(IntEnum):
     """技能加载优先级（数字越小越优先）"""
     SYSTEM = 1       # 核心系统技能（echo/help）
     SESSION = 2      # 会话上下文注入
-    USER = 3         # 用户自定义（.chacha_agent/skills/user/）
+    USER = 3         # 用户自定义（.chacha/skills/user/）
     DOMAIN = 4       # 领域技能（CHACHA.md 声明的项目技能）
     BUILTIN = 5      # 内置工具（BaseTool: read/edit/bash 等）
     DISCOVERY = 6    # 动态发现（MCP/ClawHub）
@@ -32,7 +32,7 @@ class SkillLoader:
     """6 级优先级技能加载器骨架"""
 
     def __init__(self, skills_dir: Optional[Path] = None):
-        self._dir = skills_dir or Path(".chacha_agent/skills")
+        self._dir = skills_dir or Path(".chacha/skills")
         self._dir.mkdir(parents=True, exist_ok=True)
 
     async def load_all(self, session_id: str = "") -> List:
@@ -54,7 +54,7 @@ class SkillLoader:
     async def _load_system(self) -> List:
         """SYSTEM 级：核心系统技能（echo/help）。
 
-        TODO(阶段7): 扫描 .chacha_agent/skills/system/ 目录。
+        TODO(阶段7): 扫描 .chacha/skills/system/ 目录。
         """
         return []
 
@@ -68,7 +68,7 @@ class SkillLoader:
     async def _load_user(self) -> List:
         """USER 级：用户自定义技能。
 
-        TODO(阶段7): 动态导入 .chacha_agent/skills/user/*.py → BaseTool。
+        TODO(阶段7): 动态导入 .chacha/skills/user/*.py → BaseTool。
         """
         return []
 

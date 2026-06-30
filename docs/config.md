@@ -12,7 +12,7 @@
 | `environment`   | `"dev"` 或 `"prod"` | `"dev"`   | 运行环境，影响日志详细程度和错误报告行为。                            |
 | `model`         | `ModelConfig`       | **必填**  | 模型管理层配置，见下表。                                              |
 | `context`       | `ContextConfig`     | 见下文    | 上下文与记忆管理配置。                                                |
-| `memory`        | `MemoryConfig`      | 见下文    | 记忆存储（`.chacha_agent/memory`）配置。                              |
+| `memory`        | `MemoryConfig`      | 见下文    | 记忆存储（`.chacha/memory`）配置。                              |
 | `sandbox`       | `SandboxConfig`     | 见下文    | 沙箱执行器配置。                                                      |
 | `policy`        | `PolicyConfig`      | 见下文    | 安全策略引擎配置。                                                    |
 | `telemetry`     | `TelemetryConfig`   | 见下文    | 可观测性（日志、审计、指标）配置。                                    |
@@ -62,7 +62,7 @@
 
 | 字段名                        | 类型          | 默认值                                      | 描述                                                              |
 |-------------------------------|---------------|---------------------------------------------|-------------------------------------------------------------------|
-| `project_dir`                 | `Path`        | `./.chacha_agent/memory`                    | 记忆根目录（相对于项目根）。                                     |
+| `project_dir`                 | `Path`        | `./.chacha/memory`                    | 记忆根目录（相对于项目根）。                                     |
 | `auto_clean_interval_hours`   | `int`         | `24`                                        | Auto Dream 后台自动清理（合并、剪枝）的执行间隔（小时）。        |
 | `max_topic_files`             | `int`         | `10`                                        | 最多保留的主题文件（`topics/*.md`）数量，超出按 LRU 清理。      |
 
@@ -97,8 +97,8 @@
 | `enable_audit`        | `bool`                                  | `True`                                     | 是否写入审计日志（`audit.jsonl`）。                               |
 | `enable_prometheus`   | `bool`                                  | `False`                                    | 是否暴露 Prometheus `/metrics` 端点。                            |
 | `prometheus_port`     | `int` (1~65535)                         | `9090`                                     | Prometheus 监听端口。                                             |
-| `audit_log_path`      | `Path`                                  | `./.chacha_agent/logs/audit.jsonl`         | 审计日志文件路径。                                               |
-| `debug_log_path`      | `Path`                                  | `./.chacha_agent/logs/debug.jsonl`         | 调试日志文件路径。                                               |
+| `audit_log_path`      | `Path`                                  | `./.chacha/logs/audit.jsonl`         | 审计日志文件路径。                                               |
+| `debug_log_path`      | `Path`                                  | `./.chacha/logs/debug.jsonl`         | 调试日志文件路径。                                               |
 
 ---
 

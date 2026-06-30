@@ -9,7 +9,7 @@ def validate_host_environment() -> bool:
     校验项：
     1. 系统默认编码为 UTF-8
     2. Git 命令可用
-    3. 运行时目录 .chacha_agent/ 及其子目录可创建/可写
+    3. 运行时目录 .chacha/ 及其子目录可创建/可写
     """
     # 1. 编码检查
     current_encoding = sys.getdefaultencoding().lower()
@@ -57,7 +57,7 @@ def validate_host_environment() -> bool:
         print("         Python:     pip install rxp (轻量版，功能受限)")
 
     # 4. 创建运行时根目录及子目录
-    runtime_root = Path("./.chacha_agent")
+    runtime_root = Path("./.chacha")
     try:
         runtime_root.mkdir(exist_ok=True)
         (runtime_root / "checkpoints").mkdir(exist_ok=True)
