@@ -209,7 +209,7 @@ class Dispatcher:
                     "type": "function",
                     "function": {
                         "name": tc_info["name"],
-                        "arguments": json.dumps(summary, ensure_ascii=False),
+                        "arguments": tc_info["args"] or "{}",
                     },
                 })
                 _tc_id_to_name[tc_info["id"]] = tc_info["name"]

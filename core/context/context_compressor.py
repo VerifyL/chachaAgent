@@ -64,6 +64,7 @@ class ContextCompressor:
     ) -> AssembledContext:
         """渐进式压缩。pressure 越大压缩越激进。
 
+        pressure < 0.70  → 不压缩（dispatcher 已实时冻结旧工具结果）
         pressure < 0.85  → TRIMMED（裁剪中间）
         pressure < 0.95  → SUMMARIZED（LLM 摘要）
         pressure >= 0.95 → CONSOLIDATED（摘要合并）
@@ -72,6 +73,10 @@ class ContextCompressor:
         dynamic = [b for b in ctx.blocks if b.zone != _PROTECTED_ZONE]
 
         if not dynamic:
+            return ctx
+
+        # pressure < 0.70: 不压缩（dispatcher 已实时冻结旧工具结果）
+        if pressure < 0.70:
             return ctx
 
         # Level 1: TRIMMED — 裁剪中间，保留头尾（head=2 + tail=preserve_recent）
