@@ -1,6 +1,6 @@
 # ChachaAgent 配置文档
 
-本文档详细说明 ChachaAgent 的配置文件 `chachaConfig.toml`（或兼容旧名称 `harness.toml`）的所有字段、环境变量覆盖方式以及各配置项的作用。
+本文档详细说明 ChachaAgent 的全局配置文件 `~/.chacha/config.toml` 和项目级配置文件 `chachaConfig.toml`（兼容旧名称 `harness.toml`）的所有字段、环境变量覆盖方式以及各配置项的作用。两者结构一致，项目级配置会覆盖全局配置。
 
 配置文件采用 [TOML](https://toml.io/) 格式，所有字段均有默认值，未显式配置的项将使用默认值。部分敏感字段（如 API Key）可通过环境变量覆盖，便于容器化部署。
 
