@@ -118,6 +118,29 @@ class TelemetryConfig(BaseModel):
 
 
 # ==========================
+# MCP 客户端配置
+# ==========================
+
+class MCPServerConfig(BaseModel):
+    """单个 MCP server 配置"""
+    name: str = Field("", description="服务标识名，如 'filesystem'")
+    command: str = Field(..., description="启动命令，如 'npx' 或 'python'")
+    args: List[str] = Field(default_factory=list, description="启动参数列表")
+    env: Dict[str, str] = Field(default_factory=dict, description="环境变量")
+    transport: Literal["stdio"] = Field("stdio", description="传输方式（当前仅支持 stdio）")
+    include: Optional[List[str]] = Field(None, description="白名单：只注入这些工具（不填=全量）")
+    exclude: Optional[List[str]] = Field(None, description="黑名单：排除这些工具（不填=全量）")
+
+
+class MCPConfig(BaseModel):
+    """MCP 客户端总配置"""
+    enabled: bool = Field(False, description="是否启用 MCP 客户端")
+    servers: Dict[str, MCPServerConfig] = Field(
+        default_factory=dict, description="server 标识 → 配置"
+    )
+
+
+# ==========================
 # 表现层配置
 # ==========================
 class InterfaceConfig(BaseModel):
@@ -148,6 +171,7 @@ class ChaChaConfig(BaseModel):
     policy: PolicyConfig = Field(default_factory=PolicyConfig)
     telemetry: TelemetryConfig = Field(default_factory=TelemetryConfig)
     multimodal: MultimodalConfig = Field(default_factory=MultimodalConfig)
+    mcp: MCPConfig = Field(default_factory=MCPConfig)
     interface: InterfaceConfig = Field(default_factory=InterfaceConfig)
 
     # ----- 全局校验 -----

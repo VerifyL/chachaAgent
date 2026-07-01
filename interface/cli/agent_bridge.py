@@ -40,6 +40,18 @@ class AgentBridge:
         self._system_prompt = system_prompt
         self._custom_tools = tools or []
 
+        # MCP 客户端（配置驱动）
+        self._mcp_client = None
+        self._mcp_tools: list = []
+        try:
+            from core.config_manager import get_config_manager
+            cfg = get_config_manager().load()
+            if cfg.mcp.enabled and cfg.mcp.servers:
+                from capabilities.mcp_client import MCPClient
+                self._mcp_client = MCPClient(cfg.mcp.servers)
+        except Exception:
+            pass
+
         # Orchestrator（内嵌 ChatEngine，app.py 不直接访问 engine）
         from core.orchestrator import Orchestrator
         self._orchestrator: Optional[Orchestrator] = None
@@ -186,16 +198,28 @@ class AgentBridge:
         if self._telemetry and self._telemetry.enabled:
             self._telemetry.start()
 
+        # MCP 客户端连接（需在 rebuild 之前，以便工具注入）
+        mcp_msg = ""
+        if self._mcp_client:
+            await self._mcp_client.connect()
+            self._mcp_tools = await self._mcp_client.get_tools()
+            if self._mcp_tools:
+                self._custom_tools.extend(self._mcp_tools)
+                mcp_msg = f"\nMCP: {len(self._mcp_client.server_names)} server, {len(self._mcp_tools)} tools"
+
         await self.rebuild()
 
         self._initialized = True
-        return f"API: {self._model} | 上下文: {self._context_window // 1000}K"
+        return f"API: {self._model} | 上下文: {self._context_window // 1000}K{mcp_msg}"
 
     def set_tools_for_session(self, memory_manager) -> None:
         """根据 session 的 MemoryManager 重建工具（统一走 registry）。"""
         from capabilities.registry import build_tools
         self._session_memory = memory_manager
-        self._custom_tools = build_tools(root=self._root, memory_manager=memory_manager)
+        self._custom_tools = build_tools(
+            root=self._root, memory_manager=memory_manager,
+            mcp_tools=self._mcp_tools,
+        )
 
     async def rebuild(self) -> None:
         """重建 Dispatcher + ToolExecutor"""
@@ -347,6 +371,12 @@ class AgentBridge:
     async def reset(self) -> None:
         self._engine.reset()
 
+    async def shutdown(self) -> None:
+        """优雅关闭：断开 MCP 连接、保存 checkpoint。"""
+        if self._mcp_client:
+            await self._mcp_client.disconnect()
+            logger.info("[mcp] 已断开所有 server")
+
     # ====== 命令 ======
 
     def toggle_telemetry(self, enable: bool) -> str:
@@ -374,6 +404,9 @@ class AgentBridge:
             return self._cmd_key(arg)
         if cmd == "memory":
             return await self._cmd_memory(arg)
+
+        if cmd == "mcp":
+            return await self._cmd_mcp(arg)
 
         return f"未知命令: {cmd}"
 
@@ -431,6 +464,82 @@ class AgentBridge:
             return "\n".join(lines)
         except Exception as e:
             return f"读取记忆失败: {e}"
+
+    async def _cmd_mcp(self, arg: str) -> str:
+        """处理 /mcp list 和 /mcp list-tools <server> 命令。"""
+        if not self._mcp_client:
+            return "⚠️ MCP 未启用（配置中 mcp.enabled = false 或无 server）"
+
+        parts = arg.split(None, 1) if arg else []
+        sub = parts[0].lower() if parts else "list"
+        sub_arg = parts[1] if len(parts) > 1 else ""
+
+        if sub == "list":
+            return self._mcp_list_servers()
+        elif sub == "list-tools":
+            if not sub_arg:
+                return "用法: /mcp list-tools <server>\n可用 server: " + ", ".join(self._mcp_client.server_names)
+            return await self._mcp_list_tools(sub_arg)
+        else:
+            return f"未知子命令: {sub}\n可用: /mcp list | /mcp list-tools <server>"
+
+    def _mcp_list_servers(self) -> str:
+        """列出所有 MCP server。"""
+        if not self._mcp_client.server_names:
+            return "暂无 MCP server"
+        lines = [f"📡 MCP server ({len(self._mcp_client.server_names)}):"]
+        for name in self._mcp_client.server_names:
+            cfg = self._mcp_client._server_configs.get(name, {})
+            cmd = cfg.command
+            connected = "🟢" if name in self._mcp_client._processes else "🔴"
+            lines.append(f"  {connected} {name} ({cmd})")
+        return "\n".join(lines)
+
+    async def _mcp_list_tools(self, server_name: str) -> str:
+        """列出某个 MCP server 的所有工具。"""
+        if server_name not in self._mcp_client._processes:
+            return f"🔴 server '{server_name}' 未连接\n可用: " + ", ".join(self._mcp_client.server_names)
+
+        try:
+            request = {
+                "jsonrpc": "2.0",
+                "id": f"cli_list_{server_name}",
+                "method": "tools/list",
+                "params": {},
+            }
+            response = await self._mcp_client._send_and_receive(server_name, request)
+            tools = response.get("result", {}).get("tools", [])
+        except Exception as e:
+            return f"获取工具列表失败: {e}"
+
+        if not tools:
+            return f"{server_name}: 无工具"
+
+        cfg = self._mcp_client._server_configs.get(server_name, {})
+        include = getattr(cfg, "include", None)
+        exclude = getattr(cfg, "exclude", None)
+
+        lines = [f"📡 {server_name} ({len(tools)} 工具):"]
+        # 估算每个工具的 token 开销（粗略：1 token ≈ 3 字符）
+        total_est = 0
+        for t in tools:
+            name = t.get("name", "?")
+            desc = t.get("description", "")
+            # 判断是否被过滤
+            filtered = "❌" if (include is not None and name not in include) or \
+                               (exclude is not None and name in exclude) else "  "
+            lines.append(f"  {filtered} {name}: {desc[:100]}")
+            schema_str = str(t)
+            total_est += len(schema_str) // 3
+
+        lines.append(f"  预估 token 开销: ~{total_est} tokens")
+        if include:
+            lines.append(f"  include 过滤: {include}")
+        elif exclude:
+            lines.append(f"  exclude 过滤: {exclude}")
+        else:
+            lines.append(f"  全量注入（配置 include/exclude 可裁剪）")
+        return "\n".join(lines)
 
     # ====== 遥测查询（供 CLI 仪表盘使用） ======
 

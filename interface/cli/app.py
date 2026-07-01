@@ -161,6 +161,8 @@ class ChachaCLI:
             except KeyboardInterrupt:
                 continue  # Ctrl+C 清空输入
             except EOFError:
+                if self._bridge:
+                    await self._bridge.shutdown()
                 break  # Ctrl+D 退出
 
             text = text.strip()
@@ -168,6 +170,8 @@ class ChachaCLI:
                 continue
             if text == "/exit":
                 self._print_system("👋 再见")
+                if self._bridge:
+                    await self._bridge.shutdown()
                 break
 
             await self._handle_input(text)
@@ -322,6 +326,10 @@ class ChachaCLI:
 
         # 配置
         if cmd in ("model", "url", "key"):
+            return await self._bridge.handle_command(text)
+
+        # MCP
+        if cmd == "mcp":
             return await self._bridge.handle_command(text)
 
         # Session

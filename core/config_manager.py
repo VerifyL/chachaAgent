@@ -256,6 +256,23 @@ default_model = "deepseek-v4-pro"
 # Global Dream 触发阈值
 # global_dream_rounds = 50
 # global_dream_hours = 72
+
+# [mcp]
+# MCP (Model Context Protocol) 客户端配置 — 连接外部 MCP server 扩展工具能力
+# enabled = false
+#
+# [mcp.servers.filesystem]
+# command = "npx"
+# args = ["-y", "@anthropic/mcp-filesystem", "/path/to/allowed/dir"]
+#
+# [mcp.servers.github]
+# command = "npx"
+# args = ["-y", "@anthropic/mcp-github"]
+# env = { GITHUB_TOKEN = "your-github-token" }
+#
+# [mcp.servers.custom-python]
+# command = "python"
+# args = ["-m", "my_mcp_server"]
 """, encoding="utf-8")
 
 def get_config() -> ChaChaConfig:

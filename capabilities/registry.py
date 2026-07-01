@@ -11,10 +11,11 @@ from pathlib import Path
 from typing import List, Optional
 
 
-def build_tools(root: Optional[Path] = None, memory_manager=None, subagent_spawner=None) -> List:
+def build_tools(root: Optional[Path] = None, memory_manager=None, subagent_spawner=None, mcp_tools: Optional[List] = None) -> List:
     """返回完整的工具列表（单一路径）。
 
     逐个添加：read / write / edit / bash / grep / glob / task / memory / cache_read / approval_control
+    若提供 mcp_tools，则合并到工具列表末尾。
     统一注入 project_root，确保所有工具可用。
     """
     # ✅ read — 读取文件内容
@@ -69,5 +70,9 @@ def build_tools(root: Optional[Path] = None, memory_manager=None, subagent_spawn
         for tool in tools:
             if hasattr(tool, 'project_root'):
                 tool.project_root = root
+
+    # 合并 MCP 工具（若有）
+    if mcp_tools:
+        tools.extend(mcp_tools)
 
     return tools
