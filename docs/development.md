@@ -28,7 +28,7 @@ pip install -e ".[dev,build]"
 
 ## 模型配置
 
-ChachaAgent 通过 `chachaConfig.toml` 配置模型提供商，支持 OpenAI / DeepSeek / Ollama 等兼容 API。
+ChachaAgent 通过全局 `~/.chacha/config.toml`（或项目级 `chachaConfig.toml`）配置模型提供商，支持 OpenAI / DeepSeek / Ollama 等兼容 API。
 
 ```toml
 [model.providers.default]

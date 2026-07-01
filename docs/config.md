@@ -1,6 +1,6 @@
 # ChachaAgent 配置数据结构字段说明
 
-本文档详细说明 `core/models/config.py` 中定义的所有配置模型及其字段，对应 `chachaConfig.toml` 配置文件。
+本文档详细说明 `core/models/config.py` 中定义的所有配置模型及其字段，对应项目级 `chachaConfig.toml`（或全局 `~/.chacha/config.toml`，结构一致）配置文件。
 
 ---
 

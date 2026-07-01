@@ -113,7 +113,7 @@ CLI 快捷键：`Ctrl+N` 新会话 | `Ctrl+S` 保存 | `Ctrl+F` 调试 | `Ctrl+B
 
 首次启动自动生成 `~/.chacha/config.toml` 和 `~/.chacha/CHACHA.md`。
 
-主要配置项 (`chachaConfig.toml`):
+主要配置项（全局 `~/.chacha/config.toml`，项目级 `chachaConfig.toml` 可覆盖）:
 
 | 配置段 | 状态 | 说明 |
 |--------|------|------|

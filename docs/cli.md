@@ -217,7 +217,7 @@ dream_rounds = 15
 global_dream_rounds = 100
 ```
 
-优先级: `~/.chacha/config.toml` → `{project}/chachaConfig.toml` → 环境变量 → 默认值
+优先级: `{project}/chachaConfig.toml` → `~/.chacha/config.toml` → 环境变量 → 默认值
 
 ## 上下文压缩
 
