@@ -219,6 +219,7 @@ __marimo__/
 
 # 运行时数据
 .chacha/
+.chacha_agent/
 
 # Python 缓存
 __pycache__/
@@ -257,5 +258,3 @@ harness.local.toml
 # OS 垃圾文件
 .DS_Store
 Thumbs.db
-
-.chacha/

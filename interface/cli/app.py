@@ -444,13 +444,15 @@ class ChachaCLI:
         try:
             from core.context.context_compressor import ContextCompressor
             n = len(self._bridge._messages)
+            cfg = dict(getattr(self._bridge, "_compress_cfg", {}))
+            cfg.pop("trigger_ratio", None)  # 显式传入 trigger_ratio=0.0 覆盖配置
             msgs, _ = await ContextCompressor.auto_compact(
                 self._bridge._messages,
                 getattr(self._bridge, "_context_window", 1_048_576),
                 llm=getattr(self._bridge, "_invoker", None),
                 trigger_ratio=0.0,  # Ctrl+X 强制压缩，无视利用率阈值
                 force=True,
-                **getattr(self._bridge, "_compress_cfg", {}),
+                **cfg,
             )
             self._bridge._messages = msgs
             return f"📦 {n} → {len(msgs)} 条"
