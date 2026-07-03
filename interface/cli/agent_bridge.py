@@ -209,6 +209,11 @@ class AgentBridge:
 
         await self.rebuild()
 
+        # 缓存命中时启动后台连接（不阻塞 prompt 显示）
+        if self._mcp_client and self._mcp_client.from_cache:
+            import asyncio
+            asyncio.create_task(self._mcp_client.background_connect(self._executor))
+
         self._initialized = True
         return f"API: {self._model} | 上下文: {self._context_window // 1000}K{mcp_msg}"
 
