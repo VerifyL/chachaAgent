@@ -204,10 +204,11 @@ async def test_timeout_triggers_continue_for_safe_hook():
         return HookResult.continue_()
 
     o = HookOrchestrator()
-    o.register("slow", HookPoint.PRE_TOOL_EXECUTION, slow, timeout=0.1)
+    o.register("slow", HookPoint.PRE_TOOL_EXECUTION, slow, timeout=0.1,
+               on_timeout_continue=True, on_error_continue=True)
 
     result = await o.run(hook_point=HookPoint.PRE_TOOL_EXECUTION)
-    # safe hook 超时应继续
+    # v2.1: 显式 on_timeout_continue=True 时超时继续
     assert result.is_continue() is True
 
 
@@ -231,10 +232,11 @@ async def test_error_in_continue_hook_continues():
         raise RuntimeError("boom")
 
     o = HookOrchestrator()
-    o.register("crashy", HookPoint.PRE_TOOL_EXECUTION, crashy)
+    o.register("crashy", HookPoint.PRE_TOOL_EXECUTION, crashy,
+               on_error_continue=True, on_timeout_continue=True)
 
     result = await o.run(hook_point=HookPoint.PRE_TOOL_EXECUTION)
-    # 默认容错（callable 且无显式设置 → 继续）
+    # v2.1: 显式 on_error_continue=True 时异常继续
     assert result.is_continue() is True
 
 

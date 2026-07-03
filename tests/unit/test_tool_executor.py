@@ -132,7 +132,7 @@ async def test_telemetry_called():
     from core.telemetry import Telemetry
     from core.models.config import TelemetryConfig
 
-    t = Telemetry(TelemetryConfig(log_level="WARNING"))
+    t = Telemetry(TelemetryConfig(enabled=True, log_level="WARNING"))
     t.start()
 
     executor = ToolExecutor({"echo": _echo}, telemetry=t)

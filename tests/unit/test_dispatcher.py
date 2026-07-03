@@ -770,13 +770,12 @@ async def test_freeze_old_tool_results_above_threshold(memory):
 
     d._freeze_old_tool_results(messages, "s1")
 
-    # 前 7 个（15-8）变占位符
+    # 前 7 个（15-8）变占位符（新格式: {"t":"...", "s":"..."}）
     for i in range(7):
         content = messages[i + 1]["content"]
         assert content.startswith("{")
-        assert '"toolname"' in content
-        assert '"result_summary"' in content
-        assert '"cache_path"' in content
+        assert '"t"' in content
+        assert '"s"' in content
 
     # 最近 8 个保持完整（KEEP_TOOL_RESULTS=8）
     for i in range(7, 15):
@@ -822,9 +821,8 @@ async def test_freeze_old_tool_results_json_format(memory):
     for i in range(10):
         if messages[i * 2 + 2]["content"].startswith("{"):
             data = json.loads(messages[i * 2 + 2]["content"])
-            assert "toolname" in data
-            assert "result_summary" in data
-            assert "cache_path" in data
+            assert "t" in data
+            assert "s" in data
 
 
 @pytest.mark.asyncio

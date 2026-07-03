@@ -80,14 +80,13 @@ def test_creates_directory_structure(test_env):
 
 
 def test_creates_memory_file(test_env):
+    """v2.1: MEMORY.md 由 autoDream 管道异步生成，init_project 仅准备目录"""
     tmp_path, script_path = test_env
     result = run_script(script_path)
     assert result.returncode == 0
-    memory_file = tmp_path / ".chacha" / "memory" / "projects" / "default" / "memory" / "MEMORY.md"
-    assert memory_file.is_file()
-    content = memory_file.read_text()
-    assert "# MEMORY.md - 项目 default 的核心记忆" in content
-    assert "此文件由 ChachaAgent 自动维护" in content
+    memory_dir = tmp_path / ".chacha" / "memory" / "projects" / "default" / "memory"
+    assert memory_dir.is_dir()
+    assert "记忆目录已准备" in result.stdout
 
 
 def test_generates_config_if_missing(test_env):
@@ -114,21 +113,32 @@ def test_sets_correct_permissions(test_env):
 
 
 def test_force_overwrites(test_env):
+    """v2.1: --force 重建目录并覆盖配置文件"""
     tmp_path, script_path = test_env
+    # 第一次运行
     result = run_script(script_path)
     assert result.returncode == 0
-    memory_file = tmp_path / ".chacha" / "memory" / "projects" / "default" / "memory" / "MEMORY.md"
-    memory_file.write_text("old content")
+    # 修改配置文件为旧内容
+    config_file = tmp_path / "chachaConfig.toml"
+    config_file.write_text('project_id = "old_stuff"\n')
+    # 在目录中创建额外文件，验证 --force 会清空重建
+    extra_file = tmp_path / ".chacha" / "checkpoints" / "extra.txt"
+    extra_file.parent.mkdir(parents=True, exist_ok=True)
+    extra_file.write_text("should be removed")
+    # --force 运行
     result = run_script(script_path, "--force")
     assert result.returncode == 0
-    content = memory_file.read_text()
-    assert "# MEMORY.md - 项目 default 的核心记忆" in content
-    config_file = tmp_path / "chachaConfig.toml"
-    config_content = config_file.read_text()
-    assert 'project_id = "default"' in config_content
+    # 配置文件被覆盖
+    content = config_file.read_text()
+    assert 'project_id = "default"' in content
+    # 额外文件被清除
+    assert not extra_file.exists()
+    # 目录被重建
+    assert "强制重建目录" in result.stdout
 
 
 def test_custom_project_id(test_env):
+    """v2.1: 自定义项目 ID 创建对应目录结构和配置"""
     tmp_path, script_path = test_env
     result = run_script(script_path, "-p", "custom_project")
     assert result.returncode == 0
@@ -136,9 +146,8 @@ def test_custom_project_id(test_env):
     assert custom_memory.is_dir()
     custom_topics = tmp_path / ".chacha" / "memory" / "projects" / "custom_project" / "topics"
     assert custom_topics.is_dir()
-    memory_file = custom_memory / "MEMORY.md"
-    content = memory_file.read_text()
-    assert "# MEMORY.md - 项目 custom_project 的核心记忆" in content
+    # MEMORY.md 由 autoDream 管道异步生成，此处仅验证目录就绪
+    assert "记忆目录已准备: memory/projects/custom_project/memory" in result.stdout
     config_file = tmp_path / "chachaConfig.toml"
     assert 'project_id = "custom_project"' in config_file.read_text()
 

@@ -16,9 +16,9 @@ def test_full_orchestration_metrics_flow():
     d = Path(tempfile.mkdtemp())
     cfg = TelemetryConfig(
         log_level="INFO",
-        debug_log_path=str(d / "debug.jsonl"),
-        audit_log_path=str(d / "audit.jsonl"),
+        log_dir=d,
         enable_audit=True,
+        enabled=True,
     )
     t = Telemetry(cfg)
     t.start()
@@ -85,7 +85,7 @@ def test_full_orchestration_metrics_flow():
 
     # ---- 验证日志文件 ----
     t.stop()
-    debug_lines = Path(cfg.debug_log_path).read_text().strip().split("\n")
+    debug_lines = (cfg.log_dir / "debug.jsonl").read_text().strip().split("\n")
     assert len(debug_lines) >= 2
     msgs = [json.loads(l)["msg"] for l in debug_lines]
     assert "session started" in msgs

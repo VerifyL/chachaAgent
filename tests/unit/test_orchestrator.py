@@ -25,7 +25,7 @@ class MockMemoryManager:
     def __init__(self):
         self.remembered = []
 
-    def remember(self, content, date_str=None):
+    def remember(self, content):
         self.remembered.append(content)
         from pathlib import Path
         return Path("/fake")

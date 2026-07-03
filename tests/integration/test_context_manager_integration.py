@@ -49,10 +49,10 @@ def test_compression_triggers_above_threshold():
     for i in range(100):
         state.add_event(MessageEvent(source="user", role="user", content="x" * 200))
 
-    mgr = ContextManager(ContextConfig(max_tokens=500, compression_trigger_ratio=0.5))
+    mgr = ContextManager(ContextConfig(max_tokens=3000, compression_trigger_ratio=0.5))
     ctx = mgr.assemble(state, session_id="s1")
     assert ctx.needs_compression is True
-    assert ctx.recommended_level in ("frozen", "trimmed", "summarized", "consolidated")
+    assert ctx.recommended_level in ("trimmed", "summarized", "consolidated")
 
 
 def test_cache_reuse_across_assemblies():
@@ -72,12 +72,12 @@ def test_cache_reuse_across_assemblies():
 
 def test_permanent_memory_survives_compression_flag():
     """永久记忆在 protected zone，即使 needs_compression=True 也不受影响"""
-    mgr = ContextManager(ContextConfig(max_tokens=500, compression_trigger_ratio=0.3))
+    mgr = ContextManager(ContextConfig(max_tokens=1000, compression_trigger_ratio=0.5))
     mgr.set_permanent_memory("## 永久记忆\n- 项目永远使用 Python")
 
     meta = SessionMetadata(project_id="p1")
     state = ConversationState(metadata=meta)
-    for i in range(50):
+    for i in range(60):
         state.add_event(MessageEvent(source="user", role="user", content="x" * 200))
 
     ctx = mgr.assemble(state, session_id="s1", static_rules="宪法规定")

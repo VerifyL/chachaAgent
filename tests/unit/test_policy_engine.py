@@ -97,10 +97,11 @@ def test_risk_assess_convenience():
 
 def test_read_file_is_free():
     engine = PolicyEngine()
-    decision = engine.evaluate_tool("read_file", "read main.py", "s1")
+    decision = engine.evaluate_tool("read", "read main.py", "s1")
     assert decision.allowed is True
     assert decision.needs_approval is False
     assert decision.permission_level == PermissionLevel.FREE
+
 
 
 def test_write_file_needs_approval():
@@ -112,6 +113,7 @@ def test_write_file_needs_approval():
 
 def test_approve_once_grants_task_level():
     engine = PolicyEngine()
+    engine.set_tool_permission("docker", PermissionLevel.APPROVE_ONCE)
     # 高风险工具 → APPROVE_ONCE
     decision = engine.evaluate_tool("docker", "docker run ...", "s1")
     assert decision.needs_approval is True
@@ -226,7 +228,7 @@ def test_full_security_workflow():
     engine = PolicyEngine()
 
     # 场景1：读文件 → FREE
-    d = engine.evaluate_tool("read_file", "read main.py", "s1")
+    d = engine.evaluate_tool("read", "read main.py", "s1")
     assert d.allowed and not d.needs_approval
 
     # 场景2：写文件 → ASK_FIRST → 需要审批

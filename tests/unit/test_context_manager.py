@@ -37,7 +37,7 @@ def test_message_order_system_first(state):
     ctx = mgr.assemble(state, session_id="s1")
     msgs = ctx.get_messages()
     assert msgs[0]["role"] == "system"
-    assert "ChaChaAgent" in msgs[0]["content"]
+    assert "ChachaAgent" in msgs[0]["content"]
 
 
 def test_user_message_after_system(state):

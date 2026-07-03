@@ -35,8 +35,9 @@ def assert_valid_uuid(value: str) -> bool:
         return False
 
 
-def assert_timestamp_is_utc(ts: datetime) -> bool:
-    return ts.tzinfo == timezone.utc
+def _assert_timestamp_has_tz(ts: datetime) -> bool:
+    """验证时间戳有时区信息（项目使用 CST, UTC+8）。"""
+    return ts.tzinfo is not None
 
 
 # ============================================================================
@@ -76,7 +77,7 @@ class TestBaseEvent:
     def test_default_id_and_timestamp(self):
         e = BaseEvent(source="user")
         assert assert_valid_uuid(e.id)
-        assert assert_timestamp_is_utc(e.timestamp)
+        assert _assert_timestamp_has_tz(e.timestamp)
 
     def test_frozen_immutable(self):
         e = BaseEvent(source="user")
@@ -269,8 +270,8 @@ class TestSessionMetadata:
 
     def test_created_at_utc(self):
         meta = SessionMetadata(project_id="proj1")
-        assert assert_timestamp_is_utc(meta.created_at)
-        assert assert_timestamp_is_utc(meta.updated_at)
+        assert _assert_timestamp_has_tz(meta.created_at)
+        assert _assert_timestamp_has_tz(meta.updated_at)
 
     def test_parent_session_id_optional(self):
         meta = SessionMetadata(project_id="proj1")
@@ -346,7 +347,7 @@ class TestConversationState:
     def test_timestamps_are_utc(self):
         meta = SessionMetadata(project_id="tz")
         state = ConversationState(metadata=meta)
-        assert state.metadata.created_at.tzinfo == timezone.utc
-        assert state.metadata.updated_at.tzinfo == timezone.utc
+        assert state.metadata.created_at.tzinfo is not None
+        assert state.metadata.updated_at.tzinfo is not None
         event = MessageEvent(source="user", role="user", content="hi")
-        assert event.timestamp.tzinfo == timezone.utc
+        assert event.timestamp.tzinfo is not None

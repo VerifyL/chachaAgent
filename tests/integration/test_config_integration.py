@@ -70,8 +70,7 @@ log_level = "DEBUG"
 enable_audit = true
 enable_prometheus = true
 prometheus_port = 9091
-audit_log_path = "logs/audit.jsonl"
-debug_log_path = "logs/debug.jsonl"
+log_dir = "logs"
 
 [multimodal]
 enabled = true
@@ -144,8 +143,7 @@ def test_load_full_config_from_file(full_config_toml: Path):
     assert config.telemetry.enable_audit is True
     assert config.telemetry.enable_prometheus is True
     assert config.telemetry.prometheus_port == 9091
-    assert config.telemetry.audit_log_path == Path("logs/audit.jsonl")
-    assert config.telemetry.debug_log_path == Path("logs/debug.jsonl")
+    assert config.telemetry.log_dir == Path("logs")
 
     # 多模态预留
     assert config.multimodal.enabled is True

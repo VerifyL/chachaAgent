@@ -35,7 +35,7 @@ async def _grep(args):
 @pytest.mark.asyncio
 async def test_full_tool_execution_with_policy_and_hooks():
     """内置工具 + PolicyEngine + HookOrchestrator + Telemetry 全联动"""
-    t = Telemetry(TelemetryConfig(log_level="WARNING"))
+    t = Telemetry(TelemetryConfig(log_level="WARNING", enabled=True))
     t.start()
 
     policy = PolicyEngine()
@@ -77,14 +77,15 @@ async def test_full_tool_execution_with_policy_and_hooks():
 @pytest.mark.asyncio
 async def test_policy_blocks_and_metrics_recorded():
     """黑名单拦截 → blocked 状态 + 策略决策指标"""
-    t = Telemetry(TelemetryConfig(log_level="WARNING"))
+    t = Telemetry(TelemetryConfig(log_level="WARNING", enabled=True))
     t.start()
 
     policy = PolicyEngine(telemetry=t)
     executor = ToolExecutor({"shell": _shell_exec}, policy_engine=policy, telemetry=t)
 
     result = await executor.execute("shell", {"cmd": "rm -rf /"}, "s1", "c1")
-    assert result.status == "blocked"
+    assert result.status == "error"
+    assert result.error_type == "blocked"
 
     # 策略决策指标
     assert t.metrics.counters['chacha_policy_decisions_total{status="blocked",tool="shell"}'] >= 1

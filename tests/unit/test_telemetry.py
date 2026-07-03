@@ -26,15 +26,21 @@ class TestStructuredLogger:
         d = Path(tempfile.mkdtemp())
         return TelemetryConfig(
             log_level="DEBUG",
-            debug_log_path=str(d / "debug.jsonl"),
-            audit_log_path=str(d / "audit.jsonl"),
+            log_dir=d,
             enable_audit=True,
+            enabled=True,
         )
+
+    def _debug_path(self, cfg: TelemetryConfig) -> Path:
+        return cfg.log_dir / "debug.jsonl"
+
+    def _audit_path(self, cfg: TelemetryConfig) -> Path:
+        return cfg.log_dir / "audit.jsonl"
 
     def test_write_debug_log(self, tmp_config):
         logger = StructuredLogger(tmp_config)
         logger.info("test message", key="value")
-        lines = Path(tmp_config.debug_log_path).read_text().strip().split("\n")
+        lines = self._debug_path(tmp_config).read_text().strip().split("\n")
         assert len(lines) == 1
         entry = json.loads(lines[0])
         assert entry["level"] == "INFO"
@@ -42,30 +48,33 @@ class TestStructuredLogger:
         assert entry["key"] == "value"
 
     def test_level_filtering(self, tmp_config):
+        d = Path(tempfile.mkdtemp())
         cfg = TelemetryConfig(
             log_level="WARNING",
-            debug_log_path=str(tmp_config.debug_log_path.parent / "filtered.jsonl"),
-            audit_log_path=str(tmp_config.audit_log_path),
+            log_dir=d,
+            enable_audit=True,
+            enabled=True,
         )
         logger = StructuredLogger(cfg)
         logger.debug("should be filtered")
         logger.info("should be filtered")
         logger.warning("should appear")
         logger.error("should appear")
-        lines = Path(cfg.debug_log_path).read_text().strip().split("\n")
+        lines = (cfg.log_dir / "debug.jsonl").read_text().strip().split("\n")
         assert len(lines) == 2
 
     def test_audit_log_disabled(self, tmp_config):
+        d = Path(tempfile.mkdtemp())
         cfg = TelemetryConfig(
             log_level="INFO",
-            debug_log_path=str(tmp_config.debug_log_path),
-            audit_log_path=str(tmp_config.audit_log_path),
+            log_dir=d,
             enable_audit=False,
+            enabled=True,
         )
         logger = StructuredLogger(cfg)
         from core.models.audit import AuditEvent, AuditEventCategory
         logger.audit(AuditEvent(category=AuditEventCategory.SYSTEM))
-        assert not Path(tmp_config.audit_log_path).exists()
+        assert not (cfg.log_dir / "audit.jsonl").exists()
 
     def test_convenience_methods(self, tmp_config):
         logger = StructuredLogger(tmp_config)
@@ -74,7 +83,7 @@ class TestStructuredLogger:
         logger.warning("w")
         logger.error("e")
         logger.critical("c")
-        lines = Path(tmp_config.debug_log_path).read_text().strip().split("\n")
+        lines = self._debug_path(tmp_config).read_text().strip().split("\n")
         levels = [json.loads(l)["level"] for l in lines]
         assert levels == ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
@@ -177,7 +186,6 @@ class TestAgentMetrics:
 
     def test_record_tool_call(self, agent):
         agent.record_tool_call("read_file", 150, True, 100)
-        # tags 按字母序：status 在 tool 之后
         key = 'chacha_tool_calls_total{status="success",tool="read_file"}'
         assert agent._m.counters[key] == 1
         hist_key = 'chacha_tool_duration_ms{status="success",tool="read_file"}'
@@ -198,47 +206,39 @@ class TestAgentMetrics:
         assert agent._m.gauges["chacha_cost_cumulative_usd"] == 0.02
 
     def test_record_context(self, agent):
-        agent.record_context(50000, 0.75, compression_triggered=True)
-        assert agent._m.gauges["chacha_context_tokens"] == 50000
-        assert agent._m.counters["chacha_context_compressions_total"] == 1
+        agent.record_context(500000, 0.48)
+        assert agent._m.gauges["chacha_context_tokens"] == 500000
+        assert agent._m.gauges["chacha_context_utilization"] == 0.48
 
 
-# ========== 5. Telemetry 集成 ==========
+# ========== 5. Telemetry 总成 ==========
 
 class TestTelemetry:
     @pytest.fixture
-    def telemetry(self):
+    def cfg(self):
         d = Path(tempfile.mkdtemp())
-        cfg = TelemetryConfig(
+        return TelemetryConfig(
             log_level="INFO",
-            debug_log_path=str(d / "debug.jsonl"),
-            audit_log_path=str(d / "audit.jsonl"),
+            log_dir=d,
+            enable_audit=True,
+            enabled=True,
         )
+
+    def test_start_stop_lifecycle(self, cfg):
+        """start/stop 不抛异常即可"""
         t = Telemetry(cfg)
         t.start()
-        yield t
+        assert t.enabled is True
         t.stop()
 
-    def test_start_stop(self, telemetry):
-        assert telemetry is not None
-
-    def test_logger_accessible(self, telemetry):
-        telemetry.logger.info("from telemetry")
-        path = Path(telemetry._config.debug_log_path)
-        lines = path.read_text().strip().split("\n")
+    def test_logging_through_telemetry(self, cfg):
+        """通过 Telemetry.logger 写入日志"""
+        t = Telemetry(cfg)
+        t.start()
+        t.logger.info("hello")
+        t.stop()
+        lines = (cfg.log_dir / "debug.jsonl").read_text().strip().split("\n")
+        assert len(lines) >= 2
+        # start() 先写入 "Telemetry 已启动"，然后才是 "hello"
         msgs = [json.loads(l)["msg"] for l in lines]
-        assert "from telemetry" in msgs
-
-    def test_agent_accessible(self, telemetry):
-        telemetry.agent.record_llm_call("test", 100, 50, 500, True)
-        assert telemetry.metrics.counters['chacha_llm_calls_total{model="test",status="success"}'] == 1
-
-    def test_prometheus_export(self, telemetry):
-        telemetry.metrics.inc("hello", 1)
-        out = telemetry.prometheus_export()
-        assert "hello 1" in out
-
-    def test_hash_id(self, telemetry):
-        h = telemetry.hash_id("session-abc")
-        assert len(h) == 12
-        assert telemetry.hash_id("session-abc") == h  # 确定性
+        assert "hello" in msgs

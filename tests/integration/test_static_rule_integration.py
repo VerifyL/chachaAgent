@@ -52,6 +52,7 @@ def test_context_manager_uses_static_rules(project):
     mgr = ContextManager()
     ctx = mgr.assemble(state, session_id="s1", static_rules=rules)
 
-    rule_blocks = [b for b in ctx.blocks if b.source == BlockSource.STATIC_RULE]
-    assert len(rule_blocks) == 1
-    assert "Python 3.11+" in rule_blocks[0].content
+    # v3.0: static_rules 合并到 SYSTEM_PROMPT block
+    system_blocks = [b for b in ctx.blocks if b.source == BlockSource.SYSTEM_PROMPT]
+    assert len(system_blocks) == 1
+    assert "Python 3.11+" in system_blocks[0].content

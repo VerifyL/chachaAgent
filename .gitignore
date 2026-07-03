@@ -251,6 +251,7 @@ build/
 # 本地配置文件（可选）
 .env
 harness.local.toml
+chachaConfig.toml
 
 # 技能市场本地缓存
 ~/.openclaw/

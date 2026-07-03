@@ -10,25 +10,26 @@ from capabilities.mcp_client import MCPClient
 
 def test_init_empty():
     client = MCPClient()
-    assert client.server_names == []
-    assert client.is_connected is False
+    assert client._server_configs == {}
+    assert client._connected is False
 
 
 def test_init_with_servers():
-    client = MCPClient([{"name": "filesystem"}, {"name": "github"}])
-    assert client.server_names == ["filesystem", "github"]
+    client = MCPClient({"filesystem": {}, "github": {}})
+    assert list(client._server_configs.keys()) == ["filesystem", "github"]
 
 
 @pytest.mark.asyncio
-async def test_connect_returns_false():
-    """阶段 8 前 connect 返回 False"""
+async def test_connect_returns_true_on_empty():
+    """空 configs 时 connect() 返回 True（没有配置 MCP server，跳过）"""
     client = MCPClient()
-    assert await client.connect() is False
+    assert await client.connect() is True
 
 
-def test_get_tools_empty():
+@pytest.mark.asyncio
+async def test_get_tools_empty():
     client = MCPClient()
-    assert client.get_tools() == []
+    assert await client.get_tools() == []
 
 
 @pytest.mark.asyncio

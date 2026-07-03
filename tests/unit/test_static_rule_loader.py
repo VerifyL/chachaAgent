@@ -42,7 +42,9 @@ def test_no_chacha_file():
     d = Path(tempfile.mkdtemp())
     loader = StaticRuleLoader(d)
     rules = loader.load()
-    assert rules == ""
+    # v2.1: 无 CHACHA.md 时自动返回默认宪法模板，不再为空
+    assert "ChachaAgent" in rules
+    assert len(rules) > 100
 
 
 # ====== 2. @import ======
@@ -76,4 +78,5 @@ def test_import_file_not_found(project_dir):
 def test_missing_dir():
     loader = StaticRuleLoader(Path("/no/such/project"))
     rules = loader.load()
-    assert rules == ""
+    # v2.1: 目录不存在时返回默认宪法模板
+    assert "ChachaAgent" in rules

@@ -1,6 +1,6 @@
 """
 tests/unit/test_dream.py
-单元测试：core/context/dream.py DreamPipeline (v2.0)
+单元测试：core/context/dream.py DreamPipeline (v2.1)
 
 新增覆盖：
   - 10 次会话 / 24h 触发条件
@@ -18,6 +18,15 @@ import pytest
 
 from core.context.dream import DreamPipeline
 from core.context.memory_manager import MemoryManager
+
+
+def _write_to_date(mgr, date_str: str, content: str):
+    """直接写入指定日期的记忆文件（remember() 仅写当日）。"""
+    path = mgr._session_dir / f"{date_str}.md"
+    existing = MemoryManager._read(path)
+    entry = f"\n## 00:00\n{content.strip()}"
+    full = (existing + entry).strip() + "\n"
+    path.write_text(full, encoding="utf-8")
 
 
 # ====== Mock LLMInvoker ======
@@ -46,7 +55,7 @@ def mgr():
 @pytest.mark.asyncio
 async def test_run_writes_memory_md(mgr):
     """整合 → MEMORY.md 被写入"""
-    mgr.remember("偏好 Python", date_str="2026-01-01")
+    _write_to_date(mgr, "2026-01-01", "偏好 Python")
     llm = MockLLM("===MEMORY_MD===\n## User Preferences\n- Prefers Python\n\n===CHACHA_MEMORY_MD===")
 
     pipeline = DreamPipeline(llm)
@@ -59,7 +68,7 @@ async def test_run_writes_memory_md(mgr):
 @pytest.mark.asyncio
 async def test_run_writes_permanent_memory(mgr):
     """整合 → CHACHA_MEMORY.md 被写入"""
-    mgr.remember("关键决策: 使用 Python", date_str="2026-01-01")
+    _write_to_date(mgr, "2026-01-01", "关键决策: 使用 Python")
     llm = MockLLM(
         "===MEMORY_MD===\n## Decisions\n- Python\n\n===CHACHA_MEMORY_MD===\n## Critical\n- Project uses Python"
     )
@@ -85,8 +94,8 @@ async def test_run_no_files_returns_empty(mgr):
 # ====== 3. Gather ======
 
 def test_gather_reads_daily_files(mgr):
-    mgr.remember("偏好 Python", date_str="2026-01-01")
-    mgr.remember("项目使用 ruff", date_str="2026-01-01")
+    _write_to_date(mgr, "2026-01-01", "偏好 Python")
+    _write_to_date(mgr, "2026-01-01", "项目使用 ruff")
 
     llm = MockLLM()
     pipeline = DreamPipeline(llm)
@@ -101,7 +110,8 @@ def test_gather_reads_daily_files(mgr):
 
 def test_prune_removes_old_files(mgr):
     """7 天前的文件被删除"""
-    path = mgr.remember("old memory", date_str="2000-01-01")
+    _write_to_date(mgr, "2000-01-01", "old memory")
+    path = mgr._day_path("2000-01-01")
     assert path.exists()
 
     llm = MockLLM()
@@ -114,12 +124,14 @@ def test_prune_removes_old_files(mgr):
 
 def test_prune_keeps_recent_files(mgr):
     """最近文件不被删除"""
-    mgr.remember("recent", date_str="2026-06-22")
+    from datetime import datetime, timezone, timedelta
+    recent = (datetime.now(tz=timezone(timedelta(hours=8))) - timedelta(days=3)).strftime("%Y-%m-%d")
+    _write_to_date(mgr, recent, "recent")
     llm = MockLLM()
     pipeline = DreamPipeline(llm)
     pipeline._prune(mgr)
 
-    content = mgr.read_day("2026-06-22")
+    content = mgr.read_day(recent)
     assert "recent" in content
 
 
@@ -164,7 +176,6 @@ def test_should_run_after_24_hours():
     llm = MockLLM()
     pipeline = DreamPipeline(llm, hours_trigger=0)  # 0小时触发
     pipeline.record_session()
-    # 至少需要一次先运行
     pipeline._last_run = 0  # 模拟很久之前运行过
     assert pipeline.should_run() is True
 
@@ -177,7 +188,6 @@ def test_session_count_resets_after_run():
         pipeline.record_session()
     assert pipeline.session_count == 10
 
-    # 模拟 run （手动重置）
     pipeline._last_run = time.time()
     pipeline._session_count = 0
     assert pipeline.should_run() is False
@@ -237,13 +247,12 @@ def test_parse_fallback_no_markers():
 async def test_consolidate_with_old_memory(mgr):
     """旧 MEMORY.md 被传递给 LLM"""
     mgr.write_index("## Old Index\n- old entry")
-    mgr.remember("new memory", date_str="2026-06-18")
+    _write_to_date(mgr, "2026-06-18", "new memory")
 
     llm = MockLLM("===MEMORY_MD===\n## Updated\n- new+old\n\n===CHACHA_MEMORY_MD===")
     pipeline = DreamPipeline(llm)
     memory_md, _ = await pipeline.run(mgr)
 
-    # 验证 LLM 收到了 old + new
     assert len(llm.calls) == 1
     user_msg = llm.calls[0][1]["content"]
     assert "OLD MEMORY.md" in user_msg
@@ -255,7 +264,7 @@ async def test_consolidate_with_old_memory(mgr):
 async def test_consolidate_with_old_permanent(mgr):
     """旧 CHACHA_MEMORY.md 被传递给 LLM"""
     mgr.write_permanent_memory("## Old Permanent\n- old forever")
-    mgr.remember("new", date_str="2026-06-18")
+    _write_to_date(mgr, "2026-06-18", "new")
 
     llm = MockLLM(
         "===MEMORY_MD===\n- new\n\n===CHACHA_MEMORY_MD===\n## Permanent\n- old forever\n- new critical"

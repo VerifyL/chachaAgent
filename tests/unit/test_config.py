@@ -99,8 +99,7 @@ def full_config_dict() -> Dict[str, Any]:
             "enable_audit": True,
             "enable_prometheus": True,
             "prometheus_port": 9091,
-            "audit_log_path": "logs/audit.jsonl",
-            "debug_log_path": "logs/debug.jsonl",
+            "log_dir": "logs",
         },
         "multimodal": {
             "enabled": True,
@@ -128,8 +127,8 @@ def test_minimal_config(minimal_config_dict):
     assert config.model.router_strategy == "priority"
     assert config.model.fallback_chain == []
     assert config.model.retry_max_attempts == 3
-    assert config.context.max_tokens == 128000
-    assert config.context.compression_trigger_ratio == 0.8
+    assert config.context.max_tokens == 1_048_576
+    assert config.context.compression_trigger_ratio == 0.7
     assert config.multimodal.enabled is False
     assert config.multimodal.vision_model is None
     assert config.sandbox.timeout_seconds == 60
@@ -376,9 +375,8 @@ def test_path_coercion():
     config = ChaChaConfig.model_validate({
         "model": {"providers": {"default": {"provider": "openai", "default_model": "gpt-4"}}},
         "telemetry": {
-            "audit_log_path": "some/audit.jsonl",
-            "debug_log_path": "some/debug.jsonl"
+            "log_dir": "some/logs",
         }
     })
-    assert isinstance(config.telemetry.audit_log_path, Path)
-    assert config.telemetry.audit_log_path == Path("some/audit.jsonl")
+    assert isinstance(config.telemetry.log_dir, Path)
+    assert config.telemetry.log_dir == Path("some/logs")

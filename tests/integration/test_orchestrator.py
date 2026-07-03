@@ -1,217 +1,115 @@
 """
-tests/integration/test_orchestrator.py (v2.0)
-集成测试：端到端模拟任务（读文件→回复）
+tests/integration/test_orchestrator.py (v2.1)
+集成测试：Orchestrator 构造函数和属性验证
 
-v2.0 新增:
-  - 会话结束记忆保存验证
-  - tool_cache 清理验证
-  - DreamPipeline 触发验证
+v2.1: run() 已移除，改为 run_stream()。集成测试验证构造和基本配置。
 """
 
 import pytest
 
 from core.orchestrator import Orchestrator
 from core.context_manager import ContextManager
-from core.llm_invoker import (
-    LLMInvoker, StreamChunk,
-    TextChunk, ToolCallStartChunk, ToolCallDeltaChunk, ToolCallEndChunk, DoneChunk,
-)
+from core.llm_invoker import LLMInvoker
 from core.tool_executor import ToolExecutor
 
 
 # ====== Mock 实现 ======
-
-class MockReadFileClient:
-    def __init__(self):
-        self._call_count = 0
-
-    async def stream(self, messages, tools):
-        self._call_count += 1
-        if self._call_count == 1:
-            yield ToolCallStartChunk(tool_index=0,
-                              tool_id="c1", tool_name="read_file")
-            yield ToolCallDeltaChunk(tool_index=0,
-                              tool_args_delta='{"path": "/tmp/main.py"}')
-            yield ToolCallEndChunk(tool_index=0)
-            yield DoneChunk( finish_reason="tool_calls")
-        else:
-            yield TextChunk(content="文件内容是 print('hello')")
-            yield DoneChunk( finish_reason="stop")
-
-
-class MockMemoryTracker:
-    def __init__(self):
-        self.remembered_entries: list[str] = []
-        self.dream_recorded = False
-
-    def remember(self, content: str, date_str=None):
-        self.remembered_entries.append(content)
-        from pathlib import Path
-        return Path("/fake")
-
-
-    def read_permanent_memory(self) -> str:
-        return ""
-
-    def read(self) -> str:
-        return ""
-
-
-class MockDreamTracker:
-    def __init__(self):
-        self.count = 0
-        self.ran = False
-
-    def record_session(self):
-        self.count += 1
-
-    def should_run(self) -> bool:
-        return self.count >= 3
-
 
 async def _read_file(args):
     path = args.get("path", "")
     return f"content of {path}"
 
 
-# ====== 端到端任务 ======
+class MockClient:
+    def __init__(self):
+        self._call_count = 0
 
-@pytest.mark.skip(reason="run() removed in v2.1")
-@pytest.mark.asyncio
-async def test_read_file_task():
-    """端到端：用户要求读文件 → Agent 调用工具 → 得到结果 → 回复"""
-    client = MockReadFileClient()
-    tools = ToolExecutor({"read_file": _read_file})
-    llm = LLMInvoker(model_client=client)
+    async def stream(self, messages, tools):
+        self._call_count += 1
+        from core.llm_invoker import (
+            TextChunk, ToolCallStartChunk, ToolCallDeltaChunk, ToolCallEndChunk, DoneChunk,
+        )
+        if self._call_count == 1:
+            yield ToolCallStartChunk(tool_index=0, tool_id="c1", tool_name="read_file")
+            yield ToolCallDeltaChunk(tool_index=0, tool_args_delta='{"path": "/tmp/main.py"}')
+            yield ToolCallEndChunk(tool_index=0)
+            yield DoneChunk(finish_reason="tool_calls")
+        else:
+            yield TextChunk(content="文件内容是 print('hello')")
+            yield DoneChunk(finish_reason="stop")
+
+
+# ====== 构造和属性测试 ======
+
+def test_orchestrator_construction():
+    """Orchestrator 可以正常构造"""
     ctx_mgr = ContextManager()
+    tools = ToolExecutor({"read_file": _read_file})
+    orch = Orchestrator(
+        context_manager=ctx_mgr,
+        tool_executor=tools,
+    )
+    assert orch._context is ctx_mgr
+    assert orch._tools is tools
+
+
+def test_orchestrator_with_all_deps():
+    """所有可选依赖注入"""
+    ctx_mgr = ContextManager()
+    tools = ToolExecutor({"read_file": _read_file})
+    client = MockClient()
+    llm = LLMInvoker(model_client=client)
+
     orch = Orchestrator(
         context_manager=ctx_mgr,
         llm_invoker=llm,
         tool_executor=tools,
+        dispatcher=None,
+        gateway=None,
+        telemetry=None,
+        hook_orchestrator=None,
+        policy_engine=None,
+        memory_manager=None,
+        dream_pipeline=None,
     )
-
-    resp = await orch.run(
-        "帮我读一下 /tmp/main.py",
-        session_id="s1",
-        project_id="p1",
-    )
-
-    assert resp.text == "文件内容是 print('hello')"
-    assert resp.iterations >= 2
-    assert resp.error is None
+    assert orch._context is not None
+    assert orch._llm is not None
+    assert orch._tools is not None
 
 
-@pytest.mark.skip(reason="run() removed in v2.1")
-@pytest.mark.asyncio
-async def test_empty_llm_invoker():
+def test_orchestrator_empty_construction():
+    """空构造函数不抛异常"""
     orch = Orchestrator()
-    resp = await orch.run("hello", session_id="s1")
-    assert "No LLM invoker" in (resp.error or "")
+    assert orch._context is None
 
 
-@pytest.mark.skip(reason="run() removed in v2.1")
+def test_orchestrator_set_engine():
+    """set_engine 注入 ChatEngine"""
+    orch = Orchestrator()
+
+    class FakeEngine:
+        pass
+
+    engine = FakeEngine()
+    orch.set_engine(engine)
+    assert orch._engine is engine
+
+
 @pytest.mark.asyncio
-async def test_text_only_task():
-    class TextOnlyClient:
-        async def stream(self, messages, tools):
-            yield TextChunk(content="你好，有什么可以帮助你的？")
-            yield DoneChunk( finish_reason="stop")
-
-    llm = LLMInvoker(model_client=TextOnlyClient())
-    orch = Orchestrator(context_manager=ContextManager(), llm_invoker=llm)
-
-    resp = await orch.run("你好", session_id="s1")
-    assert "你好" in resp.text
-    assert resp.iterations == 1
+async def test_orchestrator_run_stream_requires_engine():
+    """run_stream 需要 ChatEngine"""
+    orch = Orchestrator()
+    with pytest.raises(RuntimeError, match="ChatEngine"):
+        async for _ in orch.run_stream("hello"):
+            pass
 
 
-# ====== v2.0: 记忆保存 ======
-
-@pytest.mark.skip(reason="run() removed in v2.1")
-@pytest.mark.asyncio
-async def test_session_memory_saved_on_final_answer():
-    """最终回答后写入 session 记忆"""
-    memory = MockMemoryTracker()
-    dream = MockDreamTracker()
-
-    class SimpleTextClient:
-        async def stream(self, messages, tools):
-            yield TextChunk(content="这是最终回答")
-            yield DoneChunk( finish_reason="stop")
-
-    llm = LLMInvoker(model_client=SimpleTextClient())
-    orch = Orchestrator(
-        context_manager=ContextManager(),
-        llm_invoker=llm,
-        memory_manager=memory,
-        dream_pipeline=dream,
-    )
-
-    resp = await orch.run("用户问题", session_id="s-mem", project_id="test")
-    assert resp.iterations == 1
-    assert len(memory.remembered_entries) >= 1
-
-    entry = memory.remembered_entries[0]
-    assert "Q:" in entry
-    assert "A:" in entry
-    assert "用户问题" in entry
-    assert "这是最终回答" in entry
-
-
-# ====== v2.0: 会话清理 ======
-
-@pytest.mark.skip(reason="run() removed in v2.1")
-@pytest.mark.asyncio
-async def test_end_session_cleanup_via_run():
-    """run() 正常结束后 DreamPipeline 被记录。"""
-    memory = MockMemoryTracker()
-
-    class SimpleTextClient:
-        async def stream(self, messages, tools):
-            yield TextChunk(content="回答")
-            yield DoneChunk( finish_reason="stop")
-
-    llm = LLMInvoker(model_client=SimpleTextClient())
-    orch = Orchestrator(
-        context_manager=ContextManager(),
-        llm_invoker=llm,
-        memory_manager=memory,
-    )
-    # 注入 Dream mock
-    class FakeDream:
-        recorded = False
-        should = False
-        def record_session(self): self.recorded = True
-        def should_run(self): return self.should
-        async def run(self, mem): pass
-    orch._dream = FakeDream()
-
-    await orch.run("hello", session_id="s-clean")
-    assert orch._dream.recorded is True
-
-
-# ====== v2.0: DreamPipeline ======
-
-@pytest.mark.skip(reason="run() removed in v2.1")
-@pytest.mark.asyncio
-async def test_dream_counted_on_each_session():
-    """每次会话结束 count+1"""
-    dream = MockDreamTracker()
-
-    class SimpleTextClient:
-        async def stream(self, messages, tools):
-            yield TextChunk(content="回答")
-            yield DoneChunk( finish_reason="stop")
-
-    llm = LLMInvoker(model_client=SimpleTextClient())
-    orch = Orchestrator(
-        context_manager=ContextManager(),
-        llm_invoker=llm,
-        dream_pipeline=dream,
-    )
-
-    await orch.run("hello", session_id="s1")
-    assert dream.count == 1
-
-    await orch.run("world", session_id="s2")
-    assert dream.count == 2
+def test_orchestrator_memory_manager_injection():
+    """memory_manager 可以注入"""
+    memory = type('MockMemory', (), {
+        'remember': lambda self, c: None,
+        'read_permanent_memory': lambda self: '',
+        'read': lambda self: '',
+    })()
+    orch = Orchestrator(memory_manager=memory)
+    assert orch._memory is memory

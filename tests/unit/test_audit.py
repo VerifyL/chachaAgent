@@ -66,7 +66,7 @@ class TestAuditEvent:
     def test_default_id_and_timestamp(self):
         e = AuditEvent(category=AuditEventCategory.SYSTEM)
         assert len(e.id) == 36  # UUID4
-        assert e.timestamp.tzinfo == timezone.utc
+        assert e.timestamp.tzinfo is not None
 
     def test_frozen_immutable(self):
         e = AuditEvent(category=AuditEventCategory.SYSTEM)

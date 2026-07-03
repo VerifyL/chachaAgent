@@ -37,7 +37,7 @@ class MockClient:
 @pytest.mark.asyncio
 async def test_text_only_replay_with_telemetry():
     """纯文本 LLM 响应 → Telemetry 记录"""
-    t = Telemetry(TelemetryConfig(log_level="WARNING"))
+    t = Telemetry(TelemetryConfig(log_level="WARNING", enabled=True))
     t.start()
 
     client = MockClient([
