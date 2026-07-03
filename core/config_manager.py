@@ -47,6 +47,8 @@ class ConfigManager:
     def load(self, force: bool = False) -> ChaChaConfig:
         with self._config_lock:
             current_path = self._find_config_file()
+            # 确保全局配置模板存在（即使项目级配置已找到）
+            write_default_config()
             if current_path is None:
                 raise FileNotFoundError(
                     "未找到配置文件 chachaConfig.toml 或 harness.toml，请确保文件存在。"
@@ -128,18 +130,15 @@ class ConfigManager:
 
         cwd = Path.cwd()
         candidates = [
-            cwd / "config.toml",                    # 项目级（推荐）
-            cwd / "chachaConfig.toml",              # 旧名（兼容）
-            cwd / "harness.toml",                   # 旧名（兼容）
-            Path.home() / ".chacha" / "config.toml", # 全局默认
+            cwd / ".chacha" / "config.toml",         # 项目级（最高优先级）
         ]
         for p in candidates:
             if p.exists():
                 return p
 
-        # 无配置文件 → 生成默认模板
-        default = Path.home() / ".chacha" / "config.toml"
-        write_default_config(default)
+        # 无配置文件 → 生成 h 自动默认模板
+        write_default_config()
+        default = Path.home() / ".chacha" / "chachaConfig.toml"
         return default if default.exists() else None
 
     def _read_toml(self, path: Path) -> Dict[str, Any]:
@@ -216,13 +215,13 @@ def load_config() -> ChaChaConfig:
 
 
 def write_default_config(path: Optional[Path] = None) -> None:
-    """首次运行时生成默认 ~/.chacha/config.toml 模板。"""
-    target = path or (Path.home() / ".chacha" / "config.toml")
+    """不存在时生成 ~/.chacha/chachaConfig.toml 默认模板。"""
+    target = path or (Path.home() / ".chacha" / "chachaConfig.toml")
     if target.exists():
         return
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text("""# ChachaAgent 全局配置
-# 优先级: 项目 chachaConfig.toml > 此文件 > 环境变量
+    target.write_text("""# ChachaAgent 默认模板（初次不存在时自动生成）
+# 优先级: .chacha/config.toml（项目） > 此文件（全局默认） > 环境变量
 
 [model.providers.default]
 provider = "openai"
@@ -274,6 +273,11 @@ default_model = "deepseek-v4-pro"
 # [mcp.servers.custom-python]
 # command = "python"
 # args = ["-m", "my_mcp_server"]
+#
+# streamable-http 远程 server 示例（需先启动 server）：
+# [mcp.servers.web-search]
+# transport = "streamable-http"
+# url = "http://localhost:3000/mcp"
 """, encoding="utf-8")
 
 def get_config() -> ChaChaConfig:

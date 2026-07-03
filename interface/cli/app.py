@@ -569,6 +569,9 @@ class ChachaCLI:
 
         @kb.add("c-\\")
         def _(event):
+            # 同步清理 MCP 子进程，避免孤儿
+            if self._bridge and self._bridge._mcp_client:
+                self._bridge._mcp_client._force_kill_all_sync()
             os._exit(0)
 
         return kb
@@ -635,6 +638,7 @@ class ChachaCLI:
                 ("/mcp", "列出所有 MCP server"),
                 ("/mcp list", "列出所有 MCP server（同上）"),
                 ("/mcp list-tools <server>", "列出 server 的所有工具"),
+                ("/mcp reconnect <server>", "重连指定 MCP server（恢复工具）"),
             ],
             "Session": [
                 ("/session", "列出所有 session"),
@@ -704,10 +708,15 @@ def main():
         global _interrupted, _in_approval
         _interrupted = True
         if _in_approval:
-            raise KeyboardInterrupt
+            raise KeyboardInterrupt  # 审批时中断同步 input()
 
     signal.signal(signal.SIGINT, _on_sigint)
-    signal.signal(signal.SIGQUIT, lambda *_: os._exit(0))
+    def _on_sigquit(_sig, _frame):
+        bridge = cli._bridge
+        if bridge and bridge._mcp_client:
+            bridge._mcp_client._force_kill_all_sync()
+        os._exit(0)
+    signal.signal(signal.SIGQUIT, _on_sigquit)
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -716,9 +725,15 @@ def main():
     except (KeyboardInterrupt, asyncio.CancelledError):
         pass
     finally:
+        # 异常退出路径：尽力清理 MCP 子进程，避免孤儿
+        try:
+            if cli._bridge:
+                loop.run_until_complete(cli._bridge.shutdown())
+        except BaseException:
+            pass
         try:
             loop.run_until_complete(loop.shutdown_default_executor())
-        except Exception:
+        except BaseException:
             pass
         asyncio.set_event_loop(None)
         loop.close()

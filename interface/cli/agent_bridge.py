@@ -209,6 +209,15 @@ class AgentBridge:
 
         await self.rebuild()
 
+        # 将 ToolExecutor 注入 MCPClient，用于运行时断连自动移除失效工具
+        if self._mcp_client:
+            self._mcp_client.set_tool_executor(self._executor)
+
+        # 缓存命中时启动后台连接（不阻塞 prompt 显示）
+        if self._mcp_client and self._mcp_client.from_cache:
+            import asyncio
+            asyncio.create_task(self._mcp_client.background_connect(self._executor))
+
         self._initialized = True
         return f"API: {self._model} | 上下文: {self._context_window // 1000}K{mcp_msg}"
 
@@ -480,8 +489,21 @@ class AgentBridge:
             if not sub_arg:
                 return "用法: /mcp list-tools <server>\n可用 server: " + ", ".join(self._mcp_client.server_names)
             return await self._mcp_list_tools(sub_arg)
+        elif sub == "reconnect":
+            if not sub_arg:
+                return "用法: /mcp reconnect <server>\n可用 server: " + ", ".join(self._mcp_client.server_names)
+            result = await self._mcp_client.reconnect(sub_arg)
+            if result.get("error") and not result.get("reconnected"):
+                return f"❌ {result['error']}"
+            elif result["reconnected"]:
+                msg = f"✅ {sub_arg} 已重连，恢复 {result['tools_restored']} 个工具"
+                if result.get("error"):
+                    msg += f"\n⚠️ {result['error']}"
+                return msg
+            else:
+                return f"❌ 重连失败: {result.get('error', '未知错误')}"
         else:
-            return f"未知子命令: {sub}\n可用: /mcp list | /mcp list-tools <server>"
+            return f"未知子命令: {sub}\n可用: /mcp list | /mcp list-tools <server> | /mcp reconnect <server>"
 
     def _mcp_list_servers(self) -> str:
         """列出所有 MCP server。"""
@@ -490,27 +512,34 @@ class AgentBridge:
         lines = [f"📡 MCP server ({len(self._mcp_client.server_names)}):"]
         for name in self._mcp_client.server_names:
             cfg = self._mcp_client._server_configs.get(name, {})
-            cmd = cfg.command
-            connected = "🟢" if name in self._mcp_client._processes else "🔴"
-            lines.append(f"  {connected} {name} ({cmd})")
+            transport = getattr(cfg, "transport", "stdio")
+            if transport in ("sse", "streamable-http"):
+                display = getattr(cfg, "url", "?")
+            else:
+                display = getattr(cfg, "command", "?")
+            connected = "🟢" if (name in self._mcp_client._sessions or name in self._mcp_client._cached_servers) else "🔴"
+            lines.append(f"  {connected} {name} ({display})")
         return "\n".join(lines)
 
     async def _mcp_list_tools(self, server_name: str) -> str:
         """列出某个 MCP server 的所有工具。"""
-        if server_name not in self._mcp_client._processes:
-            return f"🔴 server '{server_name}' 未连接\n可用: " + ", ".join(self._mcp_client.server_names)
-
-        try:
-            request = {
-                "jsonrpc": "2.0",
-                "id": f"cli_list_{server_name}",
-                "method": "tools/list",
-                "params": {},
-            }
-            response = await self._mcp_client._send_and_receive(server_name, request)
-            tools = response.get("result", {}).get("tools", [])
-        except Exception as e:
-            return f"获取工具列表失败: {e}"
+        # 兼容缓存模式：_sessions 为空时检查 _cached_servers
+        if server_name not in self._mcp_client._sessions:
+            if server_name not in self._mcp_client._cached_servers:
+                return f"🔴 server '{server_name}' 未连接\n可用: " + ", ".join(self._mcp_client.server_names)
+            # 缓存模式：从缓存读取工具列表
+            tools = self._mcp_client._cached_servers[server_name].get("tools", [])
+        else:
+            try:
+                session = self._mcp_client._sessions[server_name]
+                result = await session.list_tools()
+                tools = [
+                    {"name": t.name, "description": t.description,
+                     "inputSchema": t.inputSchema}
+                    for t in result.tools
+                ]
+            except Exception as e:
+                return f"获取工具列表失败: {e}"
 
         if not tools:
             return f"{server_name}: 无工具"

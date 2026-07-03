@@ -124,10 +124,12 @@ class TelemetryConfig(BaseModel):
 class MCPServerConfig(BaseModel):
     """单个 MCP server 配置"""
     name: str = Field("", description="服务标识名，如 'filesystem'")
-    command: str = Field(..., description="启动命令，如 'npx' 或 'python'")
+    command: str = Field("", description="启动命令，如 'npx' 或 'python'（SSE 模式可不填）")
     args: List[str] = Field(default_factory=list, description="启动参数列表")
     env: Dict[str, str] = Field(default_factory=dict, description="环境变量")
-    transport: Literal["stdio"] = Field("stdio", description="传输方式（当前仅支持 stdio）")
+    transport: Literal["stdio", "sse", "streamable-http"] = Field("stdio", description="传输方式")
+    url: Optional[str] = Field(None, description="SSE 端点 URL（transport=sse 时必填）")
+    timeout: int = Field(30, ge=1, description="工具调用超时（秒）")
     include: Optional[List[str]] = Field(None, description="白名单：只注入这些工具（不填=全量）")
     exclude: Optional[List[str]] = Field(None, description="黑名单：排除这些工具（不填=全量）")
 
