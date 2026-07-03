@@ -631,6 +631,11 @@ class ChachaCLI:
                 ("/key <sk->", "设置 API Key"),
                 ("/status", "系统状态"),
             ],
+            "MCP": [
+                ("/mcp", "列出所有 MCP server"),
+                ("/mcp list", "列出所有 MCP server（同上）"),
+                ("/mcp list-tools <server>", "列出 server 的所有工具"),
+            ],
             "Session": [
                 ("/session", "列出所有 session"),
                 ("/session <id>", "切换到指定 session"),

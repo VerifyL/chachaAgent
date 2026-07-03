@@ -134,7 +134,7 @@ class MCPServerConfig(BaseModel):
 
 class MCPConfig(BaseModel):
     """MCP 客户端总配置"""
-    enabled: bool = Field(False, description="是否启用 MCP 客户端")
+    enabled: bool = Field(True, description="是否启用 MCP 客户端")
     servers: Dict[str, MCPServerConfig] = Field(
         default_factory=dict, description="server 标识 → 配置"
     )

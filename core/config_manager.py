@@ -259,7 +259,7 @@ default_model = "deepseek-v4-pro"
 
 # [mcp]
 # MCP (Model Context Protocol) 客户端配置 — 连接外部 MCP server 扩展工具能力
-# enabled = false
+# enabled = true
 #
 # [mcp.servers.filesystem]
 # command = "npx"

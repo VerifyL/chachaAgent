@@ -46,7 +46,7 @@ class AgentBridge:
         try:
             from core.config_manager import get_config_manager
             cfg = get_config_manager().load()
-            if cfg.mcp.enabled and cfg.mcp.servers:
+            if cfg.mcp.enabled:
                 from capabilities.mcp_client import MCPClient
                 self._mcp_client = MCPClient(cfg.mcp.servers)
         except Exception:
@@ -468,7 +468,7 @@ class AgentBridge:
     async def _cmd_mcp(self, arg: str) -> str:
         """处理 /mcp list 和 /mcp list-tools <server> 命令。"""
         if not self._mcp_client:
-            return "⚠️ MCP 未启用（配置中 mcp.enabled = false 或无 server）"
+            return "⚠️ MCP 未启用（配置中 mcp.enabled = false）"
 
         parts = arg.split(None, 1) if arg else []
         sub = parts[0].lower() if parts else "list"
