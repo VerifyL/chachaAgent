@@ -1,0 +1,35 @@
+# ChachaAgent 配置文件
+# 详细说明请参考 docs/configuration.md
+
+project_id = "default"
+environment = "dev"
+
+[model]
+[model.providers.default]
+provider = "openai"
+api_key = ""   # 请在此设置您的 API Key 或通过环境变量
+base_url = "https://api.deepseek.com"
+default_model = "deepseek-v4-pro"
+
+[context]
+max_tokens = 128000
+
+[memory]
+prune_days = 30                  # 每日记忆文件保留天数
+max_memory_lines = 200           # MEMORY.md 索引最大条目数
+
+[sandbox]
+allowed_commands = ["ls", "cat", "grep", "python", "pytest", "git"]
+
+[policy]
+cost_limit_dollars = 10.0
+
+[telemetry]
+log_level = "INFO"
+
+[multimodal]   # v1.5 预留
+enabled = false
+
+[interface]
+cli_theme = "default"
+web_enabled = false

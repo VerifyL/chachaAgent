@@ -128,9 +128,10 @@ class ConfigManager:
 
         cwd = Path.cwd()
         candidates = [
-            cwd / "chachaConfig.toml",
-            cwd / "harness.toml",
-            Path.home() / ".chacha" / "config.toml",
+            cwd / "config.toml",                    # 项目级（推荐）
+            cwd / "chachaConfig.toml",              # 旧名（兼容）
+            cwd / "harness.toml",                   # 旧名（兼容）
+            Path.home() / ".chacha" / "config.toml", # 全局默认
         ]
         for p in candidates:
             if p.exists():
@@ -227,7 +228,7 @@ def write_default_config(path: Optional[Path] = None) -> None:
 provider = "openai"
 # API 密钥（亦可设置环境变量 DEEPSEEK_API_KEY）
 api_key = ""
-# 自定义 API 端点
+# 自定义 API 端点（DeepSeek）
 base_url = "https://api.deepseek.com"
 default_model = "deepseek-v4-pro"
 # 上下文窗口大小（用于自动压缩，默认 1_048_576 = 1M）

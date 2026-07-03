@@ -87,13 +87,13 @@ class AgentBridge:
 
         self._api_key = (os.environ.get("DEEPSEEK_API_KEY") or
                          os.environ.get("OPENAI_API_KEY") or
-                         (default_provider.api_key.get_secret_value() if default_provider and default_provider.api_key else ""))
+                         (default_provider.api_key.get_secret_value() if default_provider and default_provider.api_key and default_provider.api_key.get_secret_value() else ""))
         self._base_url = (os.environ.get("DEEPSEEK_BASE_URL") or
                           os.environ.get("OPENAI_BASE_URL") or
-                          (default_provider.base_url if default_provider else "https://api.deepseek.com"))
+                          (default_provider.base_url if default_provider and default_provider.base_url else "https://api.deepseek.com"))
         self._model = (os.environ.get("DEEPSEEK_MODEL") or
                        os.environ.get("OPENAI_MODEL") or
-                       (default_provider.default_model if default_provider else "deepseek-v4-pro"))
+                       (default_provider.default_model if default_provider and default_provider.default_model else "deepseek-v4-pro"))
 
         # 上下文窗口：配置 → 模型名推断 → 默认 1M
         context_window = ChatEngine.infer_context_window(self._model)
