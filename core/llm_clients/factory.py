@@ -29,7 +29,13 @@ class ModelFactory:
         返回实现了 stream(messages, tools) -> AsyncIterator[StreamChunk] 的对象。
         """
         ptype = provider_cfg.provider.lower()
-        api_key = provider_cfg.api_key.get_secret_value() if provider_cfg.api_key else None
+
+        # model_copy(update=…) 不触发 Pydantic 验证，api_key 可能是 str 而非 SecretStr
+        raw_key = provider_cfg.api_key
+        if raw_key is not None:
+            api_key = raw_key.get_secret_value() if hasattr(raw_key, "get_secret_value") else raw_key
+        else:
+            api_key = None
 
         if ptype in ("openai", "deepseek", "qwen"):
             from core.llm_clients.openai_client import OpenAIClient
