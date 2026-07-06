@@ -4,7 +4,7 @@ ToolRegistry — 统一工具注册表。
 
 所有工具在此集中注册，`build_tools()` 和 CLI 共用同一来源。
 
-当前状态：10 工具全部就绪（read / write / edit / bash / grep / glob / task / memory / cache_read / approval_control）。
+当前状态：11 工具全部就绪（read / write / edit / bash / grep / glob / task / memory / cache_read / clock / approval_control）。
 """
 
 from pathlib import Path
@@ -48,6 +48,9 @@ def build_tools(root: Optional[Path] = None, memory_manager=None, subagent_spawn
     # ✅ cache_read — 续读被截断的缓存输出
     from capabilities.builtins.cache_read_tool import CacheReadTool
     cache_read_tool = CacheReadTool()
+    # ✅ clock — 获取当前日期时间
+    from capabilities.builtins.clock_tool import ClockTool
+    clock_tool = ClockTool()
     # ✅ approval_control — 查询/设置审批旁路
     from capabilities.builtins.approval_control import ApprovalControl
     approval_control = ApprovalControl()
@@ -62,6 +65,7 @@ def build_tools(root: Optional[Path] = None, memory_manager=None, subagent_spawn
         task_tool,
         memory_tool,
         cache_read_tool,
+        clock_tool,
         approval_control,
     ]
 
