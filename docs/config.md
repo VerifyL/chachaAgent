@@ -35,13 +35,15 @@
 
 | 字段名               | 类型                                     | 默认值    | 描述                                                                 |
 |----------------------|------------------------------------------|-----------|----------------------------------------------------------------------|
-| `provider`           | `"openai"` / `"anthropic"` / `"ollama"`  | **必填**  | 模型提供商类型。                                                     |
+| `provider`           | `"openai"` / `"anthropic"` / `"ollama"` / `"deepseek"` / `"qwen"` | **必填**  | 模型提供商类型。                                                     |
 | `api_key`            | `SecretStr` 或 `None`                    | `None`    | API 密钥，支持从环境变量读取（如 `$OPENAI_API_KEY`）。              |
 | `base_url`           | `str` 或 `None`                          | `None`    | 自定义 API 端点，用于代理或兼容服务（如 Azure）。                   |
 | `default_model`      | `str`                                    | **必填**  | 该提供商默认使用的模型名称（如 `"gpt-4"`）。                        |
 | `supports_vision`    | `bool`                                   | `False`   | **预留** 是否支持视觉多模态，后续版本使用。                           |
 | `cost_per_1k_input`  | `float`                                  | `0.0`     | 每 1000 输入 token 的成本（美元），用于成本路由和熔断。             |
 | `cost_per_1k_output` | `float`                                  | `0.0`     | 每 1000 输出 token 的成本（美元）。                                  |
+| `context_window`     | `int`                                    | `1048576` | 上下文窗口大小（token），用于自动压缩阈值计算。                     |
+| `max_tokens`         | `int` 或 `None`                          | `None`    | 最大输出 token 数（None=使用客户端默认值 16384）。DeepSeek 等服务商建议 65536~131072。 |
 
 ---
 

@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field, SecretStr, field_validator
 class ModelProviderConfig(BaseModel):
     """单个模型提供商配置"""
 
-    provider: Literal["openai", "anthropic", "ollama"] = Field(..., description="模型提供商类型")
+    provider: Literal["openai", "anthropic", "ollama", "deepseek", "qwen"] = Field(..., description="模型提供商类型")
     api_key: Optional[SecretStr] = Field(None, description="API 密钥，支持从环境变量读取")
     base_url: Optional[str] = Field(None, description="自定义 API 端点，用于代理或兼容服务")
     default_model: str = Field(..., description="默认使用的模型名称")

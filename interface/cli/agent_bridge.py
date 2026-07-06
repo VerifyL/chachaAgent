@@ -61,11 +61,13 @@ class AgentBridge:
         # 配置：chachaConfig.toml → 环境变量 → 默认值
         self._telemetry_cfg = None
         default_provider = None
+        self._provider_cfg = None
         try:
             from core.config_manager import get_config_manager
 
             cfg = get_config_manager().load()
             default_provider = cfg.model.providers.get("default")
+            self._provider_cfg = default_provider
             self._telemetry_cfg = cfg.telemetry
         except Exception:
             pass
@@ -198,7 +200,7 @@ class AgentBridge:
 
     async def initialize(self) -> str:
         """初始化 LLM + Dispatcher + 策略 + 重试 + 治理"""
-        from core.llm_clients.openai_client import OpenAIClient
+        from core.llm_clients.factory import ModelFactory
         from core.llm_clients.retry_handler import RetryHandler
         from core.llm_invoker import LLMInvoker
         from core.output_governor import OutputGovernor
@@ -207,12 +209,25 @@ class AgentBridge:
         retry = RetryHandler(max_retries=3)
         governor = OutputGovernor()
 
-        # 1. LLM
-        client = OpenAIClient(
-            api_key=self._api_key,
-            model=self._model,
-            base_url=self._base_url,
-        )
+        # 1. LLM — 走 ModelFactory 分发，env var 覆盖配置
+        if self._provider_cfg:
+            cfg = self._provider_cfg.model_copy(update={
+                "api_key": self._api_key or None,
+                "default_model": self._model,
+                "base_url": self._base_url or None,
+            })
+        else:
+            from core.models.config import ModelProviderConfig
+
+            cfg = ModelProviderConfig(
+                provider="openai",
+                api_key=self._api_key or None,
+                default_model=self._model,
+                base_url=self._base_url or None,
+            )
+        client = ModelFactory.create(cfg)
+        if client is None:
+            raise RuntimeError(f"无法创建 LLM 客户端: provider={cfg.provider}")
         self._invoker = LLMInvoker(
             model_client=client,
             retry_handler=retry,

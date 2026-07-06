@@ -231,10 +231,10 @@ def write_default_config(path: Optional[Path] = None) -> None:
 # 优先级: .chacha/config.toml（项目） > 此文件（全局默认） > 环境变量
 
 [model.providers.default]
-provider = "openai"
+provider = "deepseek"
 # API 密钥（亦可设置环境变量 DEEPSEEK_API_KEY）
 api_key = ""
-# 自定义 API 端点（DeepSeek）
+# DeepSeek API 端点
 base_url = "https://api.deepseek.com"
 default_model = "deepseek-v4-pro"
 # 上下文窗口大小（用于自动压缩，默认 1_048_576 = 1M）
