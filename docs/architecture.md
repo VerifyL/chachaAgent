@@ -64,7 +64,7 @@ core/ 核心编排层 (微内核控制平面)
 capabilities/ 能力与插件层
  ├── base.py ✅ BaseTool 抽象基类
  ├── registry.py ✅ 工具注册表 (build_tools 单一来源)
- ├── mcp_client.py 🚧 MCP 客户端 (骨架, 缺 stdio 通信)
+ ├── mcp_client.py ✅ MCP 客户端 (stdio 通信 + 工具注册 + 自动重连)
  ├── plugin_installer.py 🚧 插件安装器 (骨架)
  ├── openclaw_loader.py 🚧 OpenClaw 加载器 (骨架)
  ├── builtins/ 内置工具 (全部 ✅, 10 个)
@@ -462,7 +462,6 @@ class BaseTool(ABC):
 
 | 模块 | 当前状态 |
 |------|---------|
-| MCP 客户端 (mcp_client.py) | 骨架，缺 stdio 通信、工具注册 |
 | Code-RAG (rag/) | 骨架，symbol_parser/vector_store 待实现 |
 | OpenClaw 加载器 (openclaw_loader.py) | 骨架 |
 | 插件安装器 (plugin_installer.py) | 骨架 |

@@ -9,11 +9,6 @@
 - **涉及**：`core/llm_clients/anthropic_client.py`
 - **依赖**：`anthropic` SDK（已安装）
 
-### MCP 客户端
-- **目标**：完整的 MCP (Model Context Protocol) 客户端，支持 stdio 通信
-- **涉及**：`capabilities/mcp_client.py`（骨架已创建）
-- **依赖**：`mcp` 包（已安装）
-
 ## 中优先级 🟡
 
 ### Web 前端
