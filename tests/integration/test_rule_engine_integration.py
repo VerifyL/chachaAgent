@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from core.rule_engine import RuleEngine
 from core.hook_orchestrator import HookOrchestrator
 from core.models.hook import HookPoint, HookResult, ToolCallContext
+from core.rule_engine import RuleEngine
 
 
 @pytest.mark.asyncio

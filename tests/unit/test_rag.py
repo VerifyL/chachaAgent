@@ -3,14 +3,12 @@ tests/unit/test_rag.py
 单元测试：capabilities/rag/ 骨架
 """
 
-import tempfile
 from pathlib import Path
 
 import pytest
 
-from capabilities.rag.vector_store import VectorStore
 from capabilities.rag.symbol_parser import SymbolParser
-
+from capabilities.rag.vector_store import VectorStore
 
 # ====== VectorStore ======
 

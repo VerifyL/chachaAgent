@@ -9,7 +9,6 @@ import pytest
 from core.llm_clients.router import ModelRouter
 from core.models.config import ModelConfig, ModelProviderConfig
 
-
 # ====== Fixtures ======
 
 @pytest.fixture
@@ -73,7 +72,6 @@ def test_priority_all_banned_returns_none(providers, factory):
 def test_priority_recovery_after_ban_expiry(providers, factory):
     import time
     config = ModelConfig(providers=providers, fallback_chain=["default"])
-    from core.llm_clients.router import BAN_TTL_SECONDS
 
     # 缩短 BAN TTL 以加速测试
     router = ModelRouter(config)

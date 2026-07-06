@@ -6,11 +6,14 @@ tests/unit/test_output_governor.py
 """
 
 import json
-import pytest
 
 from core.output_governor import (
-    OutputGovernor, ContentRule, DEFAULT_CONTENT_RULES,
-    RepairConfidence, FlushResult, BlockType,
+    DEFAULT_CONTENT_RULES,
+    BlockType,
+    ContentRule,
+    FlushResult,
+    OutputGovernor,
+    RepairConfidence,
 )
 
 

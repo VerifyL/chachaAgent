@@ -6,15 +6,16 @@ tests/unit/test_policy_engine.py
 
 import time
 
-import pytest
-
-from core.policy_engine import (
-    PolicyEngine, PolicyDecision, RiskLevel, RiskFactors,
-    PermissionLevel, ApprovalStatus, CircuitState,
-    CostCircuitBreaker, ApprovalEntry,
-)
 from core.models.config import PolicyConfig
-
+from core.policy_engine import (
+    ApprovalEntry,
+    CircuitState,
+    CostCircuitBreaker,
+    PermissionLevel,
+    PolicyEngine,
+    RiskFactors,
+    RiskLevel,
+)
 
 # ========== 1. 黑名单 ==========
 
@@ -35,7 +36,7 @@ def test_blacklist_sudo():
 
 def test_blacklist_case_insensitive():
     engine = PolicyEngine()
-    decision = engine.evaluate_tool("shell", "RM -RF /")
+    _decision = engine.evaluate_tool("shell", "RM -RF /")
     # 默认黑名单区分大小写（配置决定）
     pass  # behavior depends on config
 

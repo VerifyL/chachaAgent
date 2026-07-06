@@ -10,8 +10,6 @@ import asyncio
 import pytest
 
 from core.tool_executor import ToolExecutor
-from capabilities.result import ToolResult
-
 
 # ========== Fixtures ==========
 
@@ -110,7 +108,7 @@ async def test_policy_allow():
 @pytest.mark.asyncio
 async def test_hook_block():
     from core.hook_orchestrator import HookOrchestrator
-    from core.models.hook import HookPoint, HookMatcher, HookResult
+    from core.models.hook import HookPoint, HookResult
 
     orch = HookOrchestrator()
 
@@ -129,8 +127,8 @@ async def test_hook_block():
 
 @pytest.mark.asyncio
 async def test_telemetry_called():
-    from core.telemetry import Telemetry
     from core.models.config import TelemetryConfig
+    from core.telemetry import Telemetry
 
     t = Telemetry(TelemetryConfig(enabled=True, log_level="WARNING"))
     t.start()

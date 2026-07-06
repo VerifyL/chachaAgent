@@ -11,12 +11,14 @@ from pathlib import Path
 
 import pytest
 
-from core.telemetry import (
-    Telemetry, StructuredLogger, MetricsCollector, AgentMetrics,
-    LogLevel, Tracer, Span,
-)
 from core.models.config import TelemetryConfig
-
+from core.telemetry import (
+    AgentMetrics,
+    MetricsCollector,
+    StructuredLogger,
+    Telemetry,
+    Tracer,
+)
 
 # ========== 1. 结构化日志 ==========
 
@@ -84,7 +86,7 @@ class TestStructuredLogger:
         logger.error("e")
         logger.critical("c")
         lines = self._debug_path(tmp_config).read_text().strip().split("\n")
-        levels = [json.loads(l)["level"] for l in lines]
+        levels = [json.loads(line)["level"] for line in lines]
         assert levels == ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 
@@ -240,5 +242,5 @@ class TestTelemetry:
         lines = (cfg.log_dir / "debug.jsonl").read_text().strip().split("\n")
         assert len(lines) >= 2
         # start() 先写入 "Telemetry 已启动"，然后才是 "hello"
-        msgs = [json.loads(l)["msg"] for l in lines]
+        msgs = [json.loads(line)["msg"] for line in lines]
         assert "hello" in msgs

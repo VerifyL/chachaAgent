@@ -5,7 +5,7 @@ tests/unit/test_summarizer.py
 
 import pytest
 
-from core.context.summarizer import Summarizer, _PROMPTS
+from core.context.summarizer import _PROMPTS, Summarizer
 
 
 def test_prompts_exist():

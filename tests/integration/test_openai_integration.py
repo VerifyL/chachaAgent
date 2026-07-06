@@ -8,7 +8,6 @@ import pytest
 from core.llm_clients.openai_client import OpenAIClient
 from core.llm_invoker import LLMInvoker
 
-
 # ====== Mock OpenAI 后端（完整流式事件） ======
 
 class MockDelta:

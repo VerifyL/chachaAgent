@@ -11,8 +11,10 @@ import pytest
 
 from protocol.gateway import ChaChaAsyncGateway
 from protocol.rpc_schema import (
-    RPCRequest, RPCResponse, TokenChunkEvent, SystemNotificationEvent,
     GatewayMessage,
+    RPCRequest,
+    SystemNotificationEvent,
+    TokenChunkEvent,
 )
 
 
@@ -139,8 +141,8 @@ class TestSeqOrdering:
         gateway.register("s1")
         gateway.register("s2")
 
-        mid_s1 = await gateway.publish(RPCRequest(method="a"), session_id="s1")
-        mid_s2 = await gateway.publish(RPCRequest(method="b"), session_id="s2")
+        _mid_s1 = await gateway.publish(RPCRequest(method="a"), session_id="s1")
+        _mid_s2 = await gateway.publish(RPCRequest(method="b"), session_id="s2")
 
         # 两个会话共享全局 seq
         assert gateway.seq == 2

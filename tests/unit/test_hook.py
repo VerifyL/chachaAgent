@@ -7,19 +7,18 @@ tests/unit/test_hook.py
 import json
 
 import pytest
-from pydantic import TypeAdapter, ValidationError
+from pydantic import ValidationError
 
 from core.models.hook import (
+    ErrorContext,
     HookAction,
     HookContext,
     HookMatcher,
     HookPoint,
     HookResult,
-    ToolCallContext,
     LLMRequestContext,
-    ErrorContext,
+    ToolCallContext,
 )
-
 
 # ========== 1. HookPoint 枚举 ==========
 

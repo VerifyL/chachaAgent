@@ -4,12 +4,13 @@ tests/unit/test_init_project.py
 """
 
 import os
-import sys
-import subprocess
 import shutil
 import stat
-import pytest
+import subprocess
+import sys
 from pathlib import Path
+
+import pytest
 
 
 def locate_script() -> Path:
@@ -211,7 +212,14 @@ def test_copy_config_from_examples(test_env):
     examples_dir.mkdir()
     example_config = examples_dir / "chachaConfig.toml"
     example_config.write_text(
-        'project_id = "from_example"\nenvironment = "prod"\n[model]\n[model.providers.default]\nprovider = "openai"\ndefault_model = "gpt-4"\n'
+        (
+            'project_id = "from_example"\n'
+            'environment = "prod"\n'
+            "[model]\n"
+            "[model.providers.default]\n"
+            'provider = "openai"\n'
+            'default_model = "gpt-4"\n'
+        )
     )
     (tmp_path / "chachaConfig.toml").unlink(missing_ok=True)
     result = run_script(script_path)

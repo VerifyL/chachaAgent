@@ -3,24 +3,19 @@ tests/integration/test_llm_invoker_integration.py
 集成测试：Mock LLM 回放各种响应模式 + Gateway/Telemetry 联动
 """
 
-import asyncio
 
 import pytest
 
 from core.llm_invoker import (
-    LLMInvoker,
-    TextChunk,
-    ReasoningChunk,
-    ToolCallStartChunk,
-    ToolCallDeltaChunk,
-    ToolCallEndChunk,
     DoneChunk,
     ErrorChunk,
-    LLMResponse,
-    ToolCall,
+    LLMInvoker,
+    TextChunk,
+    ToolCallEndChunk,
+    ToolCallStartChunk,
 )
-from core.telemetry import Telemetry
 from core.models.config import TelemetryConfig
+from core.telemetry import Telemetry
 
 
 class MockClient:

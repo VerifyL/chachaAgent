@@ -10,7 +10,6 @@ import pytest
 
 from core.context.static_rule_loader import StaticRuleLoader
 
-
 # ====== Fixtures ======
 
 @pytest.fixture

@@ -9,10 +9,9 @@ from pathlib import Path
 
 import pytest
 
-from core.rule_engine import RuleEngine
 from core.hook_orchestrator import HookOrchestrator, ShellCommand
-from core.models.hook import HookPoint, HookMatcher, HookResult
-
+from core.models.hook import HookResult
+from core.rule_engine import RuleEngine
 
 # ====== Fixtures ======
 
@@ -69,7 +68,6 @@ def test_load_invalid_yaml(engine):
 # ====== 2. handler 解析 ======
 
 def test_parse_builtins_handler(engine):
-    from core.models.hook import HookResult, HookContext
 
     async def dummy(ctx):
         return HookResult.continue_()

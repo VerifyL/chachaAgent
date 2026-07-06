@@ -7,7 +7,6 @@ tests/unit/test_context_model.py
 """
 
 import json
-from datetime import datetime, timezone
 
 import pytest
 from pydantic import ValidationError
@@ -20,7 +19,6 @@ from core.models.context import (
     ContextBlock,
     TriggerReason,
 )
-
 
 # ========== 1. 枚举测试 ==========
 

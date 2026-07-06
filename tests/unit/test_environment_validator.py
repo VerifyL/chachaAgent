@@ -1,12 +1,12 @@
 import os
-import sys
-import pytest
-from unittest.mock import patch, MagicMock
-from pathlib import Path
 import tempfile
-import shutil
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from core.environment_validator import validate_host_environment
+
 
 @pytest.fixture
 def temp_workdir():

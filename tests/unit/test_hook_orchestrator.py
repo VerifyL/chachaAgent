@@ -7,10 +7,13 @@ tests/unit/test_hook_orchestrator.py
 
 import pytest
 
-from core.models.hook import (
-    HookAction, HookContext, HookMatcher, HookPoint, HookResult,
-)
 from core.hook_orchestrator import HookOrchestrator
+from core.models.hook import (
+    HookContext,
+    HookMatcher,
+    HookPoint,
+    HookResult,
+)
 
 
 def _make_ctx(**kw):
@@ -91,9 +94,17 @@ async def test_post_hook_reverse_order():
 async def test_block_short_circuit():
     order = []
 
-    def safe_hook(ctx): order.append("safe"); return HookResult.continue_()
-    def block_hook(ctx): order.append("block"); return HookResult.block("denied")
-    def after_hook(ctx): order.append("after"); return HookResult.continue_()
+    def safe_hook(ctx):
+        order.append("safe")
+        return HookResult.continue_()
+
+    def block_hook(ctx):
+        order.append("block")
+        return HookResult.block("denied")
+
+    def after_hook(ctx):
+        order.append("after")
+        return HookResult.continue_()
 
     o = HookOrchestrator()
     o.register("safe", HookPoint.PRE_TOOL_EXECUTION, safe_hook, priority=3)
@@ -111,9 +122,17 @@ async def test_block_short_circuit():
 async def test_stop_chain():
     order = []
 
-    def h1(ctx): order.append("h1"); return HookResult.continue_()
-    def h2(ctx): order.append("h2"); return HookResult.stop("enough")
-    def h3(ctx): order.append("h3"); return HookResult.continue_()
+    def h1(ctx):
+        order.append("h1")
+        return HookResult.continue_()
+
+    def h2(ctx):
+        order.append("h2")
+        return HookResult.stop("enough")
+
+    def h3(ctx):
+        order.append("h3")
+        return HookResult.continue_()
 
     o = HookOrchestrator()
     o.register("h1", HookPoint.PRE_TOOL_EXECUTION, h1, priority=3)
@@ -165,8 +184,13 @@ async def test_additional_context_accumulation():
 async def test_matcher_filters_hooks():
     called = []
 
-    def shell_only(ctx): called.append("shell"); return HookResult.continue_()
-    def all_tools(ctx): called.append("all"); return HookResult.continue_()
+    def shell_only(ctx):
+        called.append("shell")
+        return HookResult.continue_()
+
+    def all_tools(ctx):
+        called.append("all")
+        return HookResult.continue_()
 
     o = HookOrchestrator()
     o.register(

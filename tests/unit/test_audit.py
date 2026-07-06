@@ -5,7 +5,6 @@ tests/unit/test_audit.py
 """
 
 import json
-from datetime import datetime, timezone
 
 import pytest
 from pydantic import TypeAdapter, ValidationError
@@ -13,17 +12,16 @@ from pydantic import TypeAdapter, ValidationError
 from core.models.audit import (
     AuditEvent,
     AuditEventCategory,
-    SensitiveString,
-    ToolCallAuditEvent,
+    AuditRecord,
     CostAuditEvent,
     MemoryChangeAuditEvent,
-    PermissionAuditEvent,
-    SessionAuditEvent,
     ModelCallAuditEvent,
-    AuditRecord,
+    PermissionAuditEvent,
+    SensitiveString,
+    SessionAuditEvent,
+    ToolCallAuditEvent,
     audit_factory,
 )
-
 
 # ========== 1. SensitiveString 测试 ==========
 

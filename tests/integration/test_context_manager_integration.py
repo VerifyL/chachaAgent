@@ -8,14 +8,15 @@ v2.0 新增:
   - 长对话中永久记忆不受压缩影响
 """
 
-import pytest
 
 from core.context_manager import ContextManager
-from core.models.session import (
-    ConversationState, SessionMetadata, MessageEvent, ObservationEvent,
-)
 from core.models.config import ContextConfig
-from core.models.context import BlockSource
+from core.models.session import (
+    ConversationState,
+    MessageEvent,
+    ObservationEvent,
+    SessionMetadata,
+)
 
 
 def test_long_conversation_context_budget_controlled():

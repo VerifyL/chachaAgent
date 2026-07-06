@@ -9,8 +9,11 @@ import pytest
 
 from protocol.gateway import ChaChaAsyncGateway
 from protocol.rpc_schema import (
-    RPCRequest, RPCResponse, TokenChunkEvent, ToolStatusEvent,
-    PermissionRequestEvent, PermissionResponse, GatewayMessage,
+    GatewayMessage,
+    RPCRequest,
+    RPCResponse,
+    TokenChunkEvent,
+    ToolStatusEvent,
 )
 
 

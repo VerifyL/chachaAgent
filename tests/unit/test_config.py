@@ -4,22 +4,14 @@ tests/unit/test_config.py
 覆盖复杂嵌套配置解析、校验器、默认值、边界条件及多模态预留。
 """
 
+from pathlib import Path
+from typing import Any, Dict
+
 import pytest
 from pydantic import ValidationError
-from pathlib import Path
-from typing import Dict, Any
 
 from core.models.config import (
     ChaChaConfig,
-    ModelConfig,
-    ModelProviderConfig,
-    ContextConfig,
-    MemoryConfig,
-    SandboxConfig,
-    PolicyConfig,
-    TelemetryConfig,
-    MultimodalConfig,
-    InterfaceConfig,
 )
 
 
@@ -140,11 +132,11 @@ def test_minimal_config(minimal_config_dict):
 def test_full_config_parsing(full_config_dict):
     """测试完整配置的正确解析与类型转换"""
     config = ChaChaConfig.model_validate(full_config_dict)
-    
+
     # 顶层
     assert config.project_id == "my-project"
     assert config.environment == "prod"
-    
+
     # 模型
     assert "default" in config.model.providers
     assert config.model.providers["default"].provider == "openai"
@@ -154,35 +146,35 @@ def test_full_config_parsing(full_config_dict):
     assert config.model.fallback_chain == ["default", "claude"]
     assert config.model.retry_max_attempts == 5
     assert config.model.retry_backoff_factor == 2.0
-    
+
     # 上下文
     assert config.context.max_tokens == 200000
     assert config.context.multimodal_compression == "describe"
-    
+
     # 记忆
     assert config.memory.project_dir == Path("/custom/memory/path")
     assert config.memory.auto_clean_interval_hours == 12
-    
+
     # 沙箱
     assert config.sandbox.allowed_commands == ["ls", "pwd"]
     assert config.sandbox.timeout_seconds == 30
     assert config.sandbox.working_dir == Path("/sandbox")
-    
+
     # 策略
     assert config.policy.command_blacklist == ["rm", "sudo"]
     assert config.policy.cost_limit_dollars == 5.0
-    
+
     # 可观测
     assert config.telemetry.log_level == "DEBUG"
     assert config.telemetry.enable_prometheus is True
     assert config.telemetry.prometheus_port == 9091
-    
+
     # 多模态
     assert config.multimodal.enabled is True
     assert config.multimodal.vision_model == "gpt-4-vision"
     assert config.multimodal.max_image_size_mb == 20
     assert config.multimodal.enable_ocr_fallback is False
-    
+
     # 表现层
     assert config.interface.cli_theme == "dark"
     assert config.interface.web_enabled is True
@@ -199,7 +191,7 @@ def test_project_id_validation_invalid_characters():
             "project_id": "my/project"
         })
     assert "project_id 不能包含路径特殊字符" in str(exc.value)
-    
+
     with pytest.raises(ValidationError) as exc:
         ChaChaConfig.model_validate({
             "model": {"providers": {"default": {"provider": "openai", "default_model": "gpt-4"}}},

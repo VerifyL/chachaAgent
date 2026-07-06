@@ -22,16 +22,28 @@ from pathlib import Path
 
 import pytest
 
-from core.dispatcher import Dispatcher, KEEP_TOOL_RESULTS
-from core.models.stream_event import TextEvent, ReasoningEvent, ToolCallStartEvent, ToolCallEndEvent, ToolExecStartEvent, ToolExecEndEvent, DoneEvent, ErrorEvent
+from core.context.memory_manager import MemoryManager
+from core.dispatcher import Dispatcher
 from core.llm_invoker import (
-    LLMResponse, ToolCall, StreamChunk,
-    TextChunk, ReasoningChunk, ToolCallStartChunk,
-    ToolCallDeltaChunk, ToolCallEndChunk, DoneChunk, ErrorChunk,
+    DoneChunk,
+    ErrorChunk,
+    LLMResponse,
+    ReasoningChunk,
+    TextChunk,
+    ToolCall,
+    ToolCallDeltaChunk,
+    ToolCallEndChunk,
+    ToolCallStartChunk,
+)
+from core.models.stream_event import (
+    DoneEvent,
+    ErrorEvent,
+    ReasoningEvent,
+    TextEvent,
+    ToolExecEndEvent,
+    ToolExecStartEvent,
 )
 from core.tool_executor import ToolResult
-from core.context.memory_manager import MemoryManager
-
 
 # ====== Mock 实现 ======
 
@@ -494,7 +506,7 @@ async def test_dispatch_stream_circuit_breaker_resets():
                 )
             return ToolResult(
                 tool_use_id=tool_use_id, tool_name=tool_name,
-                content=f"read ok", status="success",
+                content="read ok", status="success",
             )
 
     tools = MixedFailingTools()

@@ -4,15 +4,15 @@
 覆盖：序列化/反序列化、必填字段校验、时间戳行为
 """
 
-from datetime import datetime, timezone
+from datetime import datetime
 from uuid import UUID
 
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
 from core.models.session import (
-    Attachment,
     AgentLoopState,
+    Attachment,
     BaseEvent,
     CheckpointEvent,
     CompactEvent,

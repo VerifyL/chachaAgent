@@ -6,8 +6,6 @@ tests/integration/test_checkpoint_integration.py
 import tempfile
 from pathlib import Path
 
-import pytest
-
 from core.checkpoint_manager import CheckpointManager
 
 

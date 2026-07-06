@@ -3,17 +3,15 @@ tests/integration/test_tool_executor_integration.py
 集成测试：执行内置工具、策略+钩子+遥测联动、批量并发
 """
 
-import asyncio
 
 import pytest
 
-from core.tool_executor import ToolExecutor
-from core.policy_engine import PolicyEngine
 from core.hook_orchestrator import HookOrchestrator
-from core.models.hook import HookPoint, HookResult
-from core.telemetry import Telemetry
 from core.models.config import TelemetryConfig
-
+from core.models.hook import HookPoint, HookResult
+from core.policy_engine import PolicyEngine
+from core.telemetry import Telemetry
+from core.tool_executor import ToolExecutor
 
 # ====== 模拟内置工具 ======
 

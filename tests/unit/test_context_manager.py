@@ -9,13 +9,15 @@ v3.0 上下文顺序:
 
 import pytest
 
-from core.context_manager import ContextManager, DEFAULT_SYSTEM_PROMPT
-from core.models.session import (
-    ConversationState, SessionMetadata, MessageEvent, ObservationEvent,
-)
+from core.context_manager import ContextManager
 from core.models.config import ContextConfig
 from core.models.context import BlockSource, CompressionLevel
-
+from core.models.session import (
+    ConversationState,
+    MessageEvent,
+    ObservationEvent,
+    SessionMetadata,
+)
 
 # ====== Fixtures ======
 
@@ -64,7 +66,7 @@ def test_cache_hit_static_rules(state):
 
 def test_cache_invalidated_on_change(state):
     mgr = ContextManager()
-    ctx1 = mgr.assemble(state, session_id="s1", static_rules="规则A")
+    _ctx1 = mgr.assemble(state, session_id="s1", static_rules="规则A")
     ctx2 = mgr.assemble(state, session_id="s1", static_rules="规则B")
     rules_blocks = [b for b in ctx2.blocks if b.source == BlockSource.STATIC_RULE]
     if rules_blocks:

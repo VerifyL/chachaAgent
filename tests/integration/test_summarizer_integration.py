@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from core.context.summarizer import Summarizer
 from core.context.memory_manager import MemoryManager
+from core.context.summarizer import Summarizer
 
 
 def _write_to_date(mgr, date_str: str, content: str):
@@ -58,7 +58,7 @@ async def test_summarize_memory_then_write(mgr):
 @pytest.mark.asyncio
 async def test_summarize_blocks(mgr):
     """summarize_blocks 从 ContextBlock 列表生成摘要"""
-    from core.models.context import ContextBlock, BlockSource
+    from core.models.context import BlockSource, ContextBlock
 
     blocks = [
         ContextBlock(source=BlockSource.HISTORY, role="user",

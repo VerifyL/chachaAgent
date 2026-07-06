@@ -8,7 +8,6 @@ import pytest
 
 from core.llm_clients.openai_client import OpenAIClient
 
-
 # ====== Mock OpenAI 流式响应 ======
 
 class MockDelta:

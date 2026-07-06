@@ -6,30 +6,28 @@ tests/unit/test_rpc_schema.py
 """
 
 import json
-from datetime import datetime, timezone
 
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
+from core.models.audit import CostAuditEvent
 from protocol.rpc_schema import (
+    AuditTrailEvent,
+    GatewayMessage,
+    GatewayPayload,
+    PermissionRequestEvent,
+    PermissionResponse,
     RPCError,
+    RPCEvent,
+    RPCMessage,
     RPCRequest,
     RPCResponse,
-    RPCEvent,
-    GatewayMessage,
+    SessionLifecycleEvent,
+    SystemNotificationEvent,
     TokenChunkEvent,
     ToolCallDelta,
     ToolStatusEvent,
-    PermissionRequestEvent,
-    PermissionResponse,
-    AuditTrailEvent,
-    SessionLifecycleEvent,
-    SystemNotificationEvent,
-    RPCMessage,
-    GatewayPayload,
 )
-from core.models.audit import AuditEvent, AuditEventCategory, CostAuditEvent
-
 
 # ========== 1. 基础消息测试 ==========
 
@@ -425,7 +423,7 @@ def test_full_gateway_flow():
     assert tool.payload.params["output_summary"] == "文件内容共 100 行"
 
     # 4. 权限请求 + 响应
-    perm_req = PermissionRequestEvent(params={
+    _perm_req = PermissionRequestEvent(params={
         "request_id": "req_1",
         "tool_name": "shell",
         "command_or_action": "git push",

@@ -10,9 +10,8 @@ import pytest
 
 from core.context.static_rule_loader import StaticRuleLoader
 from core.context_manager import ContextManager
-from core.models.session import ConversationState, SessionMetadata, MessageEvent
 from core.models.context import BlockSource
-
+from core.models.session import ConversationState, MessageEvent, SessionMetadata
 
 # ====== Fixtures ======
 

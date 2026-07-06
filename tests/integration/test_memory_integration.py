@@ -129,7 +129,7 @@ def test_permanent_memory_shared_across_sessions():
 
 def test_prune_7_days_keeps_recent(session_mgr):
     """7天内的文件保留"""
-    from datetime import datetime, timezone, timedelta
+    from datetime import datetime, timedelta, timezone
     for days_ago in range(1, 6):
         date = (datetime.now(tz=timezone.utc) - timedelta(days=days_ago)).strftime("%Y-%m-%d")
         _write_to_date(session_mgr, date, f"day {days_ago}")

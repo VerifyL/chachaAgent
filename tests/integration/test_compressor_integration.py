@@ -10,9 +10,13 @@ import pytest
 from core.context.context_compressor import ContextCompressor
 from core.context_manager import ContextManager
 from core.models.context import (
-    AssembledContext, ContextAssemblyMeta, ContextBlock, BlockSource, CompressionLevel,
+    AssembledContext,
+    BlockSource,
+    CompressionLevel,
+    ContextAssemblyMeta,
+    ContextBlock,
 )
-from core.models.session import ConversationState, SessionMetadata, MessageEvent, ObservationEvent
+from core.models.session import ConversationState, MessageEvent, ObservationEvent, SessionMetadata
 
 
 @pytest.fixture

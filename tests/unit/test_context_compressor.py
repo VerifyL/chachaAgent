@@ -10,9 +10,12 @@ import pytest
 
 from core.context.context_compressor import ContextCompressor
 from core.models.context import (
-    AssembledContext, ContextAssemblyMeta, ContextBlock, BlockSource, CompressionLevel,
+    AssembledContext,
+    BlockSource,
+    CompressionLevel,
+    ContextAssemblyMeta,
+    ContextBlock,
 )
-
 
 # ====== Fixtures ======
 

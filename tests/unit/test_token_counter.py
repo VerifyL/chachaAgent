@@ -6,8 +6,7 @@ tests/unit/test_token_counter.py
 import pytest
 
 from core.context.token_counter import TokenCounter
-from core.models.context import ContextBlock, BlockSource
-
+from core.models.context import BlockSource, ContextBlock
 
 # ====== Fixtures ======
 

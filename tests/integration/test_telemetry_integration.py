@@ -7,8 +7,8 @@ import json
 import tempfile
 from pathlib import Path
 
-from core.telemetry import Telemetry
 from core.models.config import TelemetryConfig
+from core.telemetry import Telemetry
 
 
 def test_full_orchestration_metrics_flow():
@@ -87,7 +87,7 @@ def test_full_orchestration_metrics_flow():
     t.stop()
     debug_lines = (cfg.log_dir / "debug.jsonl").read_text().strip().split("\n")
     assert len(debug_lines) >= 2
-    msgs = [json.loads(l)["msg"] for l in debug_lines]
+    msgs = [json.loads(line)["msg"] for line in debug_lines]
     assert "session started" in msgs
     assert "Telemetry 已停止" in msgs
 

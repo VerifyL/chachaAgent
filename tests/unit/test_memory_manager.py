@@ -165,7 +165,7 @@ def test_prune_old_days_removes_old_files(mgr):
 
 def test_prune_old_days_keeps_recent_files(mgr):
     """最近 7 天内的文件不被删除"""
-    from datetime import datetime, timezone, timedelta
+    from datetime import datetime, timedelta, timezone
     today = datetime.now(tz=timezone.utc)
     recent = (today - timedelta(days=3)).strftime("%Y-%m-%d")
     _write_to_date(mgr, recent, "recent")

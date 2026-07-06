@@ -3,9 +3,9 @@ tests/integration/test_config_integration.py
 集成测试：从示例 TOML 文件加载完整配置，验证配置管理器在实际文件场景下的行为。
 """
 
-import os
-import pytest
 from pathlib import Path
+
+import pytest
 
 from core.config_manager import ConfigManager
 from core.models.config import ChaChaConfig

@@ -124,7 +124,7 @@ def test_prune_removes_old_files(mgr):
 
 def test_prune_keeps_recent_files(mgr):
     """最近文件不被删除"""
-    from datetime import datetime, timezone, timedelta
+    from datetime import datetime, timedelta, timezone
     recent = (datetime.now(tz=timezone(timedelta(hours=8))) - timedelta(days=3)).strftime("%Y-%m-%d")
     _write_to_date(mgr, recent, "recent")
     llm = MockLLM()

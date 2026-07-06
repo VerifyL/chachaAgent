@@ -6,6 +6,7 @@ tests/integration/test_real_api.py
 """
 
 import os
+
 import pytest
 
 from core.llm_clients.openai_client import OpenAIClient

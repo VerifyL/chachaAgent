@@ -6,7 +6,7 @@ tests/unit/test_base_tool.py
 import pytest
 
 from capabilities.base import BaseTool
-
+from core.tool_executor import ToolExecutor
 
 # ====== 示例工具 ======
 
@@ -88,7 +88,6 @@ def test_base_tool_is_abstract():
 
 # ====== 6. ToolExecutor 集成 ======
 
-from core.tool_executor import ToolExecutor
 
 
 @pytest.mark.asyncio

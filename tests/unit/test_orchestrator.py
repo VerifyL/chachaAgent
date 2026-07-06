@@ -6,8 +6,9 @@ v2.1: run() / OrchResponse 已删除，仅保留 run_stream 路径。
 """
 
 import pytest
+
+from core.models.stream_event import DoneEvent, TextEvent
 from core.orchestrator import Orchestrator
-from core.models.stream_event import TextEvent, DoneEvent
 
 
 class MockEngine:

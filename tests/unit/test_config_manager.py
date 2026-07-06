@@ -5,13 +5,13 @@ tests/unit/test_config_manager.py
 """
 
 import os
-import tomllib
-import pytest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from core import config_manager as cm_module
-from core.config_manager import ConfigManager, get_config_manager, load_config, get_config
+from core.config_manager import ConfigManager, get_config, get_config_manager, load_config
 from core.models.config import ChaChaConfig
 
 
@@ -384,7 +384,7 @@ def test_watch_callback(minimal_toml: Path):
         mgr.start_watch()
 
         from watchdog.events import FileModifiedEvent
-        event = FileModifiedEvent(str(minimal_toml.resolve()))
+        _event = FileModifiedEvent(str(minimal_toml.resolve()))
         mgr.reload = MagicMock(return_value=mgr._config)
         for cb in mgr._watch_callbacks:
             cb(mgr._config)
