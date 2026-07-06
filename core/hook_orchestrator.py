@@ -34,9 +34,10 @@ class ShellCommand:
 
     command 在子进程中执行，stdin 接收 HookContext JSON，stdout 期望输出 HookResult JSON。
     """
-    command: str                                          # 命令字符串（如 "python audit.py"）
-    timeout: float = 10.0                                 # 子进程超时
-    env: Optional[Dict[str, str]] = field(default=None)   # 额外环境变量
+
+    command: str  # 命令字符串（如 "python audit.py"）
+    timeout: float = 10.0  # 子进程超时
+    env: Optional[Dict[str, str]] = field(default=None)  # 额外环境变量
 
 
 # ========================= 钩子注册 =========================
@@ -51,12 +52,13 @@ HookHandler = Union[
 @dataclass
 class RegisteredHook:
     """已注册的钩子"""
+
     name: str
     hook_point: HookPoint
     handler: HookHandler
     matcher: HookMatcher = field(default_factory=lambda: HookMatcher(type="always"))
-    priority: int = 0              # 越大越先执行（PRE 正序，POST 倒序）
-    timeout: float = 10.0          # 执行超时（秒）
+    priority: int = 0  # 越大越先执行（PRE 正序，POST 倒序）
+    timeout: float = 10.0  # 执行超时（秒）
 
     # 显式覆盖容错策略（None=自动推断）
     on_timeout_continue: Optional[bool] = None
@@ -64,6 +66,7 @@ class RegisteredHook:
 
 
 # ========================= 钩子协调器 =========================
+
 
 class HookOrchestrator:
     """
@@ -177,11 +180,9 @@ class HookOrchestrator:
 
             # 注入当前累积的 modified_tool_args
             if current_tool_args is not None and hook_ctx.tool_call is not None:
-                hook_ctx = hook_ctx.model_copy(update={
-                    "tool_call": hook_ctx.tool_call.model_copy(update={
-                        "arguments": current_tool_args
-                    })
-                })
+                hook_ctx = hook_ctx.model_copy(
+                    update={"tool_call": hook_ctx.tool_call.model_copy(update={"arguments": current_tool_args})}
+                )
 
             try:
                 result = await self._execute_hook(hook, hook_ctx)
@@ -203,7 +204,9 @@ class HookOrchestrator:
             # 遥测
             if self._telemetry:
                 self._telemetry.agent.record_hook(
-                    hook.name, 0, str(result.action),
+                    hook.name,
+                    0,
+                    str(result.action),
                 )
 
             # 累积 additional_context
@@ -218,9 +221,11 @@ class HookOrchestrator:
 
             # BLOCK：立即短路
             if result.is_blocked():
-                result = result.model_copy(update={
-                    "additional_context": "\n".join(accumulated_context) if accumulated_context else None,
-                })
+                result = result.model_copy(
+                    update={
+                        "additional_context": "\n".join(accumulated_context) if accumulated_context else None,
+                    }
+                )
                 return result
 
             # STOP：停止链，但不拒绝
@@ -260,11 +265,13 @@ class HookOrchestrator:
         ctx_json = ctx.model_dump_json()
 
         env = dict(cmd.env or {})
-        env.update({
-            "CHACHA_SESSION_ID": ctx.session_id or "",
-            "CHACHA_PROJECT_ID": ctx.project_id or "",
-            "CHACHA_HOOK_POINT": str(ctx.hook_point),
-        })
+        env.update(
+            {
+                "CHACHA_SESSION_ID": ctx.session_id or "",
+                "CHACHA_PROJECT_ID": ctx.project_id or "",
+                "CHACHA_HOOK_POINT": str(ctx.hook_point),
+            }
+        )
 
         proc = await asyncio.create_subprocess_shell(
             cmd.command,
@@ -314,7 +321,8 @@ class HookOrchestrator:
         command = getattr(tool_call, "command_or_action", None) if tool_call else None
 
         return [
-            h for h in self._hooks
+            h
+            for h in self._hooks
             if h.hook_point == hook_point and h.matcher.matches(tool_name=tool_name, command=command)
         ]
 

@@ -51,7 +51,7 @@ def run_script(script_path: Path, *args, env=None):
             env=env,
             capture_output=True,
             text=True,
-            encoding='utf-8',
+            encoding="utf-8",
             cwd=os.getcwd(),
         )
     except Exception as e:
@@ -177,7 +177,7 @@ def test_env_var_project_id(test_env):
         env=env,
         capture_output=True,
         text=True,
-        encoding='utf-8',
+        encoding="utf-8",
         cwd=os.getcwd(),
     )
     assert result.returncode == 0
@@ -196,7 +196,7 @@ def test_cli_overrides_env_var(test_env):
         env=env,
         capture_output=True,
         text=True,
-        encoding='utf-8',
+        encoding="utf-8",
         cwd=os.getcwd(),
     )
     assert result.returncode == 0

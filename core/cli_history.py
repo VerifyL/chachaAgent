@@ -3,6 +3,7 @@ core/cli_history.py
 SessionHistory — prompt_toolkit History 包装类，支持 session 级切换。
 每个 session 的历史存在 sessions/{sid}/cli_history，切换 session 时自动切换到对应文件。
 """
+
 from pathlib import Path
 
 from prompt_toolkit.history import FileHistory, History

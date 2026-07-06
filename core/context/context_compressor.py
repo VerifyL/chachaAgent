@@ -127,9 +127,7 @@ class ContextCompressor:
 
     # ====== Level 3: SUMMARIZED ======
 
-    async def _summarize_core(
-        self, blocks: List[ContextBlock], session_id: str
-    ) -> List[ContextBlock]:
+    async def _summarize_core(self, blocks: List[ContextBlock], session_id: str) -> List[ContextBlock]:
         """HEAD + LLM摘要(CORE) + TAIL。"""
         head_count = 2
         tail_count = self._preserve_recent
@@ -207,18 +205,10 @@ class ContextCompressor:
 
     # ====== Level 4: CONSOLIDATED ======
 
-    async def _consolidate(
-        self, blocks: List[ContextBlock], session_id: str
-    ) -> List[ContextBlock]:
+    async def _consolidate(self, blocks: List[ContextBlock], session_id: str) -> List[ContextBlock]:
         """多轮摘要再压缩：将所有 SUMMARIZED 块合并为一条 LLM 摘要。"""
-        summary_blocks = [
-            b for b in blocks
-            if b.compression_level in (CompressionLevel.SUMMARIZED, "summarized")
-        ]
-        other_blocks = [
-            b for b in blocks
-            if b.compression_level not in (CompressionLevel.SUMMARIZED, "summarized")
-        ]
+        summary_blocks = [b for b in blocks if b.compression_level in (CompressionLevel.SUMMARIZED, "summarized")]
+        other_blocks = [b for b in blocks if b.compression_level not in (CompressionLevel.SUMMARIZED, "summarized")]
 
         if len(summary_blocks) <= 1:
             # 单条摘要降级为更激进裁剪
@@ -270,8 +260,11 @@ class ContextCompressor:
     @staticmethod
     def _clone_block(b: ContextBlock, new_content: str) -> ContextBlock:
         return ContextBlock(
-            source=b.source, role=b.role, content=new_content,
-            zone=b.zone, priority=b.priority,
+            source=b.source,
+            role=b.role,
+            content=new_content,
+            zone=b.zone,
+            priority=b.priority,
             importance_score=b.importance_score,
             token_count=len(new_content) // 4,
             original_token_count=b.original_token_count or b.token_count,
@@ -311,9 +304,9 @@ class ContextCompressor:
         pct = est / context_window if context_window else 0
 
         if pct >= warn_ratio:
-            reason = f"⚠ {est//1000}K token ({int(pct*100)}% 窗口)"
+            reason = f"⚠ {est // 1000}K token ({int(pct * 100)}% 窗口)"
         elif pct >= trigger_ratio:
-            reason = f"压缩 {int(pct*100)}% 窗口"
+            reason = f"压缩 {int(pct * 100)}% 窗口"
         elif not force:
             return messages, ""
 
@@ -343,36 +336,57 @@ class ContextCompressor:
             tool_calls = m.get("tool_calls")
 
             if role == "system":
-                blocks.append(ContextBlock(
-                    source=BlockSource.SYSTEM_PROMPT, role="system",
-                    content=content, zone="protected", priority=i,
-                    token_count=len(content) // 3,
-                ))
+                blocks.append(
+                    ContextBlock(
+                        source=BlockSource.SYSTEM_PROMPT,
+                        role="system",
+                        content=content,
+                        zone="protected",
+                        priority=i,
+                        token_count=len(content) // 3,
+                    )
+                )
             elif role == "tool":
-                blocks.append(ContextBlock(
-                    source=BlockSource.TOOL_RESULT, role="tool",
-                    content=content, zone="dynamic", priority=100 + i,
-                    token_count=len(content) // 3,
-                ))
+                blocks.append(
+                    ContextBlock(
+                        source=BlockSource.TOOL_RESULT,
+                        role="tool",
+                        content=content,
+                        zone="dynamic",
+                        priority=100 + i,
+                        token_count=len(content) // 3,
+                    )
+                )
             elif role == "user":
-                blocks.append(ContextBlock(
-                    source=BlockSource.HISTORY, role="user",
-                    content=content, zone="dynamic", priority=100 + i,
-                    token_count=len(content) // 3,
-                ))
+                blocks.append(
+                    ContextBlock(
+                        source=BlockSource.HISTORY,
+                        role="user",
+                        content=content,
+                        zone="dynamic",
+                        priority=100 + i,
+                        token_count=len(content) // 3,
+                    )
+                )
             elif role == "assistant":
-                blocks.append(ContextBlock(
-                    source=BlockSource.HISTORY, role="assistant",
-                    content=content, zone="dynamic", priority=100 + i,
-                    token_count=len(content) // 3,
-                ))
+                blocks.append(
+                    ContextBlock(
+                        source=BlockSource.HISTORY,
+                        role="assistant",
+                        content=content,
+                        zone="dynamic",
+                        priority=100 + i,
+                        token_count=len(content) // 3,
+                    )
+                )
                 if tool_calls:
-                    if not hasattr(blocks[-1], '_extra') or blocks[-1]._extra is None:
+                    if not hasattr(blocks[-1], "_extra") or blocks[-1]._extra is None:
                         blocks[-1]._extra = {}
                     blocks[-1]._extra["tool_calls"] = tool_calls
 
         total_tokens = sum(b.token_count or 0 for b in blocks)
         from core.models.context import ContextAssemblyMeta
+
         meta = ContextAssemblyMeta(total_tokens=total_tokens, trigger="auto_compact")
         return AssembledContext(meta=meta, blocks=blocks, needs_compression=True)
 
@@ -380,4 +394,5 @@ class ContextCompressor:
     def _ctx_to_messages(ctx: AssembledContext) -> list:
         """从 AssembledContext 构建消息 dict 列表。"""
         from core.context_manager import ContextManager
+
         return ContextManager.blocks_to_messages(ctx)

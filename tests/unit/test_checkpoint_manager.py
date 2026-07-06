@@ -30,6 +30,7 @@ def messages():
 
 # ====== 保存 ======
 
+
 def test_save(messages, mgr):
     mgr.save(messages, session_id="session-1", description="测试")
     path = mgr._dir / "session-1" / "checkpoint.json"
@@ -61,6 +62,7 @@ def test_save_filters_tool_messages(mgr):
 
 # ====== 恢复 ======
 
+
 def test_restore(messages, mgr):
     mgr.save(messages, session_id="session-1")
     restored = mgr.restore("session-1")
@@ -77,6 +79,7 @@ def test_restore_nonexistent(mgr):
 
 # ====== 列表 ======
 
+
 def test_list(messages, mgr):
     mgr.save(messages, session_id="session-1")
     items = mgr.list("session-1")
@@ -86,6 +89,7 @@ def test_list(messages, mgr):
 
 
 # ====== 删除 ======
+
 
 def test_delete(messages, mgr):
     mgr.save(messages, session_id="session-1")
@@ -97,6 +101,7 @@ def test_delete(messages, mgr):
 
 # ====== 清理 ======
 
+
 def test_purge(messages, mgr):
     mgr.save(messages, session_id="session-1")
     deleted = mgr.purge("session-1", max_age_hours=0)
@@ -104,6 +109,7 @@ def test_purge(messages, mgr):
 
 
 # ====== 文件损坏 ======
+
 
 def test_corrupted_file(messages, mgr):
     cp_dir = mgr._dir / "session-1"

@@ -19,6 +19,7 @@ from core.policy_engine import (
 
 # ========== 1. 黑名单 ==========
 
+
 def test_blacklist_blocks():
     engine = PolicyEngine()
     decision = engine.evaluate_tool("shell", "rm -rf /tmp/test")
@@ -49,6 +50,7 @@ def test_safe_command_not_blocked():
 
 # ========== 2. 白名单 ==========
 
+
 def test_whitelist_bypasses_blacklist():
     engine = PolicyEngine()
     engine.add_to_whitelist("sudo_wrapper")
@@ -57,6 +59,7 @@ def test_whitelist_bypasses_blacklist():
 
 
 # ========== 3. 风险评估 ==========
+
 
 def test_risk_score_calculation():
     factors = RiskFactors(
@@ -96,13 +99,13 @@ def test_risk_assess_convenience():
 
 # ========== 4. 权限级别 ==========
 
+
 def test_read_file_is_free():
     engine = PolicyEngine()
     decision = engine.evaluate_tool("read", "read main.py", "s1")
     assert decision.allowed is True
     assert decision.needs_approval is False
     assert decision.permission_level == PermissionLevel.FREE
-
 
 
 def test_write_file_needs_approval():
@@ -144,6 +147,7 @@ def test_reset_task_approvals():
 
 # ========== 5. 审批缓存 ==========
 
+
 def test_approval_cache_hit():
     engine = PolicyEngine()
     decision = engine.evaluate_tool("write_file", "write main.py", "s1")
@@ -178,6 +182,7 @@ def test_clear_cache():
 
 
 # ========== 6. 成本熔断器 ==========
+
 
 class TestCostBreaker:
     def test_normal_operation(self):
@@ -223,6 +228,7 @@ def test_evaluate_cost_rejects_when_breaker_open():
 
 
 # ========== 7. 综合场景 ==========
+
 
 def test_full_security_workflow():
     """完整的安全评估流程"""

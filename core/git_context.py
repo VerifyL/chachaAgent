@@ -84,7 +84,7 @@ class GitContextProvider:
                 lines = status.strip().split("\n")
                 data["git_context"]["working_tree"] = {
                     "files_changed": len(lines),
-                    "details": lines[:self._max_status_lines],
+                    "details": lines[: self._max_status_lines],
                 }
                 if len(lines) > self._max_status_lines:
                     data["git_context"]["working_tree"]["limited"] = True
@@ -124,6 +124,7 @@ class GitContextProvider:
             data["git_context"]["recent_commits"] = None
 
         return json.dumps(data, ensure_ascii=False)
+
     # ====== 内部子命令 ======
 
     def _is_git_repo(self) -> bool:
@@ -132,7 +133,8 @@ class GitContextProvider:
             result = subprocess.run(
                 ["git", "rev-parse", "--git-dir"],
                 cwd=str(self._root),
-                capture_output=True, text=True,
+                capture_output=True,
+                text=True,
                 timeout=self._timeout,
             )
             return result.returncode == 0
@@ -146,7 +148,8 @@ class GitContextProvider:
             result = subprocess.run(
                 ["git", "rev-parse", "--abbrev-ref", "HEAD"],
                 cwd=str(self._root),
-                capture_output=True, text=True,
+                capture_output=True,
+                text=True,
                 timeout=self._timeout,
             )
             if result.returncode != 0:
@@ -157,7 +160,8 @@ class GitContextProvider:
             upstream_result = subprocess.run(
                 ["git", "rev-parse", "--abbrev-ref", "@{upstream}"],
                 cwd=str(self._root),
-                capture_output=True, text=True,
+                capture_output=True,
+                text=True,
                 timeout=self._timeout,
             )
             if upstream_result.returncode == 0 and upstream_result.stdout.strip():
@@ -174,7 +178,8 @@ class GitContextProvider:
             result = subprocess.run(
                 ["git", "status", "--short"],
                 cwd=str(self._root),
-                capture_output=True, text=True,
+                capture_output=True,
+                text=True,
                 timeout=self._timeout,
             )
             if result.returncode != 0:
@@ -190,7 +195,8 @@ class GitContextProvider:
             result = subprocess.run(
                 ["git", "diff", "--staged", "--stat"],
                 cwd=str(self._root),
-                capture_output=True, text=True,
+                capture_output=True,
+                text=True,
                 timeout=self._timeout,
             )
             if result.returncode != 0:
@@ -206,7 +212,8 @@ class GitContextProvider:
             result = subprocess.run(
                 ["git", "log", "--oneline", f"-{self._recent_commits}"],
                 cwd=str(self._root),
-                capture_output=True, text=True,
+                capture_output=True,
+                text=True,
                 timeout=self._timeout,
             )
             if result.returncode != 0:
@@ -218,6 +225,7 @@ class GitContextProvider:
 
 
 # ========================= Hook 适配器 =========================
+
 
 class GitContextHook:
     """PRE_CONTEXT_ASSEMBLY 钩子适配器。

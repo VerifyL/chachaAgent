@@ -19,9 +19,7 @@ class ReadTool(BaseTool):
     """读取文件内容，支持行偏移和行数限制。"""
 
     name = "read"
-    description = (
-        "读取文件内容，支持分页和行范围。文件上限 20MB，仅 UTF-8。"
-    )
+    description = "读取文件内容，支持分页和行范围。文件上限 20MB，仅 UTF-8。"
 
     parameters = {
         "type": "object",
@@ -49,12 +47,10 @@ class ReadTool(BaseTool):
 
     # ── 常量 ──
     MAX_FILE_SIZE = 20 * 1024 * 1024  # 20MB
-    BINARY_CHECK_BYTES = 512         # 二进制检测采样字节数
+    BINARY_CHECK_BYTES = 512  # 二进制检测采样字节数
     NULL_BYTE = b"\x00"
 
-    async def execute(
-        self, path: str, offset: int = 1, limit: int = 200, **kwargs: Any
-    ) -> ToolResult:
+    async def execute(self, path: str, offset: int = 1, limit: int = 200, **kwargs: Any) -> ToolResult:
         """读取文件指定行范围，返回行号 + 内容。"""
         t0 = time_mod.monotonic()
         try:

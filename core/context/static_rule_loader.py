@@ -24,7 +24,7 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 DEFAULT_HOME_RULE = Path.home() / ".chacha" / "CHACHA.md"
-IMPORT_PATTERN = re.compile(r'@import\s+(.+)', re.IGNORECASE)
+IMPORT_PATTERN = re.compile(r"@import\s+(.+)", re.IGNORECASE)
 _LOADED: set[str] = set()  # 防止循环 import
 
 

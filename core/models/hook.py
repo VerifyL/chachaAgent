@@ -19,8 +19,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 # ========================= 1. 钩子挂载点 =========================
 
+
 class HookPoint(str, Enum):
     """钩子在编排生命周期中的挂载点"""
+
     PRE_TOOL_EXECUTION = "pre_tool_execution"
     POST_TOOL_EXECUTION = "post_tool_execution"
     PRE_LLM_CALL = "pre_llm_call"
@@ -30,21 +32,24 @@ class HookPoint(str, Enum):
     ON_SESSION_START = "on_session_start"
     ON_SESSION_END = "on_session_end"
     ON_ERROR = "on_error"
-    PRE_SUBAGENT_SPAWN = "pre_subagent_spawn"      # 子Agent 孵化前
-    POST_SUBAGENT_SPAWN = "post_subagent_spawn"    # 子Agent 孵化后
+    PRE_SUBAGENT_SPAWN = "pre_subagent_spawn"  # 子Agent 孵化前
+    POST_SUBAGENT_SPAWN = "post_subagent_spawn"  # 子Agent 孵化后
 
 
 # ========================= 2. 钩子决策动作 =========================
 
+
 class HookAction(str, Enum):
     """钩子返回的决策动作"""
+
     CONTINUE = "continue"  # 传递到下一个钩子
-    STOP = "stop"          # 停止链，继续原始操作（短路但不拒绝）
-    BLOCK = "block"        # 拒绝当前操作（安全拦截）
-    MODIFY = "modify"      # 修改数据后继续传递
+    STOP = "stop"  # 停止链，继续原始操作（短路但不拒绝）
+    BLOCK = "block"  # 拒绝当前操作（安全拦截）
+    MODIFY = "modify"  # 修改数据后继续传递
 
 
 # ========================= 3. 钩子匹配器 =========================
+
 
 class HookMatcher(BaseModel):
     """决定哪些钩子在哪些事件上触发。
@@ -69,25 +74,14 @@ class HookMatcher(BaseModel):
         # 取反：匹配所有非 "shell" 的工具
         HookMatcher(type="tool_name", pattern="shell", invert=True)
     """
+
     model_config = ConfigDict(frozen=True, use_enum_values=True)
 
-    type: str = Field(
-        default="always",
-        description="匹配类型：always | tool_name | command | composite"
-    )
-    pattern: Optional[str] = Field(
-        None,
-        description="正则表达式，用于 tool_name / command 类型"
-    )
+    type: str = Field(default="always", description="匹配类型：always | tool_name | command | composite")
+    pattern: Optional[str] = Field(None, description="正则表达式，用于 tool_name / command 类型")
     invert: bool = Field(False, description="是否取反匹配")
-    composite_op: Optional[str] = Field(
-        None,
-        description="组合操作符：and | or，仅在 type=composite 时有效"
-    )
-    children: Optional[List["HookMatcher"]] = Field(
-        None,
-        description="子匹配器列表，仅在 type=composite 时有效"
-    )
+    composite_op: Optional[str] = Field(None, description="组合操作符：and | or，仅在 type=composite 时有效")
+    children: Optional[List["HookMatcher"]] = Field(None, description="子匹配器列表，仅在 type=composite 时有效")
 
     def matches(self, tool_name: Optional[str] = None, command: Optional[str] = None) -> bool:
         """判断当前工具/命令是否匹配。
@@ -126,8 +120,10 @@ class HookMatcher(BaseModel):
 
 # ========================= 4. 上下文子结构 =========================
 
+
 class ToolCallContext(BaseModel):
     """工具调用上下文（PRE/POST_TOOL_EXECUTION 时填充）"""
+
     model_config = ConfigDict(frozen=True)
 
     tool_name: str = Field(..., description="工具名称")
@@ -138,6 +134,7 @@ class ToolCallContext(BaseModel):
 
 class LLMRequestContext(BaseModel):
     """LLM 请求上下文（PRE/POST_LLM_CALL 时填充）"""
+
     model_config = ConfigDict(frozen=True)
 
     model_name: str = Field(..., description="模型名称")
@@ -148,6 +145,7 @@ class LLMRequestContext(BaseModel):
 
 class ErrorContext(BaseModel):
     """错误上下文（ON_ERROR 时填充）"""
+
     model_config = ConfigDict(frozen=True)
 
     exception_type: str = Field(..., description="异常类型名")
@@ -158,6 +156,7 @@ class ErrorContext(BaseModel):
 
 # ========================= 5. 钩子上下文 =========================
 
+
 class HookContext(BaseModel):
     """钩子不可变上下文，在责任链中传递。
 
@@ -166,6 +165,7 @@ class HookContext(BaseModel):
       - PRE/POST_LLM_CALL       → llm_request
       - ON_ERROR                → error
     """
+
     model_config = ConfigDict(frozen=True, use_enum_values=True)
 
     id: str = Field(default_factory=lambda: str(uuid4()), description="上下文唯一 ID")
@@ -193,6 +193,7 @@ class HookContext(BaseModel):
 
 # ========================= 6. 钩子结果 =========================
 
+
 class HookResult(BaseModel):
     """钩子返回值，纯数据，禁止副作用。
 
@@ -203,18 +204,15 @@ class HookResult(BaseModel):
       - additional_context: 注入 LLM 对话的消息（如警告/提示）
       - metadata: 钩子自定义透传数据
     """
+
     model_config = ConfigDict(frozen=True, use_enum_values=True)
 
     action: HookAction = Field(default=HookAction.CONTINUE, description="钩子决策")
     message: Optional[str] = Field(None, description="决策说明（开发者日志）")
     modified_tool_args: Optional[Dict[str, Any]] = Field(
-        None,
-        description="修改后的工具参数（仅在 action=MODIFY 时有效）"
+        None, description="修改后的工具参数（仅在 action=MODIFY 时有效）"
     )
-    additional_context: Optional[str] = Field(
-        None,
-        description="注入对话的消息（系统提示/警告/上下文补充）"
-    )
+    additional_context: Optional[str] = Field(None, description="注入对话的消息（系统提示/警告/上下文补充）")
     metadata: Dict[str, Any] = Field(
         default_factory=dict,
         description="钩子自定义透传数据",

@@ -65,19 +65,19 @@ class EditTool(BaseTool):
     ) -> ToolResult:
         if self.project_root is None:
             return ToolResult(
-                status="error", content="",
+                status="error",
+                content="",
                 error="工具未初始化：project_root 未设置",
                 error_type="internal_error",
                 data={"path": path},
             )
         return self._execute(path, old_string, new_string, replace_all)
 
-    def _execute(
-        self, path: str, old_string: str, new_string: str, replace_all: bool
-    ) -> ToolResult:
+    def _execute(self, path: str, old_string: str, new_string: str, replace_all: bool) -> ToolResult:
         if not old_string:
             return ToolResult(
-                status="error", content="",
+                status="error",
+                content="",
                 error="old_string 不能为空",
                 error_type="old_string_empty",
                 data={"path": path},
@@ -85,7 +85,8 @@ class EditTool(BaseTool):
         if old_string == new_string:
             preview = old_string[:120] + ("..." if len(old_string) > 120 else "")
             return ToolResult(
-                status="error", content="",
+                status="error",
+                content="",
                 error=(
                     f"old_string 与 new_string 完全相同。"
                     f"这通常是参数构造时的复制粘贴错误——"
@@ -106,7 +107,8 @@ class EditTool(BaseTool):
             resolved.relative_to(self.project_root.resolve())
         except ValueError:
             return ToolResult(
-                status="error", content="",
+                status="error",
+                content="",
                 error=f"路径越界：{path}",
                 error_type="path_out_of_bounds",
                 data={"path": path},
@@ -114,14 +116,16 @@ class EditTool(BaseTool):
 
         if not resolved.exists():
             return ToolResult(
-                status="error", content="",
+                status="error",
+                content="",
                 error=f"文件不存在：{path}",
                 error_type="file_not_found",
                 data={"path": path},
             )
         if not resolved.is_file():
             return ToolResult(
-                status="error", content="",
+                status="error",
+                content="",
                 error=f"路径不是文件：{path}",
                 error_type="invalid_argument",
                 data={"path": path},
@@ -130,16 +134,18 @@ class EditTool(BaseTool):
         size = resolved.stat().st_size
         if size > self.MAX_FILE_SIZE:
             return ToolResult(
-                status="error", content="",
+                status="error",
+                content="",
                 error=f"文件过大 ({size / 1024 / 1024:.1f}MB)，最大支持 {self.MAX_FILE_SIZE / 1024 / 1024:.0f}MB",
                 error_type="file_too_large",
                 data={"path": path, "size_bytes": size},
             )
 
-        head = resolved.read_bytes()[:self.BINARY_CHECK_BYTES]
+        head = resolved.read_bytes()[: self.BINARY_CHECK_BYTES]
         if self._NULL in head:
             return ToolResult(
-                status="error", content="",
+                status="error",
+                content="",
                 error="无法编辑二进制文件",
                 error_type="binary_file",
                 data={"path": path},
@@ -149,7 +155,8 @@ class EditTool(BaseTool):
             content = resolved.read_text("utf-8")
         except UnicodeDecodeError as e:
             return ToolResult(
-                status="error", content="",
+                status="error",
+                content="",
                 error=f"非 UTF-8 编码：{e.reason}",
                 error_type="decode_error",
                 data={"path": path},
@@ -159,7 +166,8 @@ class EditTool(BaseTool):
         if count == 0:
             preview = old_string[:80] + ("..." if len(old_string) > 80 else "")
             return ToolResult(
-                status="error", content="",
+                status="error",
+                content="",
                 error=(
                     f"未找到匹配文本。检查 old_string 是否正确、"
                     f"缩进是否一致（空格 vs Tab）。\n"
@@ -180,14 +188,16 @@ class EditTool(BaseTool):
             tmp.replace(resolved)
         except PermissionError:
             return ToolResult(
-                status="error", content="",
+                status="error",
+                content="",
                 error=f"权限不足：{path}",
                 error_type="permission_denied",
                 data={"path": path},
             )
         except OSError as e:
             return ToolResult(
-                status="error", content="",
+                status="error",
+                content="",
                 error=f"写入失败：{e}",
                 error_type="io_error",
                 data={"path": path},

@@ -4,7 +4,6 @@ tests/unit/test_factory.py
 覆盖：openai/ollama 创建、anthropic 占位、未知 provider
 """
 
-
 from core.llm_clients.factory import ModelFactory
 from core.models.config import ModelProviderConfig
 
@@ -24,8 +23,7 @@ def test_create_ollama_default_url():
 
 
 def test_create_ollama_custom_url():
-    config = ModelProviderConfig(provider="ollama", default_model="mistral",
-                                 base_url="http://192.168.1.100:11434/v1")
+    config = ModelProviderConfig(provider="ollama", default_model="mistral", base_url="http://192.168.1.100:11434/v1")
     client = ModelFactory.create(config)
     assert client is not None
 

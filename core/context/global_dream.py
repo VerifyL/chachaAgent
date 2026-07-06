@@ -23,8 +23,8 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_BASE = Path.home() / ".chacha"
 _GLOBAL_PERMANENT_FILE = "USER_MEMORY.md"
-_GLOBAL_DREAM_COUNT = 50      # 累计 50 次项目 dream 触发
-_GLOBAL_DREAM_HOURS = 168      # 每 7 天触发
+_GLOBAL_DREAM_COUNT = 50  # 累计 50 次项目 dream 触发
+_GLOBAL_DREAM_HOURS = 168  # 每 7 天触发
 
 GLOBAL_DREAM_SYSTEM_PROMPT = """You are a user-level memory consolidation assistant.
 Your task: merge per-project permanent memories into a single USER-LEVEL permanent memory.
@@ -120,8 +120,7 @@ class GlobalDream:
 
     _instance = None  # 兼容旧版 get_instance()
 
-    def __init__(self, llm_invoker=None, base_dir=None,
-                 dream_rounds=50, dream_hours=168):
+    def __init__(self, llm_invoker=None, base_dir=None, dream_rounds=50, dream_hours=168):
         self._llm = llm_invoker
         self._base_dir = base_dir
         self._dream_rounds = dream_rounds
@@ -214,7 +213,9 @@ class GlobalDream:
         return result
 
     async def _consolidate(
-        self, old_global: str, project_memories: list[tuple[str, str]],
+        self,
+        old_global: str,
+        project_memories: list[tuple[str, str]],
     ) -> str:
         """调用 LLM 增量合并用户级永久记忆。"""
         ts = datetime.now(tz=timezone(timedelta(hours=8))).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -223,13 +224,9 @@ class GlobalDream:
 
         user_parts = []
         if old_global.strip():
-            user_parts.append(
-                f"## OLD USER-LEVEL USER_MEMORY.md\n```\n{old_global}\n```"
-            )
+            user_parts.append(f"## OLD USER-LEVEL USER_MEMORY.md\n```\n{old_global}\n```")
         for proj_name, content in project_memories:
-            user_parts.append(
-                f"## Project: {proj_name}\n```\n{content}\n```"
-            )
+            user_parts.append(f"## Project: {proj_name}\n```\n{content}\n```")
 
         user_content = "\n\n".join(user_parts) if user_parts else "No memories."
 

@@ -25,6 +25,7 @@ def _write_to_date(mgr, date_str: str, content: str):
 class MockLLM:
     async def invoke(self, messages, session_id=""):
         from core.llm_invoker import LLMResponse
+
         return LLMResponse(text="【摘要】关键信息: 用户偏好 Python 3.11")
 
 
@@ -61,10 +62,8 @@ async def test_summarize_blocks(mgr):
     from core.models.context import BlockSource, ContextBlock
 
     blocks = [
-        ContextBlock(source=BlockSource.HISTORY, role="user",
-                     content="偏好 Python", zone="dynamic", priority=3),
-        ContextBlock(source=BlockSource.HISTORY, role="user",
-                     content="项目使用 ruff", zone="dynamic", priority=3),
+        ContextBlock(source=BlockSource.HISTORY, role="user", content="偏好 Python", zone="dynamic", priority=3),
+        ContextBlock(source=BlockSource.HISTORY, role="user", content="项目使用 ruff", zone="dynamic", priority=3),
     ]
 
     s = Summarizer(llm_invoker=MockLLM())

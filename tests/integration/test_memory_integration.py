@@ -70,6 +70,7 @@ def test_search_and_read_full_day(mgr):
 
 # ====== Session 隔离 ======
 
+
 def test_session_isolation_across_sessions():
     """两个不同 session 的记忆相互独立"""
     d = Path(tempfile.mkdtemp())
@@ -101,6 +102,7 @@ def test_project_memory_not_in_session():
 
 # ====== 永久记忆 ======
 
+
 def test_permanent_memory_full_cycle(mgr):
     """永久记忆完整生命周期：写 → 读 → 覆盖 → 不随 prune 删除"""
     mgr.write_permanent_memory("## 关键决策\n- 使用 Python 3.11")
@@ -127,9 +129,11 @@ def test_permanent_memory_shared_across_sessions():
 
 # ====== prune_old_days (7天) ======
 
+
 def test_prune_7_days_keeps_recent(session_mgr):
     """7天内的文件保留"""
     from datetime import datetime, timedelta, timezone
+
     for days_ago in range(1, 6):
         date = (datetime.now(tz=timezone.utc) - timedelta(days=days_ago)).strftime("%Y-%m-%d")
         _write_to_date(session_mgr, date, f"day {days_ago}")

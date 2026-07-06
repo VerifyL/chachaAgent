@@ -17,26 +17,26 @@ from capabilities.result import ToolResult
 # ── 破坏性命令黑名单 ──
 _BLOCKED_PATTERNS = [
     # 递归强制删除根目录
-    r'\brm\s+.*-rf\s+/',
-    r'\brm\s+.*-r\s+.*-f\s+/',
+    r"\brm\s+.*-rf\s+/",
+    r"\brm\s+.*-r\s+.*-f\s+/",
     # 权限提升
-    r'\bsudo\b',
+    r"\bsudo\b",
     # 世界可写根目录
-    r'\bchmod\s+777\s+/',
-    r'\bchmod\s+-R\s+777\s+/',
+    r"\bchmod\s+777\s+/",
+    r"\bchmod\s+-R\s+777\s+/",
     # 格式化文件系统
-    r'\bmkfs\.',
+    r"\bmkfs\.",
     # 直接写块设备
-    r'\bdd\s+.*if=.*of=/dev/',
+    r"\bdd\s+.*if=.*of=/dev/",
     # 重定向覆盖块设备
-    r'>\s*/dev/sd[a-z]',
+    r">\s*/dev/sd[a-z]",
     # Fork 炸弹
-    r':\(\)\s*\{.*:\|:&.*\};.*:',
+    r":\(\)\s*\{.*:\|:&.*\};.*:",
     # 关机/重启
-    r'\b(shutdown|reboot|halt|poweroff)\b',
+    r"\b(shutdown|reboot|halt|poweroff)\b",
     # 清空关键系统文件
-    r'>\s*/etc/',
-    r'>\s*/boot/',
+    r">\s*/etc/",
+    r">\s*/boot/",
 ]
 
 
@@ -87,9 +87,7 @@ class BashTool(BaseTool):
         cwd = self.project_root or Path.cwd()
         if workdir:
             cwd = (cwd / workdir).resolve()
-            if self.project_root and not str(cwd).startswith(
-                str(self.project_root.resolve())
-            ):
+            if self.project_root and not str(cwd).startswith(str(self.project_root.resolve())):
                 return ToolResult(
                     status="error",
                     content="",

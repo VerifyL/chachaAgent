@@ -17,7 +17,8 @@ from core.rule_engine import RuleEngine
 async def test_yaml_rule_to_hook_execution():
     """YAML 规则 → 注册 → 钩子执行"""
     d = Path(tempfile.mkdtemp())
-    (d / "rules.yaml").write_text("""rules:
+    (d / "rules.yaml").write_text(
+        """rules:
   - id: test-hook
     hook_point: pre_tool_execution
     handler: command:echo '{"action":"continue"}'
@@ -25,7 +26,9 @@ async def test_yaml_rule_to_hook_execution():
       type: tool_name
       pattern: "shell"
     priority: 10
-""", encoding="utf-8")
+""",
+        encoding="utf-8",
+    )
 
     engine = RuleEngine()
     engine.load_dir(d)
@@ -40,6 +43,7 @@ async def test_yaml_rule_to_hook_execution():
 @pytest.mark.asyncio
 async def test_builtin_rule_registered_and_executed():
     """内置处理器规则 → 注册 + 执行"""
+
     async def my_handler(ctx):
         if ctx.tool_call and "rm" in (ctx.tool_call.command_or_action or ""):
             return HookResult.block("blocked")
@@ -48,7 +52,8 @@ async def test_builtin_rule_registered_and_executed():
     builtins = {"security_check": my_handler}
 
     d = Path(tempfile.mkdtemp())
-    (d / "security.yaml").write_text("""rules:
+    (d / "security.yaml").write_text(
+        """rules:
   - id: security-rule
     hook_point: pre_tool_execution
     handler: builtins.security_check
@@ -56,7 +61,9 @@ async def test_builtin_rule_registered_and_executed():
       type: command
       pattern: "rm"
     priority: 10
-""", encoding="utf-8")
+""",
+        encoding="utf-8",
+    )
 
     engine = RuleEngine(builtins=builtins)
     engine.load_dir(d)
@@ -90,7 +97,8 @@ async def test_multiple_rules_different_priorities():
     builtins = {"h1": handler_h1, "h2": handler_h2}
 
     d = Path(tempfile.mkdtemp())
-    (d / "rules.yaml").write_text("""rules:
+    (d / "rules.yaml").write_text(
+        """rules:
   - id: high-priority
     hook_point: pre_tool_execution
     handler: builtins.h1
@@ -99,7 +107,9 @@ async def test_multiple_rules_different_priorities():
     hook_point: pre_tool_execution
     handler: builtins.h2
     priority: 1
-""", encoding="utf-8")
+""",
+        encoding="utf-8",
+    )
 
     engine = RuleEngine(builtins=builtins)
     engine.load_dir(d)

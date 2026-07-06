@@ -81,8 +81,7 @@ class ModelRouter:
         """标记 provider 故障，临时禁用 BAN_TTL 秒"""
         self._banned_until[provider_name] = time.time() + BAN_TTL_SECONDS
         self._failed_count[provider_name] = self._failed_count.get(provider_name, 0) + 1
-        logger.warning("ModelRouter: %s 已禁用 (%d次失败)",
-                       provider_name, self._failed_count[provider_name])
+        logger.warning("ModelRouter: %s 已禁用 (%d次失败)", provider_name, self._failed_count[provider_name])
 
     def mark_success(self, provider_name: str) -> None:
         """标记 provider 恢复正常"""

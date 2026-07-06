@@ -24,7 +24,8 @@ class ProjectInit:
 
         # 创建 MemoryManager（session 级别）
         self._memory = MemoryManager(
-            project_root=self._root, session_id=self._session_id,
+            project_root=self._root,
+            session_id=self._session_id,
         )
 
     # ====== Getters ======
@@ -60,4 +61,5 @@ class ProjectInit:
     def build_tools(self) -> List:
         """构建工具列表（MemoryManager 已注入）。"""
         from capabilities.registry import build_tools
+
         return build_tools(root=self._root, memory_manager=self._memory)

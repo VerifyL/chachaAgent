@@ -31,6 +31,7 @@ def _write_to_date(mgr, date_str: str, content: str):
 
 # ====== Mock LLMInvoker ======
 
+
 class MockLLM:
     def __init__(self, text: str = ""):
         self._text = text
@@ -39,10 +40,12 @@ class MockLLM:
     async def invoke(self, messages, session_id=""):
         self.calls.append(messages)
         from core.llm_invoker import LLMResponse
+
         return LLMResponse(text=self._text, finish_reason="stop")
 
 
 # ====== Fixtures ======
+
 
 @pytest.fixture
 def mgr():
@@ -51,6 +54,7 @@ def mgr():
 
 
 # ====== 1. 基础流程 ======
+
 
 @pytest.mark.asyncio
 async def test_run_writes_memory_md(mgr):
@@ -82,6 +86,7 @@ async def test_run_writes_permanent_memory(mgr):
 
 # ====== 2. 空记忆 ======
 
+
 @pytest.mark.asyncio
 async def test_run_no_files_returns_empty(mgr):
     llm = MockLLM()
@@ -92,6 +97,7 @@ async def test_run_no_files_returns_empty(mgr):
 
 
 # ====== 3. Gather ======
+
 
 def test_gather_reads_daily_files(mgr):
     _write_to_date(mgr, "2026-01-01", "偏好 Python")
@@ -107,6 +113,7 @@ def test_gather_reads_daily_files(mgr):
 
 
 # ====== 4. Prune (7天) ======
+
 
 def test_prune_removes_old_files(mgr):
     """7 天前的文件被删除"""
@@ -125,6 +132,7 @@ def test_prune_removes_old_files(mgr):
 def test_prune_keeps_recent_files(mgr):
     """最近文件不被删除"""
     from datetime import datetime, timedelta, timezone
+
     recent = (datetime.now(tz=timezone(timedelta(hours=8))) - timedelta(days=3)).strftime("%Y-%m-%d")
     _write_to_date(mgr, recent, "recent")
     llm = MockLLM()
@@ -136,6 +144,7 @@ def test_prune_keeps_recent_files(mgr):
 
 
 # ====== 5. 触发条件 ======
+
 
 def test_should_run_first_time_with_insufficient_sessions():
     """首次运行，不足 10 次会话 → False"""
@@ -195,6 +204,7 @@ def test_session_count_resets_after_run():
 
 # ====== 6. _parse_llm_output ======
 
+
 def test_parse_standard_format():
     """标准格式：两个标记都存在"""
     text = "===MEMORY_MD===\n## Memory Index\n- entry1\n\n===CHACHA_MEMORY_MD===\n## Permanent\n- forever"
@@ -243,6 +253,7 @@ def test_parse_fallback_no_markers():
 
 # ====== 7. Consolidate 带旧记忆 ======
 
+
 @pytest.mark.asyncio
 async def test_consolidate_with_old_memory(mgr):
     """旧 MEMORY.md 被传递给 LLM"""
@@ -266,9 +277,7 @@ async def test_consolidate_with_old_permanent(mgr):
     mgr.write_permanent_memory("## Old Permanent\n- old forever")
     _write_to_date(mgr, "2026-06-18", "new")
 
-    llm = MockLLM(
-        "===MEMORY_MD===\n- new\n\n===CHACHA_MEMORY_MD===\n## Permanent\n- old forever\n- new critical"
-    )
+    llm = MockLLM("===MEMORY_MD===\n- new\n\n===CHACHA_MEMORY_MD===\n## Permanent\n- old forever\n- new critical")
     pipeline = DreamPipeline(llm)
     _, permanent_md = await pipeline.run(mgr)
 

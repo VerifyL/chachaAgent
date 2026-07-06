@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 def _interruptible_input(prompt: str) -> str:
     """原生 input() + _in_approval 标志（signal handler 在审批时抛 KeyboardInterrupt）。"""
     import interface.cli.app as _app
+
     _app._in_approval = True
     try:
         return input(prompt)
@@ -43,15 +44,18 @@ class AgentBridge:
         self._mcp_tools: list = []
         try:
             from core.config_manager import get_config_manager
+
             cfg = get_config_manager().load()
             if cfg.mcp.enabled:
                 from capabilities.mcp_client import MCPClient
+
                 self._mcp_client = MCPClient(cfg.mcp.servers)
         except Exception:
             pass
 
         # Orchestrator（内嵌 ChatEngine，app.py 不直接访问 engine）
         from core.orchestrator import Orchestrator
+
         self._orchestrator: Optional[Orchestrator] = None
 
         # 配置：chachaConfig.toml → 环境变量 → 默认值
@@ -59,6 +63,7 @@ class AgentBridge:
         default_provider = None
         try:
             from core.config_manager import get_config_manager
+
             cfg = get_config_manager().load()
             default_provider = cfg.model.providers.get("default")
             self._telemetry_cfg = cfg.telemetry
@@ -67,36 +72,53 @@ class AgentBridge:
 
         # 可观测性（开关控制，session_id 后续由 app.py 注入）
         from core.telemetry import Telemetry
+
         if self._telemetry_cfg:
             if force_telemetry or verbose:
-                self._telemetry_cfg = self._telemetry_cfg.model_copy(update={
-                    "enabled": True,
-                    "log_level": "DEBUG" if verbose else self._telemetry_cfg.log_level,
-                })
+                self._telemetry_cfg = self._telemetry_cfg.model_copy(
+                    update={
+                        "enabled": True,
+                        "log_level": "DEBUG" if verbose else self._telemetry_cfg.log_level,
+                    }
+                )
         self._telemetry = Telemetry(self._telemetry_cfg) if self._telemetry_cfg else None
 
         self._project_id = getattr(default_provider, "project_id", "") if default_provider else ""
         try:
             from core.config_manager import get_config_manager
+
             full_cfg = get_config_manager().load()
             self._project_id = full_cfg.project_id or ""
         except Exception:
             pass
 
-        self._api_key = (os.environ.get("DEEPSEEK_API_KEY") or
-                         os.environ.get("OPENAI_API_KEY") or
-                         (default_provider.api_key.get_secret_value()
-             if default_provider and default_provider.api_key
-             and default_provider.api_key.get_secret_value()
-             else ""))
-        self._base_url = (os.environ.get("DEEPSEEK_BASE_URL") or
-                          os.environ.get("OPENAI_BASE_URL") or
-                          (default_provider.base_url if default_provider and default_provider.base_url else "https://api.deepseek.com"))
-        self._model = (os.environ.get("DEEPSEEK_MODEL") or
-                       os.environ.get("OPENAI_MODEL") or
-                       (default_provider.default_model
-             if default_provider and default_provider.default_model
-             else "deepseek-v4-pro"))
+        self._api_key = (
+            os.environ.get("DEEPSEEK_API_KEY")
+            or os.environ.get("OPENAI_API_KEY")
+            or (
+                default_provider.api_key.get_secret_value()
+                if default_provider and default_provider.api_key and default_provider.api_key.get_secret_value()
+                else ""
+            )
+        )
+        self._base_url = (
+            os.environ.get("DEEPSEEK_BASE_URL")
+            or os.environ.get("OPENAI_BASE_URL")
+            or (
+                default_provider.base_url
+                if default_provider and default_provider.base_url
+                else "https://api.deepseek.com"
+            )
+        )
+        self._model = (
+            os.environ.get("DEEPSEEK_MODEL")
+            or os.environ.get("OPENAI_MODEL")
+            or (
+                default_provider.default_model
+                if default_provider and default_provider.default_model
+                else "deepseek-v4-pro"
+            )
+        )
 
         # 上下文窗口：配置 → 模型名推断 → 默认 1M
         context_window = ChatEngine.infer_context_window(self._model)
@@ -107,6 +129,7 @@ class AgentBridge:
 
         # ContextManager（注入 system prompt + telemetry）
         from core.context_manager import ContextManager
+
         self._context_manager = ContextManager(telemetry=self._telemetry)
         self._context_manager.set_system_prompt(system_prompt)
 
@@ -119,6 +142,7 @@ class AgentBridge:
         )
 
         from core.context.dream import DreamPipeline
+
         self._dream_pipeline = DreamPipeline(llm_invoker=None)
         self._orchestrator = Orchestrator(
             context_manager=self._context_manager,
@@ -130,6 +154,7 @@ class AgentBridge:
         from core.git_context import GitContextHook
         from core.hook_orchestrator import HookOrchestrator
         from core.models.hook import HookPoint
+
         self._hooks = HookOrchestrator(telemetry=self._telemetry)
         self._hooks.register(
             "git-context",
@@ -217,6 +242,7 @@ class AgentBridge:
         # 缓存命中时启动后台连接（不阻塞 prompt 显示）
         if self._mcp_client and self._mcp_client.from_cache:
             import asyncio
+
             asyncio.create_task(self._mcp_client.background_connect(self._executor))
 
         self._initialized = True
@@ -225,9 +251,11 @@ class AgentBridge:
     def set_tools_for_session(self, memory_manager) -> None:
         """根据 session 的 MemoryManager 重建工具（统一走 registry）。"""
         from capabilities.registry import build_tools
+
         self._session_memory = memory_manager
         self._custom_tools = build_tools(
-            root=self._root, memory_manager=memory_manager,
+            root=self._root,
+            memory_manager=memory_manager,
             mcp_tools=self._mcp_tools,
         )
 
@@ -236,6 +264,7 @@ class AgentBridge:
         from core.dispatcher import Dispatcher
         from core.policy_engine import PolicyEngine
         from core.tool_executor import ToolExecutor
+
         policy = PolicyEngine()
 
         async def _cli_approval(req) -> bool:
@@ -282,6 +311,7 @@ class AgentBridge:
 
         # 创建 SubAgentSpawner（供 TaskTool 使用）
         from core.subagent.spawner import SubAgentSpawner
+
         spawner = SubAgentSpawner(
             llm_invoker=self._invoker,
             parent_tool_executor=self._executor,
@@ -305,7 +335,7 @@ class AgentBridge:
         # 再事后注入 spawner。registry.build_tools() 的 subagent_spawner= 参数
         # 预留为未来解耦通道（如引入 factory 模式打破循环）。
         for tool in self._custom_tools:
-            if hasattr(tool, 'configure'):
+            if hasattr(tool, "configure"):
                 tool.configure(
                     llm_invoker=self._invoker,
                     parent_tool_executor=self._executor,
@@ -319,8 +349,9 @@ class AgentBridge:
         import json
 
         from core.context.memory_manager import MemoryManager
+
         try:
-            mgr = getattr(self, '_session_memory', None) or MemoryManager(project_root=self._root)
+            mgr = getattr(self, "_session_memory", None) or MemoryManager(project_root=self._root)
             perm = mgr.read_permanent_memory()
             if perm:
                 self._context_manager.set_permanent_memory(perm)
@@ -329,12 +360,10 @@ class AgentBridge:
                 self._context_manager.set_memory_index(idx)
             user_path = Path.home() / ".chacha" / "USER_MEMORY.md"
             if user_path.exists():
-                self._context_manager.set_global_permanent_memory(
-                    user_path.read_text(encoding="utf-8"))
+                self._context_manager.set_global_permanent_memory(user_path.read_text(encoding="utf-8"))
             schemas = self._executor.get_schemas()
             if schemas:
-                skills_text = "\n".join(
-                    json.dumps(s, ensure_ascii=False) for s in schemas)
+                skills_text = "\n".join(json.dumps(s, ensure_ascii=False) for s in schemas)
                 self._context_manager.set_skills(skills_text)
         except Exception:
             pass
@@ -363,7 +392,9 @@ class AgentBridge:
         if not self._orchestrator:
             self.build_orchestrator(session_id=session_id, memory_manager=memory_manager)
         async for chunk in self._orchestrator.run_stream(
-            user_input, session_id=session_id, project_id=project_id,
+            user_input,
+            session_id=session_id,
+            project_id=project_id,
         ):
             yield chunk
 
@@ -453,6 +484,7 @@ class AgentBridge:
         if not self._invoker:
             return
         from core.llm_clients.openai_client import OpenAIClient
+
         self._invoker._client = OpenAIClient(
             api_key=self._api_key,
             model=self._model,
@@ -462,7 +494,8 @@ class AgentBridge:
     async def _cmd_memory(self, arg: str) -> str:
         try:
             from core.context.memory_manager import MemoryManager
-            mgr = getattr(self, '_session_memory', None) or MemoryManager(project_root=self._root)
+
+            mgr = getattr(self, "_session_memory", None) or MemoryManager(project_root=self._root)
             permanent = mgr.read_permanent_memory()
             index = mgr.read_index()
             days = mgr.list_days(limit=7)
@@ -520,9 +553,7 @@ class AgentBridge:
             else:
                 display = getattr(cfg, "command", "?")
             connected = (
-                "🟢" if (name in self._mcp_client._sessions
-                         or name in self._mcp_client._cached_servers)
-                else "🔴"
+                "🟢" if (name in self._mcp_client._sessions or name in self._mcp_client._cached_servers) else "🔴"
             )
             lines.append(f"  {connected} {name} ({display})")
         return "\n".join(lines)
@@ -540,9 +571,7 @@ class AgentBridge:
                 session = self._mcp_client._sessions[server_name]
                 result = await session.list_tools()
                 tools = [
-                    {"name": t.name, "description": t.description,
-                     "inputSchema": t.inputSchema}
-                    for t in result.tools
+                    {"name": t.name, "description": t.description, "inputSchema": t.inputSchema} for t in result.tools
                 ]
             except Exception as e:
                 return f"获取工具列表失败: {e}"
@@ -561,8 +590,11 @@ class AgentBridge:
             name = t.get("name", "?")
             desc = t.get("description", "")
             # 判断是否被过滤
-            filtered = "❌" if (include is not None and name not in include) or \
-                               (exclude is not None and name in exclude) else "  "
+            filtered = (
+                "❌"
+                if (include is not None and name not in include) or (exclude is not None and name in exclude)
+                else "  "
+            )
             lines.append(f"  {filtered} {name}: {desc[:100]}")
             schema_str = str(t)
             total_est += len(schema_str) // 3
@@ -615,9 +647,7 @@ class AgentBridge:
         lines.append(f"   工具调用: {tool_total} 次")
         if tool_lat:
             lines.append(
-                f"   耗时: avg={tool_lat['avg']:.0f}ms"
-                f" p50={tool_lat['p50']:.0f}ms"
-                f" p99={tool_lat['p99']:.0f}ms"
+                f"   耗时: avg={tool_lat['avg']:.0f}ms p50={tool_lat['p50']:.0f}ms p99={tool_lat['p99']:.0f}ms"
             )
 
         # 会话
@@ -689,7 +719,7 @@ class AgentBridge:
             return "📭 无 Span 记录"
         lines = [f"🔗 Span 追踪链（{len(spans)} 条，按耗时降序）:"]
         for s in spans:
-            err = f" ❌{s['error']}" if s['error'] else ""
+            err = f" ❌{s['error']}" if s["error"] else ""
             tags = " ".join(f"{k}={v}" for k, v in s.get("tags", {}).items())
             lines.append(
                 f"  {s['operation']:<20} {s['duration_ms']:>8.1f}ms  "
@@ -726,6 +756,7 @@ class AgentBridge:
     def _load_compress_cfg(self) -> dict:
         try:
             from core.config_manager import get_config_manager
+
             cfg = get_config_manager().load()
             ctx = cfg.context
             return {

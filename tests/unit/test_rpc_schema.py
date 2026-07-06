@@ -31,6 +31,7 @@ from protocol.rpc_schema import (
 
 # ========== 1. 基础消息测试 ==========
 
+
 class TestRPCRequest:
     def test_minimal(self):
         req = RPCRequest(method="user/message")
@@ -105,6 +106,7 @@ class TestRPCEvent:
 
 # ========== 2. GatewayMessage 测试 ==========
 
+
 class TestGatewayMessage:
     def test_wrap_request(self):
         req = RPCRequest(method="user/message", params={"content": "hi"})
@@ -151,6 +153,7 @@ class TestGatewayMessage:
 
 # ========== 3. 流式输出事件测试 ==========
 
+
 class TestTokenChunkEvent:
     def test_default(self):
         evt = TokenChunkEvent()
@@ -189,6 +192,7 @@ class TestTokenChunkEvent:
 
 # ========== 4. 工具状态事件测试 ==========
 
+
 class TestToolStatusEvent:
     def test_default(self):
         evt = ToolStatusEvent()
@@ -225,6 +229,7 @@ class TestToolStatusEvent:
 
 
 # ========== 5. 权限请求/响应测试 ==========
+
 
 class TestPermission:
     def test_request_event(self):
@@ -270,6 +275,7 @@ class TestPermission:
 
 
 # ========== 6. 审计事件测试 ==========
+
 
 class TestAuditTrailEvent:
     def test_wraps_audit_record(self):
@@ -319,11 +325,10 @@ class TestAuditTrailEvent:
 
 # ========== 7. 会话生命周期测试 ==========
 
+
 class TestSessionLifecycleEvent:
     def test_started(self):
-        evt = SessionLifecycleEvent(
-            params={"event": "started", "session_id": "s1", "project_id": "p1"}
-        )
+        evt = SessionLifecycleEvent(params={"event": "started", "session_id": "s1", "project_id": "p1"})
         assert evt.method == "session/lifecycle"
         assert evt.params["event"] == "started"
 
@@ -351,11 +356,10 @@ class TestSessionLifecycleEvent:
 
 # ========== 8. 系统通知测试 ==========
 
+
 class TestSystemNotificationEvent:
     def test_info(self):
-        evt = SystemNotificationEvent(
-            params={"level": "info", "message": "环境校验通过"}
-        )
+        evt = SystemNotificationEvent(params={"level": "info", "message": "环境校验通过"})
         assert evt.method == "system/notification"
         assert evt.params["level"] == "info"
 
@@ -372,6 +376,7 @@ class TestSystemNotificationEvent:
 
 
 # ========== 9. 联合类型与场景测试 ==========
+
 
 class TestUnionTypes:
     def test_gateway_payload_deserialize_rpc_request(self):
@@ -412,31 +417,39 @@ def test_full_gateway_flow():
 
     # 3. 工具状态
     tool = GatewayMessage(
-        seq=5, session_id="s1",
-        payload=ToolStatusEvent(params={
-            "tool_use_id": "call_1",
-            "tool_name": "read_file",
-            "status": "done",
-            "output_summary": "文件内容共 100 行",
-        }),
+        seq=5,
+        session_id="s1",
+        payload=ToolStatusEvent(
+            params={
+                "tool_use_id": "call_1",
+                "tool_name": "read_file",
+                "status": "done",
+                "output_summary": "文件内容共 100 行",
+            }
+        ),
     )
     assert tool.payload.params["output_summary"] == "文件内容共 100 行"
 
     # 4. 权限请求 + 响应
-    _perm_req = PermissionRequestEvent(params={
-        "request_id": "req_1",
-        "tool_name": "shell",
-        "command_or_action": "git push",
-        "reason": "推送变更",
-    })
+    _perm_req = PermissionRequestEvent(
+        params={
+            "request_id": "req_1",
+            "tool_name": "shell",
+            "command_or_action": "git push",
+            "reason": "推送变更",
+        }
+    )
     perm_resp = PermissionResponse(request_id="req_1", approved=True)
     assert perm_resp.approved is True
 
     # 5. 审计
     audit = CostAuditEvent(
-        model_name="gpt-4", provider="openai",
-        input_tokens=100, output_tokens=50,
-        cost_usd=0.003, cumulative_cost_usd=0.01,
+        model_name="gpt-4",
+        provider="openai",
+        input_tokens=100,
+        output_tokens=50,
+        cost_usd=0.003,
+        cumulative_cost_usd=0.01,
     )
     audit_gw = GatewayMessage(seq=6, session_id="s1", payload=AuditTrailEvent(audit=audit))
     assert audit_gw.payload.audit.cost_usd == 0.003
@@ -447,7 +460,8 @@ def test_full_gateway_flow():
 
     # 7. 会话结束
     end_evt = GatewayMessage(
-        seq=8, session_id="s1",
+        seq=8,
+        session_id="s1",
         payload=SessionLifecycleEvent(params={"event": "ended", "session_id": "s1"}),
     )
     assert end_evt.payload.params["event"] == "ended"

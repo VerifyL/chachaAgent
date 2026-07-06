@@ -13,7 +13,7 @@ def validate_host_environment() -> bool:
     """
     # 1. 编码检查
     current_encoding = sys.getdefaultencoding().lower()
-    if current_encoding != 'utf-8':
+    if current_encoding != "utf-8":
         print(f"[ERROR] 系统默认编码为 {current_encoding}，ChaChaAgent 要求 UTF-8。")
         print("        请设置环境变量：LC_ALL=en_US.UTF-8 或 LANG=en_US.UTF-8")
         return False
@@ -21,11 +21,7 @@ def validate_host_environment() -> bool:
     # 2. Git 可用性检查
     try:
         subprocess.run(
-            ["git", "--version"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=True,
-            shell=False
+            ["git", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, shell=False
         )
     except (subprocess.SubprocessError, FileNotFoundError):
         print("[ERROR] 未检测到 Git 命令。请安装 Git 并确保其可在 PATH 中访问。")
@@ -36,11 +32,7 @@ def validate_host_environment() -> bool:
     rg_available = False
     try:
         subprocess.run(
-            ["rg", "--version"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=True,
-            shell=False
+            ["rg", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, shell=False
         )
         rg_available = True
     except (subprocess.SubprocessError, FileNotFoundError):

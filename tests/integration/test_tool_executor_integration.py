@@ -3,7 +3,6 @@ tests/integration/test_tool_executor_integration.py
 集成测试：执行内置工具、策略+钩子+遥测联动、批量并发
 """
 
-
 import pytest
 
 from core.hook_orchestrator import HookOrchestrator
@@ -15,13 +14,16 @@ from core.tool_executor import ToolExecutor
 
 # ====== 模拟内置工具 ======
 
+
 async def _read_file(args):
     path = args.get("path", "")
     return f"content of {path}"
 
+
 async def _shell_exec(args):
     cmd = args.get("cmd", "")
     return f"executed: {cmd}"
+
 
 async def _grep(args):
     pattern = args.get("pattern", "")
@@ -29,6 +31,7 @@ async def _grep(args):
 
 
 # ====== 完整联动测试 ======
+
 
 @pytest.mark.asyncio
 async def test_full_tool_execution_with_policy_and_hooks():
@@ -40,6 +43,7 @@ async def test_full_tool_execution_with_policy_and_hooks():
     hooks = HookOrchestrator(telemetry=t)
 
     order = []
+
     def audit_hook(ctx):
         order.append("pre-audit")
         return HookResult.continue_()

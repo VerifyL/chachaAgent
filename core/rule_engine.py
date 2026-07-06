@@ -149,7 +149,7 @@ class RuleEngine:
             return None
 
         if handler_spec.startswith("builtins."):
-            name = handler_spec[len("builtins."):]
+            name = handler_spec[len("builtins.") :]
             handler = self._builtins.get(name)
             if handler is None:
                 self._warnings.append(f"规则 {rule_id}: 未知内置处理器 '{name}'")
@@ -157,7 +157,7 @@ class RuleEngine:
             return handler
 
         if handler_spec.startswith("command:"):
-            cmd = handler_spec[len("command:"):]
+            cmd = handler_spec[len("command:") :]
             return ShellCommand(command=cmd.strip())
 
         if handler_spec.startswith("python:"):
@@ -221,9 +221,7 @@ class RuleEngine:
         for hp, pri_map in groups.items():
             for pri, ids in pri_map.items():
                 if len(ids) > 1:
-                    warnings.append(
-                        f"冲突: hook_point='{hp}' priority={pri} 有 {len(ids)} 个规则: {ids}"
-                    )
+                    warnings.append(f"冲突: hook_point='{hp}' priority={pri} 有 {len(ids)} 个规则: {ids}")
 
         return warnings
 

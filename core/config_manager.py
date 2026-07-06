@@ -51,9 +51,7 @@ class ConfigManager:
             # 确保全局配置模板存在（即使项目级配置已找到）
             write_default_config()
             if current_path is None:
-                raise FileNotFoundError(
-                    "未找到配置文件 chachaConfig.toml 或 harness.toml，请确保文件存在。"
-                )
+                raise FileNotFoundError("未找到配置文件 chachaConfig.toml 或 harness.toml，请确保文件存在。")
 
             if self._config is not None and not force and self._loaded_path == current_path:
                 return self._config
@@ -131,9 +129,9 @@ class ConfigManager:
 
         cwd = Path.cwd()
         candidates = [
-            cwd / "chachaConfig.toml",               # 优先查找新名称
-            cwd / "harness.toml",                    # 回退到旧名称
-            cwd / ".chacha" / "config.toml",         # 项目级 .chacha 目录
+            cwd / "chachaConfig.toml",  # 优先查找新名称
+            cwd / "harness.toml",  # 回退到旧名称
+            cwd / ".chacha" / "config.toml",  # 项目级 .chacha 目录
         ]
         for p in candidates:
             if p.exists():
@@ -160,7 +158,7 @@ class ConfigManager:
         valid_top_fields = set(ChaChaConfig.model_fields.keys())
 
         env_vars = {
-            k[len(prefix) + 1:]: v
+            k[len(prefix) + 1 :]: v
             for k, v in os.environ.items()
             if k.startswith(prefix + "_") and len(k) > len(prefix) + 1
         }
@@ -207,11 +205,13 @@ class ConfigManager:
 # ---------- 全局便利函数 ----------
 _config_manager: Optional[ConfigManager] = None
 
+
 def get_config_manager() -> ConfigManager:
     global _config_manager
     if _config_manager is None:
         _config_manager = ConfigManager()
     return _config_manager
+
 
 def load_config() -> ChaChaConfig:
     return get_config_manager().load()
@@ -223,7 +223,8 @@ def write_default_config(path: Optional[Path] = None) -> None:
     if target.exists():
         return
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text("""# ChachaAgent 默认模板（初次不存在时自动生成）
+    target.write_text(
+        """# ChachaAgent 默认模板（初次不存在时自动生成）
 # 优先级: .chacha/config.toml（项目） > 此文件（全局默认） > 环境变量
 
 [model.providers.default]
@@ -281,7 +282,10 @@ default_model = "deepseek-v4-pro"
 # command = "npx"
 # args = ["-y", "open-websearch@latest"]
 # env = { MODE = "stdio" }
-""", encoding="utf-8")
+""",
+        encoding="utf-8",
+    )
+
 
 def get_config() -> ChaChaConfig:
     return get_config_manager().get_config()

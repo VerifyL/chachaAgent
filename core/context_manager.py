@@ -72,11 +72,11 @@ class ContextManager:
         self._system_prompt = DEFAULT_SYSTEM_PROMPT
 
         # 可注入的静态内容
-        self._static_rules = ""       # CHACHA.md 宪法
-        self._permanent_memory = ""   # CHACHA_MEMORY.md 永久记忆
-        self._skills = ""             # 技能定义
-        self._memory_index = ""       # MEMORY.md 轻量索引
-        self._session_memory = ""     # 今日会话记忆
+        self._static_rules = ""  # CHACHA.md 宪法
+        self._permanent_memory = ""  # CHACHA_MEMORY.md 永久记忆
+        self._skills = ""  # 技能定义
+        self._memory_index = ""  # MEMORY.md 轻量索引
+        self._session_memory = ""  # 今日会话记忆
         self._global_permanent_memory = ""  # ~/.chacha/USER_MEMORY.md 用户级永久记忆
 
         self._block_cache: Dict[str, ContextBlock] = {}
@@ -178,34 +178,60 @@ class ContextManager:
         rules = static_rules or self._static_rules
         if rules:
             system_text += f"\n\n{rules}"
-        blocks.append(self._cached_block(
-            BlockSource.SYSTEM_PROMPT, "system", system_text,
-            zone="protected", priority=0, importance=1.0, ttl=600,
-        ))
+        blocks.append(
+            self._cached_block(
+                BlockSource.SYSTEM_PROMPT,
+                "system",
+                system_text,
+                zone="protected",
+                priority=0,
+                importance=1.0,
+                ttl=600,
+            )
+        )
 
         # 2. USER_MEMORY.md 用户级永久记忆
         if self._global_permanent_memory:
-            blocks.append(self._cached_block(
-                BlockSource.STATIC_RULE, "system",
-                f"[Global Permanent Memory]\n{self._global_permanent_memory}",
-                zone="protected", priority=1, importance=0.92, ttl=300,
-            ))
+            blocks.append(
+                self._cached_block(
+                    BlockSource.STATIC_RULE,
+                    "system",
+                    f"[Global Permanent Memory]\n{self._global_permanent_memory}",
+                    zone="protected",
+                    priority=1,
+                    importance=0.92,
+                    ttl=300,
+                )
+            )
 
         # 3. CHACHA_MEMORY.md 项目永久记忆
         if self._permanent_memory:
-            blocks.append(self._cached_block(
-                BlockSource.STATIC_RULE, "system",
-                f"[Permanent Memory]\n{self._permanent_memory}",
-                zone="protected", priority=2, importance=0.9, ttl=300,
-            ))
+            blocks.append(
+                self._cached_block(
+                    BlockSource.STATIC_RULE,
+                    "system",
+                    f"[Permanent Memory]\n{self._permanent_memory}",
+                    zone="protected",
+                    priority=2,
+                    importance=0.9,
+                    ttl=300,
+                )
+            )
 
         # 4. SKILLS / Tool schemas
         skill_content = skills or self._skills
         if skill_content:
-            blocks.append(self._cached_block(
-                BlockSource.SKILL, "system", skill_content,
-                zone="protected", priority=3, importance=0.85, ttl=1200,
-            ))
+            blocks.append(
+                self._cached_block(
+                    BlockSource.SKILL,
+                    "system",
+                    skill_content,
+                    zone="protected",
+                    priority=3,
+                    importance=0.85,
+                    ttl=1200,
+                )
+            )
 
         protected_count = len(blocks)
 
@@ -214,21 +240,31 @@ class ContextManager:
         # 5. MEMORY.md 轻量索引
         mem_content = memory_content or self._memory_index
         if mem_content:
-            blocks.append(ContextBlock(
-                source=BlockSource.MEMORY, role="system",
-                content=f"[Memory Index]\n{mem_content}",
-                zone="dynamic", priority=10, importance=0.7,
-                token_count=self._estimate_tokens(mem_content),
-            ))
+            blocks.append(
+                ContextBlock(
+                    source=BlockSource.MEMORY,
+                    role="system",
+                    content=f"[Memory Index]\n{mem_content}",
+                    zone="dynamic",
+                    priority=10,
+                    importance=0.7,
+                    token_count=self._estimate_tokens(mem_content),
+                )
+            )
 
         # 6. 今日会话记忆
         if self._session_memory:
-            blocks.append(ContextBlock(
-                source=BlockSource.MEMORY, role="system",
-                content=f"[Today's Session Memory]\n{self._session_memory}",
-                zone="dynamic", priority=9, importance=0.6,
-                token_count=self._estimate_tokens(self._session_memory),
-            ))
+            blocks.append(
+                ContextBlock(
+                    source=BlockSource.MEMORY,
+                    role="system",
+                    content=f"[Today's Session Memory]\n{self._session_memory}",
+                    zone="dynamic",
+                    priority=9,
+                    importance=0.6,
+                    token_count=self._estimate_tokens(self._session_memory),
+                )
+            )
 
         return blocks, protected_count
 
@@ -254,11 +290,17 @@ class ContextManager:
             f"[Token Budget] 总预算: {budget} | 已用: {total_tokens} "
             f"({utilization:.0%}) | 剩余: {budget - total_tokens} | 压力: {pressure:.0%}"
         )
-        blocks.append(ContextBlock(
-            source=BlockSource.ADDITIONAL_CONTEXT, role="system",
-            content=budget_hint, zone="dynamic", priority=999,
-            importance=0.1, token_count=0,
-        ))
+        blocks.append(
+            ContextBlock(
+                source=BlockSource.ADDITIONAL_CONTEXT,
+                role="system",
+                content=budget_hint,
+                zone="dynamic",
+                priority=999,
+                importance=0.1,
+                token_count=0,
+            )
+        )
 
         needs_compression = utilization > cm._trigger_ratio
         recommended = cm._recommend_compression(pressure)
@@ -277,7 +319,8 @@ class ContextManager:
         )
 
         ctx = AssembledContext(
-            meta=meta, blocks=blocks,
+            meta=meta,
+            blocks=blocks,
             needs_compression=needs_compression,
             recommended_level=recommended,
         )
@@ -291,7 +334,11 @@ class ContextManager:
 
         logger.debug(
             "上下文组装完成%s: %d blocks, %d tokens (利用率 %.1f%%, 压缩=%s)",
-            log_suffix, len(blocks), total_tokens, utilization * 100, needs_compression,
+            log_suffix,
+            len(blocks),
+            total_tokens,
+            utilization * 100,
+            needs_compression,
         )
         return ctx
 
@@ -303,7 +350,7 @@ class ContextManager:
         skills: Optional[str] = None,
         memory_content: Optional[str] = None,
         additional_contexts: Optional[List[ContextBlock]] = None,
-        history_trimmed: bool = False,   # 历史被裁剪后才注入 MEMORY.md
+        history_trimmed: bool = False,  # 历史被裁剪后才注入 MEMORY.md
     ) -> AssembledContext:
         """
         从 ConversationState 组装 AssembledContext。
@@ -313,31 +360,37 @@ class ContextManager:
             dynamic:   MEMORY.md(条件) → 对话历史 → 工具结果 → RAG/Hooks
         """
         blocks, protected_count = self._build_protected_and_memory_blocks(
-            static_rules=static_rules, skills=skills, memory_content=memory_content,
+            static_rules=static_rules,
+            skills=skills,
+            memory_content=memory_content,
         )
 
         # 6. 对话历史
         for i, event in enumerate(state.events):
             if isinstance(event, MessageEvent):
-                blocks.append(ContextBlock(
-                    source=BlockSource.HISTORY,
-                    role=event.role,
-                    content=event.content,
-                    zone="dynamic",
-                    priority=20 + i,
-                    importance=self._history_importance(i),
-                    token_count=self._estimate_tokens(event.content),
-                ))
+                blocks.append(
+                    ContextBlock(
+                        source=BlockSource.HISTORY,
+                        role=event.role,
+                        content=event.content,
+                        zone="dynamic",
+                        priority=20 + i,
+                        importance=self._history_importance(i),
+                        token_count=self._estimate_tokens(event.content),
+                    )
+                )
             elif isinstance(event, ToolCallEvent):
-                blocks.append(ContextBlock(
-                    source=BlockSource.HISTORY,
-                    role="assistant",
-                    content=event.content or f"[Tool Call: {event.tool_name}({event.arguments})]",
-                    zone="dynamic",
-                    priority=20 + i,
-                    importance=self._history_importance(i),
-                    token_count=self._estimate_tokens(str(event.arguments)),
-                ))
+                blocks.append(
+                    ContextBlock(
+                        source=BlockSource.HISTORY,
+                        role="assistant",
+                        content=event.content or f"[Tool Call: {event.tool_name}({event.arguments})]",
+                        zone="dynamic",
+                        priority=20 + i,
+                        importance=self._history_importance(i),
+                        token_count=self._estimate_tokens(str(event.arguments)),
+                    )
+                )
             elif isinstance(event, ObservationEvent):
                 content = event.content
                 if event.truncated:
@@ -350,15 +403,17 @@ class ContextManager:
                         )
                     else:
                         content = event.content
-                blocks.append(ContextBlock(
-                    source=BlockSource.TOOL_RESULT,
-                    role="tool",
-                    content=content,
-                    zone="dynamic",
-                    priority=30 + i,
-                    importance=0.5,
-                    token_count=self._estimate_tokens(content),
-                ))
+                blocks.append(
+                    ContextBlock(
+                        source=BlockSource.TOOL_RESULT,
+                        role="tool",
+                        content=content,
+                        zone="dynamic",
+                        priority=30 + i,
+                        importance=0.5,
+                        token_count=self._estimate_tokens(content),
+                    )
+                )
 
         # 7. RAG / SubAgent / 钩子注入
         if additional_contexts:
@@ -386,24 +441,27 @@ class ContextManager:
         return msgs
 
     @staticmethod
-    def messages_to_state(messages: List[Dict[str, Any]],
-                          session_id: str = "",
-                          project_id: str = "") -> ConversationState:
+    def messages_to_state(
+        messages: List[Dict[str, Any]], session_id: str = "", project_id: str = ""
+    ) -> ConversationState:
         """原始 OpenAI 消息列表 → ConversationState。"""
         import json
 
         from core.models.session import ConversationState, SessionMetadata
-        meta = SessionMetadata(project_id=project_id or "",
-                               session_id=session_id or str(uuid.uuid4()))
+
+        meta = SessionMetadata(project_id=project_id or "", session_id=session_id or str(uuid.uuid4()))
         state = ConversationState(metadata=meta)
         for m in messages:
             role = m.get("role", "")
             content = m.get("content", "")
             if role in ("user", "system"):
-                state.add_event(MessageEvent(
-                    source="user" if role == "user" else "system",
-                    role=role, content=content or "",
-                ))
+                state.add_event(
+                    MessageEvent(
+                        source="user" if role == "user" else "system",
+                        role=role,
+                        content=content or "",
+                    )
+                )
             elif role == "assistant":
                 if m.get("tool_calls"):
                     for tc in m["tool_calls"]:
@@ -412,23 +470,31 @@ class ContextManager:
                             args = json.loads(fn.get("arguments", "{}"))
                         except (json.JSONDecodeError, TypeError):
                             args = {}
-                        state.add_event(ToolCallEvent(
-                            source="agent",
-                            tool_name=fn.get("name", "?"),
-                            arguments=args,
-                            tool_use_id=tc.get("id", ""),
-                        ))
+                        state.add_event(
+                            ToolCallEvent(
+                                source="agent",
+                                tool_name=fn.get("name", "?"),
+                                arguments=args,
+                                tool_use_id=tc.get("id", ""),
+                            )
+                        )
                 else:
-                    state.add_event(MessageEvent(
-                        source="agent", role="assistant", content=content or "",
-                    ))
+                    state.add_event(
+                        MessageEvent(
+                            source="agent",
+                            role="assistant",
+                            content=content or "",
+                        )
+                    )
             elif role == "tool":
-                state.add_event(ObservationEvent(
-                    source="tool",
-                    tool_use_id=m.get("tool_call_id", ""),
-                    content=content or "",
-                    status="success",
-                ))
+                state.add_event(
+                    ObservationEvent(
+                        source="tool",
+                        tool_use_id=m.get("tool_call_id", ""),
+                        content=content or "",
+                        status="success",
+                    )
+                )
         return state
 
     @staticmethod
@@ -470,19 +536,29 @@ class ContextManager:
                     skipped_system = True
                     continue  # 跳过第一条 system（已被 protected 替代）
                 # 后续 system 消息保留
-                blocks.append(ContextBlock(
-                    source=BlockSource.HISTORY, role="system", content=str(content),
-                    zone="dynamic", priority=100 + i,
-                    importance=cm._history_importance(i),
-                    token_count=cm._estimate_tokens(str(content)),
-                ))
+                blocks.append(
+                    ContextBlock(
+                        source=BlockSource.HISTORY,
+                        role="system",
+                        content=str(content),
+                        zone="dynamic",
+                        priority=100 + i,
+                        importance=cm._history_importance(i),
+                        token_count=cm._estimate_tokens(str(content)),
+                    )
+                )
             elif role == "user":
-                blocks.append(ContextBlock(
-                    source=BlockSource.HISTORY, role="user", content=str(content),
-                    zone="dynamic", priority=100 + i,
-                    importance=cm._history_importance(i),
-                    token_count=cm._estimate_tokens(str(content)),
-                ))
+                blocks.append(
+                    ContextBlock(
+                        source=BlockSource.HISTORY,
+                        role="user",
+                        content=str(content),
+                        zone="dynamic",
+                        priority=100 + i,
+                        importance=cm._history_importance(i),
+                        token_count=cm._estimate_tokens(str(content)),
+                    )
+                )
             elif role == "assistant":
                 tool_calls = m.get("tool_calls")
                 if tool_calls:
@@ -491,30 +567,45 @@ class ContextManager:
                     for tc in tool_calls:
                         fn = tc.get("function", {})
                         tc_text += f"[Tool Call: {fn.get('name', '?')}({fn.get('arguments', '{}')})] "
-                    blocks.append(ContextBlock(
-                        source=BlockSource.HISTORY, role="assistant",
-                        content=str(content) if content else tc_text.strip(),
-                        zone="dynamic", priority=100 + i,
-                        importance=cm._history_importance(i),
-                        token_count=cm._estimate_tokens(str(content) + tc_text),
-                    ))
+                    blocks.append(
+                        ContextBlock(
+                            source=BlockSource.HISTORY,
+                            role="assistant",
+                            content=str(content) if content else tc_text.strip(),
+                            zone="dynamic",
+                            priority=100 + i,
+                            importance=cm._history_importance(i),
+                            token_count=cm._estimate_tokens(str(content) + tc_text),
+                        )
+                    )
                     # 注入 _extra 保留 tool_calls
-                    if not hasattr(blocks[-1], '_extra') or blocks[-1]._extra is None:
+                    if not hasattr(blocks[-1], "_extra") or blocks[-1]._extra is None:
                         blocks[-1]._extra = {}
                     blocks[-1]._extra["tool_calls"] = tool_calls
                 elif content:
-                    blocks.append(ContextBlock(
-                        source=BlockSource.HISTORY, role="assistant", content=str(content),
-                        zone="dynamic", priority=100 + i,
-                        importance=cm._history_importance(i),
-                        token_count=cm._estimate_tokens(str(content)),
-                    ))
+                    blocks.append(
+                        ContextBlock(
+                            source=BlockSource.HISTORY,
+                            role="assistant",
+                            content=str(content),
+                            zone="dynamic",
+                            priority=100 + i,
+                            importance=cm._history_importance(i),
+                            token_count=cm._estimate_tokens(str(content)),
+                        )
+                    )
             elif role == "tool":
-                blocks.append(ContextBlock(
-                    source=BlockSource.TOOL_RESULT, role="tool", content=str(content),
-                    zone="dynamic", priority=100 + i, importance=0.5,
-                    token_count=cm._estimate_tokens(str(content)),
-                ))
+                blocks.append(
+                    ContextBlock(
+                        source=BlockSource.TOOL_RESULT,
+                        role="tool",
+                        content=str(content),
+                        zone="dynamic",
+                        priority=100 + i,
+                        importance=0.5,
+                        token_count=cm._estimate_tokens(str(content)),
+                    )
+                )
 
         # 8. RAG / SubAgent / 钩子注入
         if additional_contexts:
@@ -526,6 +617,7 @@ class ContextManager:
     def _estimate_tokens(text: str) -> int:
         try:
             from core.context.token_counter import TokenCounter
+
             return TokenCounter().count_text(text)
         except Exception:
             return max(1, len(text) // 4)
@@ -533,8 +625,14 @@ class ContextManager:
     # ====== 内部 ======
 
     def _cached_block(
-        self, source, role: str, content: str,
-        zone: str, priority: int, importance: float, ttl: int,
+        self,
+        source,
+        role: str,
+        content: str,
+        zone: str,
+        priority: int,
+        importance: float,
+        ttl: int,
     ) -> ContextBlock:
         cache_key = str(source) if not isinstance(source, str) else source
         cached = self._block_cache.get(cache_key)
@@ -546,9 +644,13 @@ class ContextManager:
                 return cached
 
         block = ContextBlock(
-            source=source, role=role, content=content,
-            zone=zone, priority=priority,
-            importance_score=importance, cache_ttl=ttl,
+            source=source,
+            role=role,
+            content=content,
+            zone=zone,
+            priority=priority,
+            importance_score=importance,
+            cache_ttl=ttl,
             token_count=self._estimate_tokens(content),
         )
         self._block_cache[cache_key] = block

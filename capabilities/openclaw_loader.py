@@ -20,12 +20,13 @@ logger = logging.getLogger(__name__)
 
 class SkillPriority(IntEnum):
     """技能加载优先级（数字越小越优先）"""
-    SYSTEM = 1       # 核心系统技能（echo/help）
-    SESSION = 2      # 会话上下文注入
-    USER = 3         # 用户自定义（.chacha/skills/user/）
-    DOMAIN = 4       # 领域技能（CHACHA.md 声明的项目技能）
-    BUILTIN = 5      # 内置工具（BaseTool: read/edit/bash 等）
-    DISCOVERY = 6    # 动态发现（MCP/ClawHub）
+
+    SYSTEM = 1  # 核心系统技能（echo/help）
+    SESSION = 2  # 会话上下文注入
+    USER = 3  # 用户自定义（.chacha/skills/user/）
+    DOMAIN = 4  # 领域技能（CHACHA.md 声明的项目技能）
+    BUILTIN = 5  # 内置工具（BaseTool: read/edit/bash 等）
+    DISCOVERY = 6  # 动态发现（MCP/ClawHub）
 
 
 class SkillLoader:

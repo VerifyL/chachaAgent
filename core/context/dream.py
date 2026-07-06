@@ -29,8 +29,8 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 # 触发配置
-_DREAM_SESSION_COUNT = 10   # 每 N 次会话触发
-_DREAM_HOURS = 24            # 距上次运行超 N 小时触发
+_DREAM_SESSION_COUNT = 10  # 每 N 次会话触发
+_DREAM_HOURS = 24  # 距上次运行超 N 小时触发
 
 DREAM_SYSTEM_PROMPT = """You are a memory consolidation assistant.
 Your task is to read raw conversation memories and produce TWO outputs:
@@ -175,13 +175,12 @@ The {timestamp} placeholder will be replaced with the current UTC time.
 Output ONLY the content between the markers. No additional explanations, no commentary."""
 
 
-
-
 class DreamPipeline:
     """记忆整合管道（Dreaming 模式 v2.0）"""
 
     def __init__(
-        self, llm_invoker,
+        self,
+        llm_invoker,
         max_entries: int = 200,
         prune_days: int = 7,
         session_trigger: int = _DREAM_SESSION_COUNT,
@@ -210,7 +209,9 @@ class DreamPipeline:
 
         # 2. Consolidate：LLM 同时输出 MEMORY.md + CHACHA_MEMORY.md
         memory_md, permanent_md = await self._consolidate(
-            raw_text, old_memory, old_permanent,
+            raw_text,
+            old_memory,
+            old_permanent,
         )
 
         # 3. Write
@@ -228,13 +229,15 @@ class DreamPipeline:
         elapsed = time.monotonic() - t0
         logger.info(
             "DreamPipeline 完成 (%.1fs, MEMORY.md=%d chars, CHACHA_MEMORY.md=%d chars)",
-            elapsed, len(memory_md), len(permanent_md),
+            elapsed,
+            len(memory_md),
+            len(permanent_md),
         )
-
 
         # 5. 通知 GlobalDream
         try:
             from core.context.global_dream import get_global_dream
+
             gd = get_global_dream()
             gd.record_project_dream()
             if gd.should_run():
@@ -292,9 +295,11 @@ class DreamPipeline:
 
         return "\n\n".join(parts)
 
-
     async def _consolidate(
-        self, raw_text: str, old_memory: str, old_permanent: str,
+        self,
+        raw_text: str,
+        old_memory: str,
+        old_permanent: str,
     ) -> tuple[str, str]:
         """调用 LLM 整合记忆，解析出 MEMORY.md 和 CHACHA_MEMORY.md。"""
         ts = datetime.now(tz=timezone(timedelta(hours=8))).strftime("%Y-%m-%dT%H:%M:%SZ")

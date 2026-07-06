@@ -69,24 +69,28 @@ async def test_real_tool_call(api_key, base_url, model):
     invoker = LLMInvoker(model_client=client)
 
     resp = await invoker.invoke(
-        messages=[{
-            "role": "user",
-            "content": "Read the file /tmp/hello.py using the read_file tool",
-        }],
-        tools=[{
-            "type": "function",
-            "function": {
-                "name": "read_file",
-                "description": "Read a file",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "path": {"type": "string", "description": "File path"},
+        messages=[
+            {
+                "role": "user",
+                "content": "Read the file /tmp/hello.py using the read_file tool",
+            }
+        ],
+        tools=[
+            {
+                "type": "function",
+                "function": {
+                    "name": "read_file",
+                    "description": "Read a file",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "path": {"type": "string", "description": "File path"},
+                        },
+                        "required": ["path"],
                     },
-                    "required": ["path"],
                 },
-            },
-        }],
+            }
+        ],
         session_id="real-test-tool",
     )
 

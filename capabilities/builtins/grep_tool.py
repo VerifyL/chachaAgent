@@ -14,7 +14,7 @@ class GrepTool(BaseTool):
 
     name = "grep"
     description = "在项目中搜索匹配正则模式的内容。返回 file:line:content 格式。"
-    risk = "low"            # 只读搜索
+    risk = "low"  # 只读搜索
 
     parameters = {
         "type": "object",
@@ -26,8 +26,17 @@ class GrepTool(BaseTool):
         "required": ["pattern"],
     }
 
-    SKIP_DIRS = {".git", ".chacha", "node_modules", "__pycache__", ".venv",
-                 "build", "dist", ".mypy_cache", ".pytest_cache"}
+    SKIP_DIRS = {
+        ".git",
+        ".chacha",
+        "node_modules",
+        "__pycache__",
+        ".venv",
+        "build",
+        "dist",
+        ".mypy_cache",
+        ".pytest_cache",
+    }
     MAX_MATCHES = 500
     MAX_FILE_SIZE = 20 * 1024 * 1024  # 20MB
     TIMEOUT_RG = 30
@@ -41,15 +50,15 @@ class GrepTool(BaseTool):
             resolved = self._resolve(path)
         except ValueError as e:
             return ToolResult(
-                status="error", error=str(e),
-                error_type="internal_error", content="",
-                data={"path": path}
+                status="error", error=str(e), error_type="internal_error", content="", data={"path": path}
             )
         if not resolved.exists():
             return ToolResult(
-                status="error", error=f"目录不存在: {path}",
-                error_type="file_not_found", content="",
-                data={"path": path}
+                status="error",
+                error=f"目录不存在: {path}",
+                error_type="file_not_found",
+                content="",
+                data={"path": path},
             )
 
         # 2. 选择引擎
@@ -66,9 +75,12 @@ class GrepTool(BaseTool):
             rg_path,
             "--no-heading",
             "--line-number",
-            "--glob", glob,
-            "--max-count", str(self.MAX_MATCHES + 1),
-            "--max-filesize", str(self.MAX_FILE_SIZE),
+            "--glob",
+            glob,
+            "--max-count",
+            str(self.MAX_MATCHES + 1),
+            "--max-filesize",
+            str(self.MAX_FILE_SIZE),
             "--trim",
             pattern,
             str(search_dir),
@@ -78,9 +90,11 @@ class GrepTool(BaseTool):
             p = subprocess.run(args, capture_output=True, text=True, timeout=self.TIMEOUT_RG)
         except subprocess.TimeoutExpired:
             return ToolResult(
-                status="error", error="rg 超时 (30s)。请缩小搜索范围。",
-                error_type="timeout", content="",
-                data={"pattern": pattern, "engine": "rg"}
+                status="error",
+                error="rg 超时 (30s)。请缩小搜索范围。",
+                error_type="timeout",
+                content="",
+                data={"pattern": pattern, "engine": "rg"},
             )
 
         stdout = p.stdout.strip()
@@ -89,23 +103,31 @@ class GrepTool(BaseTool):
         if p.returncode > 1:
             err = stderr.splitlines()[-1] if stderr else f"rg 错误 (code={p.returncode})"
             return ToolResult(
-                status="error", error=err,
-                error_type="internal_error", content="",
-                data={"pattern": pattern, "stderr": stderr, "engine": "rg"}
+                status="error",
+                error=err,
+                error_type="internal_error",
+                content="",
+                data={"pattern": pattern, "stderr": stderr, "engine": "rg"},
             )
 
         if not stdout:
             return ToolResult(
                 status="success",
                 content="未找到匹配",
-                data={"matches": 0, "files": 0, "pattern": pattern, "path": str(self._rel(search_dir)),
-                      "glob": glob, "engine": "rg"}
+                data={
+                    "matches": 0,
+                    "files": 0,
+                    "pattern": pattern,
+                    "path": str(self._rel(search_dir)),
+                    "glob": glob,
+                    "engine": "rg",
+                },
             )
 
         lines = stdout.splitlines()
         truncated = len(lines) > self.MAX_MATCHES
         if truncated:
-            lines = lines[:self.MAX_MATCHES]
+            lines = lines[: self.MAX_MATCHES]
 
         content = "\n".join(lines)
         if truncated:
@@ -124,7 +146,7 @@ class GrepTool(BaseTool):
                 "glob": glob,
                 "engine": "rg",
                 "output_limited": truncated,
-            }
+            },
         )
 
     # ── Python re fallback ───────────────────────────────────
@@ -134,9 +156,11 @@ class GrepTool(BaseTool):
             regex = re.compile(pattern)
         except re.error as e:
             return ToolResult(
-                status="error", error=f"正则语法错误: {e}",
-                error_type="invalid_argument", content="",
-                data={"pattern": pattern, "engine": "python"}
+                status="error",
+                error=f"正则语法错误: {e}",
+                error_type="invalid_argument",
+                content="",
+                data={"pattern": pattern, "engine": "python"},
             )
 
         matches: list[str] = []
@@ -169,22 +193,30 @@ class GrepTool(BaseTool):
                     break
         except (OSError, PermissionError) as e:
             return ToolResult(
-                status="error", error=str(e),
-                error_type="internal_error", content="",
-                data={"pattern": pattern, "engine": "python"}
+                status="error",
+                error=str(e),
+                error_type="internal_error",
+                content="",
+                data={"pattern": pattern, "engine": "python"},
             )
 
         if not matches:
             return ToolResult(
                 status="success",
                 content="未找到匹配",
-                data={"matches": 0, "files": 0, "pattern": pattern, "path": str(self._rel(search_dir)),
-                      "glob": glob, "engine": "python"}
+                data={
+                    "matches": 0,
+                    "files": 0,
+                    "pattern": pattern,
+                    "path": str(self._rel(search_dir)),
+                    "glob": glob,
+                    "engine": "python",
+                },
             )
 
         truncated = len(matches) > self.MAX_MATCHES
         if truncated:
-            matches = matches[:self.MAX_MATCHES]
+            matches = matches[: self.MAX_MATCHES]
 
         content = "\n".join(matches)
         if truncated:
@@ -201,7 +233,7 @@ class GrepTool(BaseTool):
                 "glob": glob,
                 "engine": "python",
                 "output_limited": truncated,
-            }
+            },
         )
 
     # ── helpers ──────────────────────────────────────────────

@@ -22,23 +22,27 @@ from core.models.config import PolicyConfig
 
 # ========================= 枚举 =========================
 
+
 class RiskLevel(str, Enum):
     """风险等级（参考 Harness RiskEvaluator）"""
-    LOW = "low"          # 读取类操作
-    MEDIUM = "medium"    # 写入类操作
-    HIGH = "high"        # 修改系统配置
+
+    LOW = "low"  # 读取类操作
+    MEDIUM = "medium"  # 写入类操作
+    HIGH = "high"  # 修改系统配置
     CRITICAL = "critical"  # 破坏性操作
 
 
 class PermissionLevel(str, Enum):
     """权限级别"""
-    FREE = "free"              # 无需审批
-    ASK_FIRST = "ask_first"    # 每次执行前询问
+
+    FREE = "free"  # 无需审批
+    ASK_FIRST = "ask_first"  # 每次执行前询问
     APPROVE_ONCE = "approve_once"  # 任务级一次性授权（缓存至会话结束）
 
 
 class ApprovalStatus(str, Enum):
     """审批状态"""
+
     PENDING = "pending"
     APPROVED = "approved"
     REJECTED = "rejected"
@@ -48,20 +52,23 @@ class ApprovalStatus(str, Enum):
 
 class CircuitState(str, Enum):
     """熔断器状态（参考 Harness CircuitBreaker）"""
-    CLOSED = "closed"      # 正常
-    OPEN = "open"          # 熔断
+
+    CLOSED = "closed"  # 正常
+    OPEN = "open"  # 熔断
     HALF_OPEN = "half_open"  # 半开（尝试恢复）
 
 
 # ========================= 风险评估因子 =========================
 
+
 @dataclass
 class RiskFactors:
     """风险评估加权因子（参考 Harness RiskEvaluator）"""
-    data_sensitivity: float = 0.0    # 是否访问敏感数据（0~1）
-    financial_impact: float = 0.0    # 是否产生费用（0~1）
-    irreversibility: float = 0.0     # 是否不可逆（0~1）
-    model_confidence: float = 0.8    # 模型置信度（0~1，越高越确定）
+
+    data_sensitivity: float = 0.0  # 是否访问敏感数据（0~1）
+    financial_impact: float = 0.0  # 是否产生费用（0~1）
+    irreversibility: float = 0.0  # 是否不可逆（0~1）
+    model_confidence: float = 0.8  # 模型置信度（0~1，越高越确定）
     user_authorization: float = 1.0  # 用户授权级别（0~1）
 
     # 权重（可配置）
@@ -92,9 +99,11 @@ class RiskFactors:
 
 # ========================= 策略决策 =========================
 
+
 @dataclass
 class PolicyDecision:
     """策略评估结果"""
+
     allowed: bool = True
     needs_approval: bool = False
     risk_level: RiskLevel = RiskLevel.LOW
@@ -106,15 +115,18 @@ class PolicyDecision:
 
 # ========================= 审批条目 =========================
 
+
 @dataclass
 class ApprovalEntry:
     """审批缓存条目"""
+
     approved: bool
     cached_at: float = field(default_factory=time.time)
     ttl_seconds: int = 300
 
 
 # ========================= 成本熔断器 =========================
+
 
 class CostCircuitBreaker:
     """成本熔断器（参考 Harness CircuitBreaker 三态模型）"""
@@ -166,6 +178,7 @@ class CostCircuitBreaker:
 
 # ========================= 策略引擎 =========================
 
+
 class PolicyEngine:
     """
     安全策略引擎。
@@ -215,13 +228,13 @@ class PolicyEngine:
 
         # 分类名 -> 工具名映射
         self._category_map: Dict[str, Set[str]] = {
-            "all":       {"*"},
-            "*":         {"*"},
-            "memory":    {"memory", "cache_read"},
-            "readonly":  {"read", "grep", "glob"},
-            "system":    {"bash", "task"},
-            "edit":      {"edit", "write"},
-            "bash":      {"bash"},
+            "all": {"*"},
+            "*": {"*"},
+            "memory": {"memory", "cache_read"},
+            "readonly": {"read", "grep", "glob"},
+            "system": {"bash", "task"},
+            "edit": {"edit", "write"},
+            "bash": {"bash"},
         }
         self._init_default_permissions()
 
@@ -245,12 +258,11 @@ class PolicyEngine:
 
     _RISK_PRESETS: Dict[str, Tuple[float, float, float, float, float]] = {
         # (data_sensitivity, financial_impact, irreversibility, model_confidence, user_authorization)
-        "bash":        (0.9, 0.8, 0.95, 0.5, 0.3),   # 最高风险：可执行任意命令
-        "task":        (0.7, 0.6, 0.8,  0.5, 0.4),   # 高风险：可派生子任务
-        "edit":        (0.4, 0.1, 0.7,  0.7, 0.6),   # 中风险：修改文件
-        "write":       (0.4, 0.1, 0.7,  0.7, 0.6),   # 中风险：覆盖文件
+        "bash": (0.9, 0.8, 0.95, 0.5, 0.3),  # 最高风险：可执行任意命令
+        "task": (0.7, 0.6, 0.8, 0.5, 0.4),  # 高风险：可派生子任务
+        "edit": (0.4, 0.1, 0.7, 0.7, 0.6),  # 中风险：修改文件
+        "write": (0.4, 0.1, 0.7, 0.7, 0.6),  # 中风险：覆盖文件
     }
-
 
     def _init_default_permissions(self) -> None:
         """按工具分类设置默认权限级别"""
@@ -279,7 +291,6 @@ class PolicyEngine:
                 tags={"tool": tool_name, "status": status},
             )
 
-
     def _preset_risk_factors(self, tool_name: str) -> RiskFactors:
         """按工具类型返回预设风险因子。
 
@@ -289,14 +300,18 @@ class PolicyEngine:
         if tool_name in self._RISK_PRESETS:
             ds, fi, ir, mc, ua = self._RISK_PRESETS[tool_name]
             return RiskFactors(
-                data_sensitivity=ds, financial_impact=fi,
-                irreversibility=ir, model_confidence=mc,
+                data_sensitivity=ds,
+                financial_impact=fi,
+                irreversibility=ir,
+                model_confidence=mc,
                 user_authorization=ua,
             )
         # 未知工具：保守默认值
         return RiskFactors(
-            data_sensitivity=0.5, financial_impact=0.3,
-            irreversibility=0.5, model_confidence=0.6,
+            data_sensitivity=0.5,
+            financial_impact=0.3,
+            irreversibility=0.5,
+            model_confidence=0.6,
             user_authorization=0.5,
         )
 
@@ -402,10 +417,11 @@ class PolicyEngine:
         返回 (allowed, reason, cumulative_cost)。
         """
         if not self._circuit_breaker.is_available():
-            return False, (
-                f"成本熔断: 累计 {self._circuit_breaker.cumulative_cost:.2f}"
-                f" > {self._cost_limit:.2f}"
-            ), self._circuit_breaker.cumulative_cost
+            return (
+                False,
+                (f"成本熔断: 累计 {self._circuit_breaker.cumulative_cost:.2f} > {self._cost_limit:.2f}"),
+                self._circuit_breaker.cumulative_cost,
+            )
 
         self._circuit_breaker.add_cost(cost)
         return True, None, self._circuit_breaker.cumulative_cost
@@ -414,7 +430,8 @@ class PolicyEngine:
         """记录审批结果（缓存 + 任务级授权）"""
         if cache_key and self._cache_ttl > 0:
             self._approval_cache[cache_key] = ApprovalEntry(
-                approved=approved, ttl_seconds=self._cache_ttl,
+                approved=approved,
+                ttl_seconds=self._cache_ttl,
             )
 
     def grant_task_approval(self, session_id: str, tool_name: str) -> None:
@@ -432,8 +449,6 @@ class PolicyEngine:
         self._circuit_breaker.reset()
 
     # ====== 内部 ======
-
-
 
     # ====== 审批旁路 ======
 

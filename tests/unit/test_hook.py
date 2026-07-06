@@ -22,6 +22,7 @@ from core.models.hook import (
 
 # ========== 1. HookPoint 枚举 ==========
 
+
 def test_hook_point_values():
     assert HookPoint.PRE_TOOL_EXECUTION == "pre_tool_execution"
     assert HookPoint.POST_TOOL_EXECUTION == "post_tool_execution"
@@ -35,6 +36,7 @@ def test_hook_point_values():
 
 # ========== 2. HookAction 枚举 ==========
 
+
 def test_hook_action_values():
     assert HookAction.CONTINUE == "continue"
     assert HookAction.STOP == "stop"
@@ -43,6 +45,7 @@ def test_hook_action_values():
 
 
 # ========== 3. HookMatcher 测试 ==========
+
 
 class TestHookMatcher:
     def test_always_matcher(self):
@@ -119,6 +122,7 @@ class TestHookMatcher:
 
 # ========== 4. 子上下文测试 ==========
 
+
 class TestToolCallContext:
     def test_minimal(self):
         ctx = ToolCallContext(tool_name="read_file", tool_use_id="call_1")
@@ -179,6 +183,7 @@ class TestErrorContext:
 
 
 # ========== 5. HookContext 测试 ==========
+
 
 class TestHookContext:
     def test_minimal(self):
@@ -283,6 +288,7 @@ class TestHookContext:
 
 # ========== 6. HookResult 测试 ==========
 
+
 class TestHookResult:
     def test_default_is_continue(self):
         r = HookResult()
@@ -328,6 +334,7 @@ class TestHookResult:
 
 # ========== 7. 工厂方法测试 ==========
 
+
 class TestHookResultFactories:
     def test_continue_factory(self):
         r = HookResult.continue_(message="all good", additional_context="继续执行")
@@ -367,6 +374,7 @@ class TestHookResultFactories:
 
 
 # ========== 8. 模拟责任链场景 ==========
+
 
 def test_full_chain_scenario():
     """模拟完整的钩子链执行场景"""
@@ -422,7 +430,7 @@ def test_multiple_hooks_chain():
     assert result1.is_continue()
 
     # 钩子2：上下文压缩检查
-    if (ctx.llm_request and ctx.llm_request.estimated_input_tokens > 20000):
+    if ctx.llm_request and ctx.llm_request.estimated_input_tokens > 20000:
         result2 = HookResult.modify(
             modified_tool_args={},
             message="建议压缩上下文",
@@ -451,6 +459,7 @@ def test_all_results_are_frozen():
 
 
 # ========== 9. JSON 往返 ==========
+
 
 def test_roundtrip_complex_context():
     """复杂 HookContext 完整序列化/反序列化"""

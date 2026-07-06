@@ -16,10 +16,12 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # ========================= 1. 基础类型定义 =========================
 
+
 class Attachment(BaseModel):
     """消息附件（预留多模态内容）
     TODO(v1.5): get_messages_for_llm() 目前仅处理文本，需扩展为支持多模态消息格式
     """
+
     model_config = ConfigDict(use_enum_values=True)
 
     id: str = Field(default_factory=lambda: str(uuid4()))
@@ -39,8 +41,10 @@ class Attachment(BaseModel):
 
 # ========================= 2. 事件类型（不可变日志） =========================
 
+
 class BaseEvent(BaseModel):
     """所有事件的基类（不可变）"""
+
     model_config = ConfigDict(frozen=True)
 
     id: str = Field(default_factory=lambda: str(uuid4()))
@@ -90,17 +94,11 @@ class CheckpointEvent(BaseEvent):
     description: Optional[str] = None
 
 
-SessionEvent = (
-    MessageEvent
-    | ToolCallEvent
-    | ObservationEvent
-    | PermissionRequestEvent
-    | CompactEvent
-    | CheckpointEvent
-)
+SessionEvent = MessageEvent | ToolCallEvent | ObservationEvent | PermissionRequestEvent | CompactEvent | CheckpointEvent
 
 
 # ========================= 3. Agent Loop 运行时状态 =========================
+
 
 class AgentLoopState(BaseModel):
     model_config = ConfigDict(frozen=False)
@@ -113,6 +111,7 @@ class AgentLoopState(BaseModel):
 
 
 # ========================= 4. 会话元数据与完整状态 =========================
+
 
 class SessionMetadata(BaseModel):
     model_config = ConfigDict(frozen=True)
@@ -148,41 +147,45 @@ class ConversationState(BaseModel):
     def add_event(self, event: SessionEvent) -> None:
         """追加不可变事件到日志，并返回新的 metadata（因为 SessionMetadata 是冻结的）"""
         self.events.append(event)
-        self.metadata = self.metadata.model_copy(
-            update={"updated_at": datetime.now(tz=timezone(timedelta(hours=8)))}
-        )
+        self.metadata = self.metadata.model_copy(update={"updated_at": datetime.now(tz=timezone(timedelta(hours=8)))})
 
     def update_metadata(self, **kwargs) -> None:
         """更新元数据字段，返回新的 metadata 实例"""
         self.metadata = self.metadata.model_copy(update=kwargs)
-        self.metadata = self.metadata.model_copy(
-            update={"updated_at": datetime.now(tz=timezone(timedelta(hours=8)))}
-        )
+        self.metadata = self.metadata.model_copy(update={"updated_at": datetime.now(tz=timezone(timedelta(hours=8)))})
 
     def get_messages_for_llm(self) -> List[Dict[str, Any]]:
         messages: List[Dict[str, Any]] = []
         for event in self.events:
             if isinstance(event, MessageEvent):
-                messages.append({
-                    "role": event.role,
-                    "content": event.content,
-                })
+                messages.append(
+                    {
+                        "role": event.role,
+                        "content": event.content,
+                    }
+                )
             elif isinstance(event, ToolCallEvent):
-                messages.append({
-                    "role": "assistant",
-                    "tool_calls": [{
-                        "id": event.tool_use_id,
-                        "type": "function",
-                        "function": {
-                            "name": event.tool_name,
-                            "arguments": event.arguments,
-                        },
-                    }],
-                })
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "tool_calls": [
+                            {
+                                "id": event.tool_use_id,
+                                "type": "function",
+                                "function": {
+                                    "name": event.tool_name,
+                                    "arguments": event.arguments,
+                                },
+                            }
+                        ],
+                    }
+                )
             elif isinstance(event, ObservationEvent):
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": event.tool_use_id,
-                    "content": event.content,
-                })
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": event.tool_use_id,
+                        "content": event.content,
+                    }
+                )
         return messages

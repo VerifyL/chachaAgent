@@ -36,10 +36,12 @@ async def test_summarize_unknown_style_falls_back_to_brief():
 
 # ====== 摘要长度与关键信息保留（Mock LLM） ======
 
+
 class MockLLM:
     async def invoke(self, messages, session_id=""):
         text = messages[1]["content"]
         from core.llm_invoker import LLMResponse
+
         return LLMResponse(text=f"总结: {text[:50]}...")
 
 

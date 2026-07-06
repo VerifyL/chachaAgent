@@ -10,15 +10,18 @@ from core.llm_invoker import LLMInvoker
 
 # ====== Mock OpenAI 后端（完整流式事件） ======
 
+
 class MockDelta:
     def __init__(self, content=None, tool_calls=None):
         self.content = content
         self.tool_calls = tool_calls
 
+
 class MockChoice:
     def __init__(self, delta, finish_reason=None):
         self.delta = delta
         self.finish_reason = finish_reason
+
 
 class MockToolCall:
     def __init__(self, index=0, id=None, function=None):
@@ -26,10 +29,12 @@ class MockToolCall:
         self.id = id
         self.function = function
 
+
 class MockFunction:
     def __init__(self, name=None, arguments=None):
         self.name = name
         self.arguments = arguments
+
 
 class MockUsage:
     def __init__(self, prompt=100, completion=50, total=150):
@@ -37,10 +42,12 @@ class MockUsage:
         self.completion_tokens = completion
         self.total_tokens = total
 
+
 class MockEvent:
     def __init__(self, choices=None, usage=None):
         self.choices = choices or []
         self.usage = usage
+
 
 class MockResponse:
     def __init__(self, events):
@@ -53,6 +60,7 @@ class MockResponse:
 
 # ====== 完整流式：文本 + 工具调用 + LLMInvoker 集成 ======
 
+
 @pytest.mark.asyncio
 async def test_full_stream_with_llm_invoker():
     """OpenAI 客户端 → LLMInvoker 全链路流式"""
@@ -60,15 +68,34 @@ async def test_full_stream_with_llm_invoker():
 
     events = [
         MockEvent([MockChoice(MockDelta(content="I'll read that file."))]),
-        MockEvent([MockChoice(MockDelta(tool_calls=[
-            MockToolCall(index=0, id="call-1", function=MockFunction(name="read_file")),
-        ]))]),
-        MockEvent([MockChoice(MockDelta(tool_calls=[
-            MockToolCall(index=0, function=MockFunction(arguments='{"path":"/tmp/main.py"}')),
-        ]))]),
-        MockEvent([
-            MockChoice(MockDelta(), finish_reason="tool_calls"),
-        ], usage=MockUsage(100, 50, 150)),
+        MockEvent(
+            [
+                MockChoice(
+                    MockDelta(
+                        tool_calls=[
+                            MockToolCall(index=0, id="call-1", function=MockFunction(name="read_file")),
+                        ]
+                    )
+                )
+            ]
+        ),
+        MockEvent(
+            [
+                MockChoice(
+                    MockDelta(
+                        tool_calls=[
+                            MockToolCall(index=0, function=MockFunction(arguments='{"path":"/tmp/main.py"}')),
+                        ]
+                    )
+                )
+            ]
+        ),
+        MockEvent(
+            [
+                MockChoice(MockDelta(), finish_reason="tool_calls"),
+            ],
+            usage=MockUsage(100, 50, 150),
+        ),
     ]
 
     async def mock_create(**kw):
@@ -99,9 +126,12 @@ async def test_text_only_with_llm_invoker():
     events = [
         MockEvent([MockChoice(MockDelta(content="Hello, "))]),
         MockEvent([MockChoice(MockDelta(content="world!"))]),
-        MockEvent([
-            MockChoice(MockDelta(), finish_reason="stop"),
-        ], usage=MockUsage(10, 5, 15)),
+        MockEvent(
+            [
+                MockChoice(MockDelta(), finish_reason="stop"),
+            ],
+            usage=MockUsage(10, 5, 15),
+        ),
     ]
 
     async def mock_create(**kw):

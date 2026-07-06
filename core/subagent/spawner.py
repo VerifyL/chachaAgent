@@ -27,14 +27,15 @@ DEFAULT_TIMEOUT = 300  # 子Agent 5 分钟硬超时
 
 class SubAgentResult(BaseModel):
     """子Agent 执行结果"""
+
     agent_type: str
     task: str
-    text: str = ""                # 子Agent 最终文本
-    tool_calls_made: int = 0      # 工具调用次数
-    tokens_used: int = 0          # Token 消耗
+    text: str = ""  # 子Agent 最终文本
+    tool_calls_made: int = 0  # 工具调用次数
+    tokens_used: int = 0  # Token 消耗
     duration_ms: int = 0
-    status: str = "success"       # success | timeout | error
-    truncated: bool = False       # LLM 输出因 max_tokens 被截断（finish_reason="length"）
+    status: str = "success"  # success | timeout | error
+    truncated: bool = False  # LLM 输出因 max_tokens 被截断（finish_reason="length"）
 
 
 class SubAgentSpawner:
@@ -69,7 +70,8 @@ class SubAgentSpawner:
         definition = SUBAGENT_DEFINITIONS.get(agent_type)
         if not definition:
             return SubAgentResult(
-                agent_type=agent_type, task=task,
+                agent_type=agent_type,
+                task=task,
                 text=f"[错误] 未知子Agent类型: {agent_type}。可用: {list(SUBAGENT_DEFINITIONS.keys())}",
                 status="error",
             )
@@ -107,7 +109,8 @@ class SubAgentSpawner:
 
             # 5. 调度执行
             dispatcher = Dispatcher(
-                self._llm, tools,
+                self._llm,
+                tools,
                 memory_manager=None,  # 子Agent 短对话，缓存收益不大
             )
 
@@ -125,7 +128,7 @@ class SubAgentSpawner:
 
             # 将子 executor 的输出缓存合并到父 executor，确保父 agent 的 cache_read 能命中
             # 注意：刷新时间戳为当前时间，防止因子Agent运行耗时导致缓存过早过期
-            if self._parent_tools and hasattr(tools, '_output_cache'):
+            if self._parent_tools and hasattr(tools, "_output_cache"):
                 now = time.time()
                 for k, (output, _) in tools._output_cache.items():
                     self._parent_tools._output_cache[k] = (output, now)
@@ -159,17 +162,21 @@ class SubAgentSpawner:
             elapsed = int((time.monotonic() - t0) * 1000)
             logger.warning("子Agent 超时: %s (%.1fs)", agent_type, elapsed / 1000)
             return SubAgentResult(
-                agent_type=agent_type, task=task,
+                agent_type=agent_type,
+                task=task,
                 text=f"[超时] 子Agent {agent_type} 执行超过 {timeout}s",
-                status="timeout", duration_ms=elapsed,
+                status="timeout",
+                duration_ms=elapsed,
             )
         except Exception as e:
             elapsed = int((time.monotonic() - t0) * 1000)
             logger.error("子Agent 错误: %s - %s", agent_type, e)
             return SubAgentResult(
-                agent_type=agent_type, task=task,
+                agent_type=agent_type,
+                task=task,
                 text=f"[错误] {type(e).__name__}: {e}",
-                status="error", duration_ms=elapsed,
+                status="error",
+                duration_ms=elapsed,
             )
 
     # ====== 内部 ======
@@ -180,6 +187,7 @@ class SubAgentSpawner:
         if self._parent_tools:
             try:
                 from core.context.memory_manager import MemoryManager
+
                 if self._project_root:
                     mm = MemoryManager(project_root=Path(self._project_root), session_id=session_id or None)
                     idx = mm.read_index()
@@ -205,10 +213,11 @@ class SubAgentSpawner:
         allowed = set(definition.tools_whitelist)
         filtered = []
         for t in self._parent_tools.get_tools():
-            if hasattr(t, 'name') and t.name in allowed:
-                if t.name == 'cache_read':
+            if hasattr(t, "name") and t.name in allowed:
+                if t.name == "cache_read":
                     # 创建独立实例，避免共享 _executor 引用
                     from capabilities.builtins.cache_read_tool import CacheReadTool
+
                     t = CacheReadTool()
                 filtered.append(t)
 
@@ -216,7 +225,7 @@ class SubAgentSpawner:
 
         # 重新配置 cache_read 指向子Agent自己的 executor
         for t in filtered:
-            if hasattr(t, 'name') and t.name == 'cache_read' and hasattr(t, 'configure'):
+            if hasattr(t, "name") and t.name == "cache_read" and hasattr(t, "configure"):
                 t.configure(parent_tool_executor=executor)
                 break
 

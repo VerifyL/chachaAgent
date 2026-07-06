@@ -24,6 +24,7 @@ def _repair(gov, text):
 
 # ========== 1. JSON 修复：缺闭合括号 ==========
 
+
 def test_close_missing_brackets():
     gov = OutputGovernor()
     repaired, conf = _repair(gov, '{"path": "/tmp", "args": {"key": "val"}')
@@ -53,6 +54,7 @@ def test_already_valid_json():
 
 
 # ========== 2. JSON 修复：键中断 + 置信度 ==========
+
 
 def test_trailing_incomplete_key():
     """缺闭合的键值对 → 修复后合法"""
@@ -95,6 +97,7 @@ def test_failed_repair():
 
 
 # ========== 3. 流式 feed + flush ==========
+
 
 def test_feed_text_passthrough():
     gov = OutputGovernor()
@@ -140,6 +143,7 @@ def test_flush_remaining_text():
 
 # ========== 4. 置信度传播到 flush ==========
 
+
 def test_flush_returns_flush_result():
     """flush 返回 FlushResult 结构体"""
     gov = OutputGovernor()
@@ -162,6 +166,7 @@ def test_flush_low_confidence_triggers_llm_fix():
 
 # ========== 5. ThinkingBlock 透传 ==========
 
+
 def test_thinking_block_passthrough():
     """thinking 块应透传，不缓冲"""
     gov = OutputGovernor()
@@ -171,6 +176,7 @@ def test_thinking_block_passthrough():
 
 
 # ========== 6. BlockType 识别 ==========
+
 
 def test_detect_tool_use():
     gov = OutputGovernor()
@@ -185,6 +191,7 @@ def test_detect_thinking():
 
 
 # ========== 7. 内容过滤 ==========
+
 
 def test_filter_block_dangerous():
     gov = OutputGovernor()
@@ -220,6 +227,7 @@ def test_remove_rule():
 
 # ========== 8. validate_tool_call ==========
 
+
 def test_validate_tool_call_valid():
     gov = OutputGovernor()
     valid, repaired = gov.validate_tool_call('{"path": "/tmp/test.py"}')
@@ -242,6 +250,7 @@ def test_validate_tool_call_unrepairable():
 
 # ========== 9. buffer_size ==========
 
+
 def test_buffer_size_tracks_input():
     gov = OutputGovernor()
     gov.feed("hello")
@@ -251,6 +260,7 @@ def test_buffer_size_tracks_input():
 
 
 # ========== 10. 综合流式场景 ==========
+
 
 def test_full_streaming_workflow():
     """完整流式：文本 → tool_calls JSON → flush → FlushResult"""

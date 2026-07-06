@@ -44,6 +44,7 @@ def _assert_timestamp_has_tz(ts: datetime) -> bool:
 # 1. Attachment 测试
 # ============================================================================
 
+
 class TestAttachment:
     def test_default_creation(self):
         a = Attachment(data=b"hello")
@@ -56,12 +57,7 @@ class TestAttachment:
             Attachment(data=b"abc", mime_type="video/mp4")
 
     def test_serialization_roundtrip(self):
-        a = Attachment(
-            type="audio",
-            data=b"\x00\x01\x02",
-            mime_type="audio/wav",
-            filename="sound.wav"
-        )
+        a = Attachment(type="audio", data=b"\x00\x01\x02", mime_type="audio/wav", filename="sound.wav")
         json_str = a.model_dump_json()
         restored = Attachment.model_validate_json(json_str)
         assert restored.data == b"\x00\x01\x02"
@@ -72,6 +68,7 @@ class TestAttachment:
 # ============================================================================
 # 2. 事件类型测试（修正：全部补上 source 字段）
 # ============================================================================
+
 
 class TestBaseEvent:
     def test_default_id_and_timestamp(self):
@@ -106,12 +103,7 @@ class TestToolCallEvent:
             ToolCallEvent(source="agent")  # 缺 tool_name, arguments, tool_use_id
 
     def test_thought_optional(self):
-        tc = ToolCallEvent(
-            source="agent",
-            tool_name="read_file",
-            arguments={"path": "test.py"},
-            tool_use_id="call_123"
-        )
+        tc = ToolCallEvent(source="agent", tool_name="read_file", arguments={"path": "test.py"}, tool_use_id="call_123")
         assert tc.thought is None
 
     def test_serialization(self):
@@ -120,7 +112,7 @@ class TestToolCallEvent:
             tool_name="search",
             arguments={"query": "bug"},
             tool_use_id="call_456",
-            thought="need to search"
+            thought="need to search",
         )
         json_str = tc.model_dump_json()
         restored = ToolCallEvent.model_validate_json(json_str)
@@ -130,32 +122,15 @@ class TestToolCallEvent:
 
 class TestObservationEvent:
     def test_success_status(self):
-        obs = ObservationEvent(
-            source="tool",
-            tool_use_id="call_1",
-            content="result",
-            status="success"
-        )
+        obs = ObservationEvent(source="tool", tool_use_id="call_1", content="result", status="success")
         assert obs.error is None
 
     def test_error_status_with_error(self):
-        obs = ObservationEvent(
-            source="tool",
-            tool_use_id="call_1",
-            content="",
-            status="error",
-            error="file not found"
-        )
+        obs = ObservationEvent(source="tool", tool_use_id="call_1", content="", status="error", error="file not found")
         assert obs.error == "file not found"
 
     def test_truncated_flag(self):
-        obs = ObservationEvent(
-            source="tool",
-            tool_use_id="call_1",
-            content="...",
-            status="success",
-            truncated=True
-        )
+        obs = ObservationEvent(source="tool", tool_use_id="call_1", content="...", status="success", truncated=True)
         assert obs.truncated is True
 
 
@@ -166,11 +141,7 @@ class TestPermissionRequestEvent:
 
     def test_approved_none_by_default(self):
         pr = PermissionRequestEvent(
-            source="agent",
-            request_id="req_1",
-            tool_name="shell",
-            command_or_action="rm -rf /",
-            reason="user request"
+            source="agent", request_id="req_1", tool_name="shell", command_or_action="rm -rf /", reason="user request"
         )
         assert pr.approved is None
 
@@ -178,10 +149,7 @@ class TestPermissionRequestEvent:
 class TestCompactEvent:
     def test_serialization(self):
         ce = CompactEvent(
-            source="system",
-            before_token_count=5000,
-            after_token_count=2000,
-            summary="Compressed history"
+            source="system", before_token_count=5000, after_token_count=2000, summary="Compressed history"
         )
         j = ce.model_dump_json()
         restored = CompactEvent.model_validate_json(j)
@@ -190,11 +158,7 @@ class TestCompactEvent:
 
 class TestCheckpointEvent:
     def test_serialization(self):
-        ck = CheckpointEvent(
-            source="system",
-            checkpoint_id="ckpt-1",
-            description="save point"
-        )
+        ck = CheckpointEvent(source="system", checkpoint_id="ckpt-1", description="save point")
         j = ck.model_dump_json()
         restored = CheckpointEvent.model_validate_json(j)
         assert restored.checkpoint_id == "ckpt-1"
@@ -204,6 +168,7 @@ class TestCheckpointEvent:
 # 3. 联合类型反序列化测试 (使用 TypeAdapter)
 # ============================================================================
 
+
 class TestSessionEventUnion:
     def test_union_deserialize_message_event(self):
         data = {
@@ -211,18 +176,13 @@ class TestSessionEventUnion:
             "timestamp": "2025-01-01T00:00:00Z",
             "source": "user",
             "role": "user",
-            "content": "hello"
+            "content": "hello",
         }
         event = TypeAdapter(SessionEvent).validate_python(data)
         assert isinstance(event, MessageEvent)
 
     def test_union_deserialize_tool_call_event(self):
-        data = {
-            "source": "agent",
-            "tool_name": "test",
-            "arguments": {},
-            "tool_use_id": "t1"
-        }
+        data = {"source": "agent", "tool_name": "test", "arguments": {}, "tool_use_id": "t1"}
         event = TypeAdapter(SessionEvent).validate_python(data)
         assert isinstance(event, ToolCallEvent)
 
@@ -230,6 +190,7 @@ class TestSessionEventUnion:
 # ============================================================================
 # 4. AgentLoopState 测试
 # ============================================================================
+
 
 class TestAgentLoopState:
     def test_default_values(self):
@@ -244,15 +205,8 @@ class TestAgentLoopState:
         assert state.iteration == 1
 
     def test_cache_serialization(self):
-        obs = ObservationEvent(
-            source="tool",
-            tool_use_id="call_x",
-            content="result",
-            status="success"
-        )
-        state = AgentLoopState(
-            tool_results_cache={"call_x": obs}
-        )
+        obs = ObservationEvent(source="tool", tool_use_id="call_x", content="result", status="success")
+        state = AgentLoopState(tool_results_cache={"call_x": obs})
         j = state.model_dump_json()
         restored = AgentLoopState.model_validate_json(j)
         assert "call_x" in restored.tool_results_cache
@@ -262,6 +216,7 @@ class TestAgentLoopState:
 # ============================================================================
 # 5. SessionMetadata 测试
 # ============================================================================
+
 
 class TestSessionMetadata:
     def test_project_id_required(self):
@@ -288,6 +243,7 @@ class TestSessionMetadata:
 # 6. ConversationState 综合测试
 # ============================================================================
 
+
 class TestConversationState:
     def test_add_event_updates_timestamp(self):
         meta = SessionMetadata(project_id="proj2")
@@ -303,19 +259,13 @@ class TestConversationState:
         # 用户消息
         state.add_event(MessageEvent(source="user", role="user", content="read file"))
         # 工具调用
-        state.add_event(ToolCallEvent(
-            source="agent",
-            tool_name="read_file",
-            arguments={"path": "a.py"},
-            tool_use_id="call_1"
-        ))
+        state.add_event(
+            ToolCallEvent(source="agent", tool_name="read_file", arguments={"path": "a.py"}, tool_use_id="call_1")
+        )
         # 观察结果
-        state.add_event(ObservationEvent(
-            source="tool",
-            tool_use_id="call_1",
-            content="print('hello')",
-            status="success"
-        ))
+        state.add_event(
+            ObservationEvent(source="tool", tool_use_id="call_1", content="print('hello')", status="success")
+        )
         msgs = state.get_messages_for_llm()
         assert len(msgs) == 3
         assert msgs[0]["role"] == "user"
@@ -328,11 +278,7 @@ class TestConversationState:
         meta = SessionMetadata(project_id="check")
         state = ConversationState(metadata=meta)
         state.add_event(MessageEvent(source="user", role="user", content="start"))
-        cp = SessionCheckpoint(
-            event_index=0,
-            metadata_snapshot=state.metadata,
-            loop_state_snapshot=state.loop_state
-        )
+        cp = SessionCheckpoint(event_index=0, metadata_snapshot=state.metadata, loop_state_snapshot=state.loop_state)
         state.checkpoints.append(cp)
         assert len(state.checkpoints) == 1
         assert state.checkpoints[0].event_index == 0

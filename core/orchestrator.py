@@ -27,7 +27,6 @@ from core.models.stream_event import (
 logger = logging.getLogger(__name__)
 
 
-
 class Orchestrator:
     """Think-Act-Observe 主循环控制器（v2.0）。"""
 
@@ -84,19 +83,22 @@ class Orchestrator:
             try:
                 from core.models.context import BlockSource, ContextBlock
                 from core.models.hook import HookPoint
+
                 hook_result = await self._hooks.run(
                     session_id=session_id,
                     hook_point=HookPoint.PRE_CONTEXT_ASSEMBLY,
                 )
                 if hook_result and hook_result.additional_context:
-                    additional_blocks.append(ContextBlock(
-                        source=BlockSource.ADDITIONAL_CONTEXT,
-                        role="system",
-                        content=hook_result.additional_context,
-                        zone="dynamic",
-                        priority=8,
-                        importance=0.55,
-                    ))
+                    additional_blocks.append(
+                        ContextBlock(
+                            source=BlockSource.ADDITIONAL_CONTEXT,
+                            role="system",
+                            content=hook_result.additional_context,
+                            zone="dynamic",
+                            priority=8,
+                            importance=0.55,
+                        )
+                    )
             except Exception:
                 pass
 
@@ -108,11 +110,14 @@ class Orchestrator:
         if self._gateway:
             try:
                 from protocol.rpc_schema import SessionLifecycleEvent
+
                 await self._gateway.publish(
-                    SessionLifecycleEvent(params={
-                        "event": "started",
-                        "session_id": session_id,
-                    }),
+                    SessionLifecycleEvent(
+                        params={
+                            "event": "started",
+                            "session_id": session_id,
+                        }
+                    ),
                     session_id=session_id,
                 )
             except Exception:
@@ -120,9 +125,11 @@ class Orchestrator:
 
         # ── 5. 上下文组装 ──
         from core.context_manager import ContextManager
+
         if self._context:
             ctx = ContextManager.assemble_from_messages_direct(
-                self._engine._messages, self._context,
+                self._engine._messages,
+                self._context,
                 additional_contexts=additional_blocks or None,
             )
             msgs_for_llm = ContextManager.blocks_to_messages(ctx)
@@ -130,7 +137,7 @@ class Orchestrator:
             msgs_for_llm = list(self._engine._messages)
 
         # ── 6. Dispatcher 调度（直接调用，不经过 ChatEngine） ──
-        dispatcher = self._dispatcher or getattr(self._engine, '_dispatcher', None)
+        dispatcher = self._dispatcher or getattr(self._engine, "_dispatcher", None)
         if not dispatcher:
             yield ErrorEvent(message="No dispatcher configured")
             return
@@ -155,12 +162,13 @@ class Orchestrator:
 
         # ── 7. 自动压缩 ──
         from core.context.context_compressor import ContextCompressor
+
         est = ContextCompressor.estimate_tokens(self._engine._messages)
         pct = est / self._engine._context_window if self._engine._context_window else 0
         msgs, reason = await ContextCompressor.auto_compact(
             self._engine._messages,
             self._engine._context_window,
-            llm=getattr(self._engine, '_llm', None),
+            llm=getattr(self._engine, "_llm", None),
         )
         if reason:
             self._engine._messages = msgs
@@ -186,14 +194,14 @@ class Orchestrator:
                     c = (m.get("content") or "").strip()
                     if c:
                         assistant_parts.append(c)
-            self._engine._messages.append({
-                "role": "assistant",
-                "content": "\n\n".join(assistant_parts),
-            })
+            self._engine._messages.append(
+                {
+                    "role": "assistant",
+                    "content": "\n\n".join(assistant_parts),
+                }
+            )
         else:
-            self._engine._messages = [
-                m for m in self._engine._messages if m.get("role") != "tool"
-            ]
+            self._engine._messages = [m for m in self._engine._messages if m.get("role") != "tool"]
             for m in self._engine._messages:
                 m.pop("tool_calls", None)
                 m.pop("reasoning_content", None)
@@ -208,11 +216,14 @@ class Orchestrator:
         if self._gateway:
             try:
                 from protocol.rpc_schema import SessionLifecycleEvent
+
                 await self._gateway.publish(
-                    SessionLifecycleEvent(params={
-                        "event": "ended",
-                        "session_id": session_id,
-                    }),
+                    SessionLifecycleEvent(
+                        params={
+                            "event": "ended",
+                            "session_id": session_id,
+                        }
+                    ),
                     session_id=session_id,
                 )
             except Exception:
@@ -233,8 +244,6 @@ class Orchestrator:
         except Exception as e:
             logger.warning("保存会话记忆失败: %s", e)
 
-
-
     async def _end_session_cleanup(self, session_id: str) -> None:
         """会话结束时记录 DreamPipeline。"""
         # DreamPipeline 计数 + 异步触发
@@ -246,5 +255,3 @@ class Orchestrator:
                     asyncio.create_task(self._dream.run(self._memory))
                 except Exception as e:
                     logger.warning("DreamPipeline 启动失败: %s", e)
-
-

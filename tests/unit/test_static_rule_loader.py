@@ -12,6 +12,7 @@ from core.context.static_rule_loader import StaticRuleLoader
 
 # ====== Fixtures ======
 
+
 @pytest.fixture
 def project_dir():
     d = Path(tempfile.mkdtemp())
@@ -22,6 +23,7 @@ def project_dir():
 
 
 # ====== 1. 分层加载 ======
+
 
 def test_load_project_only(project_dir):
     loader = StaticRuleLoader(project_dir)
@@ -48,6 +50,7 @@ def test_no_chacha_file():
 
 # ====== 2. @import ======
 
+
 def test_import_directive():
     d = Path(tempfile.mkdtemp())
     (d / "CHACHA.md").write_text(
@@ -73,6 +76,7 @@ def test_import_file_not_found(project_dir):
 
 
 # ====== 3. 异常处理 ======
+
 
 def test_missing_dir():
     loader = StaticRuleLoader(Path("/no/such/project"))

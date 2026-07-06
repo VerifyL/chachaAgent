@@ -22,6 +22,7 @@ def _make_ctx(**kw):
 
 # ========== 1. 注册与注销 ==========
 
+
 def test_register_and_list():
     o = HookOrchestrator()
     o.register("audit", HookPoint.PRE_TOOL_EXECUTION, lambda ctx: HookResult.continue_())
@@ -49,6 +50,7 @@ def test_register_sorted_by_priority():
 
 # ========== 2. 责任链顺序 ==========
 
+
 @pytest.mark.asyncio
 async def test_chain_execution_order():
     order = []
@@ -57,6 +59,7 @@ async def test_chain_execution_order():
         def hook(ctx):
             order.append(name)
             return HookResult.continue_()
+
         return hook
 
     o = HookOrchestrator()
@@ -77,6 +80,7 @@ async def test_post_hook_reverse_order():
         def hook(ctx):
             order.append(name)
             return HookResult.continue_()
+
         return hook
 
     o = HookOrchestrator()
@@ -89,6 +93,7 @@ async def test_post_hook_reverse_order():
 
 
 # ========== 3. BLOCK 短路 ==========
+
 
 @pytest.mark.asyncio
 async def test_block_short_circuit():
@@ -118,6 +123,7 @@ async def test_block_short_circuit():
 
 # ========== 4. STOP 停止链但不拒绝 ==========
 
+
 @pytest.mark.asyncio
 async def test_stop_chain():
     order = []
@@ -146,16 +152,21 @@ async def test_stop_chain():
 
 # ========== 5. MODIFY 链式覆盖 ==========
 
+
 @pytest.mark.asyncio
 async def test_modify_chain():
-    def add_path(ctx): return HookResult.modify(modified_tool_args={"path": "/a"})
-    def add_safe(ctx): return HookResult.modify(modified_tool_args={"safe": True})
+    def add_path(ctx):
+        return HookResult.modify(modified_tool_args={"path": "/a"})
+
+    def add_safe(ctx):
+        return HookResult.modify(modified_tool_args={"safe": True})
 
     o = HookOrchestrator()
     o.register("path", HookPoint.PRE_TOOL_EXECUTION, add_path, priority=2)
     o.register("safe", HookPoint.PRE_TOOL_EXECUTION, add_safe, priority=1)
 
     from core.models.hook import ToolCallContext
+
     tc = ToolCallContext(tool_name="test", tool_use_id="c1")
     result = await o.run(hook_point=HookPoint.PRE_TOOL_EXECUTION, tool_call=tc)
 
@@ -165,10 +176,14 @@ async def test_modify_chain():
 
 # ========== 6. additional_context 累积 ==========
 
+
 @pytest.mark.asyncio
 async def test_additional_context_accumulation():
-    def h1(ctx): return HookResult.continue_(additional_context="提示A")
-    def h2(ctx): return HookResult.continue_(additional_context="提示B")
+    def h1(ctx):
+        return HookResult.continue_(additional_context="提示A")
+
+    def h2(ctx):
+        return HookResult.continue_(additional_context="提示B")
 
     o = HookOrchestrator()
     o.register("h1", HookPoint.PRE_TOOL_EXECUTION, h1, priority=2)
@@ -179,6 +194,7 @@ async def test_additional_context_accumulation():
 
 
 # ========== 7. 钩子匹配器 ==========
+
 
 @pytest.mark.asyncio
 async def test_matcher_filters_hooks():
@@ -194,12 +210,15 @@ async def test_matcher_filters_hooks():
 
     o = HookOrchestrator()
     o.register(
-        "shell", HookPoint.PRE_TOOL_EXECUTION, shell_only,
+        "shell",
+        HookPoint.PRE_TOOL_EXECUTION,
+        shell_only,
         matcher=HookMatcher(type="tool_name", pattern="shell"),
     )
     o.register("all", HookPoint.PRE_TOOL_EXECUTION, all_tools)
 
     from core.models.hook import ToolCallContext
+
     # 调用 read_file → shell_only 不匹配
     tc = ToolCallContext(tool_name="read_file", tool_use_id="c1")
     await o.run(hook_point=HookPoint.PRE_TOOL_EXECUTION, tool_call=tc)
@@ -207,6 +226,7 @@ async def test_matcher_filters_hooks():
 
 
 # ========== 8. 无匹配钩子 ==========
+
 
 @pytest.mark.asyncio
 async def test_no_matching_hooks_returns_continue():
@@ -219,6 +239,7 @@ async def test_no_matching_hooks_returns_continue():
 
 # ========== 9. 超时 ==========
 
+
 @pytest.mark.asyncio
 async def test_timeout_triggers_continue_for_safe_hook():
     import asyncio
@@ -228,8 +249,9 @@ async def test_timeout_triggers_continue_for_safe_hook():
         return HookResult.continue_()
 
     o = HookOrchestrator()
-    o.register("slow", HookPoint.PRE_TOOL_EXECUTION, slow, timeout=0.1,
-               on_timeout_continue=True, on_error_continue=True)
+    o.register(
+        "slow", HookPoint.PRE_TOOL_EXECUTION, slow, timeout=0.1, on_timeout_continue=True, on_error_continue=True
+    )
 
     result = await o.run(hook_point=HookPoint.PRE_TOOL_EXECUTION)
     # v2.1: 显式 on_timeout_continue=True 时超时继续
@@ -237,6 +259,7 @@ async def test_timeout_triggers_continue_for_safe_hook():
 
 
 # ========== 10. 外部进程（mock） ==========
+
 
 @pytest.mark.asyncio
 async def test_external_style_hook_blocked():
@@ -250,14 +273,14 @@ async def test_external_style_hook_blocked():
 
 # ========== 11. 容错推断 ==========
 
+
 @pytest.mark.asyncio
 async def test_error_in_continue_hook_continues():
     def crashy(ctx):
         raise RuntimeError("boom")
 
     o = HookOrchestrator()
-    o.register("crashy", HookPoint.PRE_TOOL_EXECUTION, crashy,
-               on_error_continue=True, on_timeout_continue=True)
+    o.register("crashy", HookPoint.PRE_TOOL_EXECUTION, crashy, on_error_continue=True, on_timeout_continue=True)
 
     result = await o.run(hook_point=HookPoint.PRE_TOOL_EXECUTION)
     # v2.1: 显式 on_error_continue=True 时异常继续
@@ -265,6 +288,7 @@ async def test_error_in_continue_hook_continues():
 
 
 # ========== 12. 完整链场景 ==========
+
 
 @pytest.mark.asyncio
 async def test_full_chain():
@@ -299,8 +323,10 @@ async def test_full_chain():
     o.register("helper", HookPoint.PRE_TOOL_EXECUTION, helper_hook, priority=1)
 
     from core.models.hook import ToolCallContext
+
     tc = ToolCallContext(
-        tool_name="shell", tool_use_id="c1",
+        tool_name="shell",
+        tool_use_id="c1",
         command_or_action="rm -rf /tmp/test",
     )
     result = await o.run(hook_point=HookPoint.PRE_TOOL_EXECUTION, tool_call=tc)
@@ -316,8 +342,12 @@ async def test_full_chain():
 @pytest.mark.asyncio
 async def test_full_chain_all_continue():
     """所有钩子 CONTINUE → 最终 CONTINUE + 累积 context"""
-    def h1(ctx): return HookResult.continue_(additional_context="H1")
-    def h2(ctx): return HookResult.modify({"key": "val"}, additional_context="H2")
+
+    def h1(ctx):
+        return HookResult.continue_(additional_context="H1")
+
+    def h2(ctx):
+        return HookResult.modify({"key": "val"}, additional_context="H2")
 
     o = HookOrchestrator()
     o.register("h1", HookPoint.PRE_TOOL_EXECUTION, h1, priority=2)

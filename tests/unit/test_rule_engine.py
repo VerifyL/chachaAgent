@@ -15,10 +15,12 @@ from core.rule_engine import RuleEngine
 
 # ====== Fixtures ======
 
+
 @pytest.fixture
 def rules_dir():
     d = Path(tempfile.mkdtemp())
-    (d / "security.yaml").write_text("""
+    (d / "security.yaml").write_text(
+        """
 rules:
   - id: block-danger
     hook_point: pre_tool_execution
@@ -35,7 +37,9 @@ rules:
     matcher:
       type: always
     priority: 1
-""", encoding="utf-8")
+""",
+        encoding="utf-8",
+    )
     return d
 
 
@@ -45,6 +49,7 @@ def engine():
 
 
 # ====== 1. YAML 加载 ======
+
 
 def test_load_dir(rules_dir, engine):
     count = engine.load_dir(rules_dir)
@@ -66,6 +71,7 @@ def test_load_invalid_yaml(engine):
 
 
 # ====== 2. handler 解析 ======
+
 
 def test_parse_builtins_handler(engine):
 
@@ -97,6 +103,7 @@ def test_parse_python_handler_not_yet(engine):
 
 # ====== 3. matcher 构建 ======
 
+
 def test_parse_always_matcher(engine):
     m = engine._parse_matcher({})
     assert m.type == "always"
@@ -109,19 +116,22 @@ def test_parse_command_matcher(engine):
 
 
 def test_parse_composite_matcher(engine):
-    m = engine._parse_matcher({
-        "type": "composite",
-        "composite_op": "and",
-        "children": [
-            {"type": "tool_name", "pattern": "shell"},
-            {"type": "command", "pattern": "pip"},
-        ],
-    })
+    m = engine._parse_matcher(
+        {
+            "type": "composite",
+            "composite_op": "and",
+            "children": [
+                {"type": "tool_name", "pattern": "shell"},
+                {"type": "command", "pattern": "pip"},
+            ],
+        }
+    )
     assert m.type == "composite"
     assert len(m.children) == 2
 
 
 # ====== 4. 注册到 HookOrchestrator ======
+
 
 def test_register_all(rules_dir, engine):
     engine.load_dir(rules_dir)
@@ -136,6 +146,7 @@ def test_register_all(rules_dir, engine):
 
 # ====== 5. 冲突检测 ======
 
+
 def test_validate_no_conflicts(rules_dir, engine):
     engine.load_dir(rules_dir)
     warnings = engine.validate()
@@ -147,7 +158,8 @@ def test_validate_no_conflicts(rules_dir, engine):
 def test_validate_same_priority_conflict(engine):
     # 手动构建两条相同 priority 的规则
     d = Path(tempfile.mkdtemp())
-    (d / "conflict.yaml").write_text("""
+    (d / "conflict.yaml").write_text(
+        """
 rules:
   - id: rule-a
     hook_point: pre_tool_execution
@@ -157,7 +169,9 @@ rules:
     hook_point: pre_tool_execution
     handler: command:echo b
     priority: 5
-""", encoding="utf-8")
+""",
+        encoding="utf-8",
+    )
     engine.load_dir(d)
     warnings = engine.validate()
     conflict_warnings = [w for w in warnings if w.startswith("冲突")]
@@ -168,14 +182,18 @@ rules:
 
 # ====== 6. 无效规则 ======
 
+
 def test_invalid_hook_point(engine):
     d = Path(tempfile.mkdtemp())
-    (d / "bad.yaml").write_text("""
+    (d / "bad.yaml").write_text(
+        """
 rules:
   - id: bad-rule
     hook_point: invalid_point
     handler: command:echo
-""", encoding="utf-8")
+""",
+        encoding="utf-8",
+    )
     engine.load_dir(d)
     orch = HookOrchestrator()
     count = engine.register_all(orch)

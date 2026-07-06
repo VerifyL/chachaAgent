@@ -27,9 +27,7 @@ class MemoryTool(BaseTool):
     """管理项目记忆：读写主题记忆、追加每日记录、读取永久记忆、搜索。"""
 
     name = "memory"
-    description = (
-        "管理项目记忆：读写主题记忆、读取永久记忆、搜索历史。"
-    )
+    description = "管理项目记忆：读写主题记忆、读取永久记忆、搜索历史。"
 
     parameters = {
         "type": "object",
@@ -128,9 +126,7 @@ class MemoryTool(BaseTool):
             return self._do_search(kwargs)
 
         # unreachable
-        return ToolResult(
-            status="error", content="", error="内部错误", error_type="unknown"
-        )
+        return ToolResult(status="error", content="", error="内部错误", error_type="unknown")
 
     # ── action 实现 ──
 

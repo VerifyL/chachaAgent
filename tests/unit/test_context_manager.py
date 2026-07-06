@@ -21,18 +21,19 @@ from core.models.session import (
 
 # ====== Fixtures ======
 
+
 @pytest.fixture
 def state():
     meta = SessionMetadata(project_id="p1")
     s = ConversationState(metadata=meta)
     s.add_event(MessageEvent(source="user", role="user", content="读一下 main.py"))
     s.add_event(MessageEvent(source="agent", role="assistant", content="正在读取..."))
-    s.add_event(ObservationEvent(source="tool", tool_use_id="c1",
-                                  content="print('hello')", status="success"))
+    s.add_event(ObservationEvent(source="tool", tool_use_id="c1", content="print('hello')", status="success"))
     return s
 
 
 # ====== 1. 消息排序 ======
+
 
 def test_message_order_system_first(state):
     mgr = ContextManager()
@@ -52,6 +53,7 @@ def test_user_message_after_system(state):
 
 
 # ====== 2. 缓存命中 ======
+
 
 def test_cache_hit_static_rules(state):
     mgr = ContextManager()
@@ -75,6 +77,7 @@ def test_cache_invalidated_on_change(state):
 
 # ====== 3. 压缩触发 ======
 
+
 def test_compression_not_triggered_for_small_context(state):
     mgr = ContextManager(ContextConfig(max_tokens=128000, compression_trigger_ratio=0.8))
     ctx = mgr.assemble(state, session_id="s1")
@@ -92,6 +95,7 @@ def test_compression_triggered_when_over_threshold(state):
 
 # ====== 4. 空状态 ======
 
+
 def test_empty_state():
     meta = SessionMetadata(project_id="p1")
     empty = ConversationState(metadata=meta)
@@ -102,6 +106,7 @@ def test_empty_state():
 
 
 # ====== 5. 来源分布 ======
+
 
 def test_blocks_by_source(state):
     mgr = ContextManager()
@@ -115,6 +120,7 @@ def test_blocks_by_source(state):
 
 # ====== 6. zone 分配 ======
 
+
 def test_protected_vs_dynamic(state):
     mgr = ContextManager()
     ctx = mgr.assemble(state, session_id="s1", static_rules="规则", skills="能力")
@@ -126,6 +132,7 @@ def test_protected_vs_dynamic(state):
 
 # ====== 7. set_system_prompt ======
 
+
 def test_custom_system_prompt(state):
     mgr = ContextManager()
     mgr.set_system_prompt("你是一个测试助手")
@@ -135,6 +142,7 @@ def test_custom_system_prompt(state):
 
 
 # ====== 8. CHACHA_MEMORY.md 永久记忆 ======
+
 
 def test_permanent_memory_in_protected_zone(state):
     """永久记忆在 protected zone 中"""
@@ -186,6 +194,7 @@ def test_permanent_memory_after_system(state):
 
 # ====== 9. MEMORY.md 条件注入 ======
 
+
 def test_memory_index_always_in_dynamic(state):
     """v3.0: MEMORY.md 常驻动态区，不依赖 history_trimmed"""
     mgr = ContextManager()
@@ -197,6 +206,7 @@ def test_memory_index_always_in_dynamic(state):
 
 
 # ====== 10. set_static_rules ======
+
 
 def test_set_static_rules(state):
     mgr = ContextManager()
@@ -211,6 +221,7 @@ def test_set_static_rules(state):
 
 
 # ====== 11. 完整上下文排序 ======
+
 
 def test_full_context_ordering(state):
     """v3.0 顺序: SYSTEM → PERMANENT → SKILL → MEMORY(条件) → HISTORY → TOOL"""
@@ -246,6 +257,7 @@ def test_full_context_ordering(state):
 
 # ====== 12. 无永久记忆不报错 ======
 
+
 def test_no_permanent_memory_no_error(state):
     """不设置永久记忆时，上下文正常组装"""
     mgr = ContextManager()
@@ -254,6 +266,7 @@ def test_no_permanent_memory_no_error(state):
 
 
 # ====== 13. get_messages ======
+
 
 def test_get_messages_direct(state):
     mgr = ContextManager()

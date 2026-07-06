@@ -55,8 +55,7 @@ class CheckpointManager:
             role = m.get("role")
             if role == "tool":
                 continue
-            entry = {k: v for k, v in m.items()
-                     if k not in ("tool_calls", "reasoning_content")}
+            entry = {k: v for k, v in m.items() if k not in ("tool_calls", "reasoning_content")}
             trimmed.append(entry)
 
         data = {
@@ -111,13 +110,15 @@ class CheckpointManager:
         for f in sorted(cp_dir.glob("*.json")):
             try:
                 data = json.loads(f.read_text(encoding="utf-8"))
-                result.append({
-                    "checkpoint_id": f.stem,
-                    "session_id": data.get("session_id"),
-                    "message_count": data.get("message_count", 0),
-                    "description": data.get("description"),
-                    "saved_at": data.get("saved_at", ""),
-                })
+                result.append(
+                    {
+                        "checkpoint_id": f.stem,
+                        "session_id": data.get("session_id"),
+                        "message_count": data.get("message_count", 0),
+                        "description": data.get("description"),
+                        "saved_at": data.get("saved_at", ""),
+                    }
+                )
             except Exception:
                 continue
         return result

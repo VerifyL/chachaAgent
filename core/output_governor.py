@@ -28,38 +28,44 @@ from typing import Any, List, Optional, Tuple
 
 # ========================= 块类型与修复置信度 =========================
 
+
 class BlockType(str, Enum):
     """流式内容块类型"""
-    TEXT = "text"          # 纯文本输出 → 透传
+
+    TEXT = "text"  # 纯文本输出 → 透传
     TOOL_USE = "tool_use"  # 工具调用 JSON → 缓冲累积后修复
     THINKING = "thinking"  # 思考过程 → 透传（不缓冲）
 
 
 class RepairConfidence(str, Enum):
     """JSON 修复置信度"""
-    HIGH = "high"        # 仅补括号 → 几乎确定正确
-    MEDIUM = "medium"    # 截断/去尾逗号 → 可能丢失了部分参数
-    LOW = "low"          # 补引号/其他 → 修复不精确
-    FAILED = "failed"    # 完全不可修复 → 需 LLM 自愈
+
+    HIGH = "high"  # 仅补括号 → 几乎确定正确
+    MEDIUM = "medium"  # 截断/去尾逗号 → 可能丢失了部分参数
+    LOW = "low"  # 补引号/其他 → 修复不精确
+    FAILED = "failed"  # 完全不可修复 → 需 LLM 自愈
 
 
 @dataclass
 class FlushResult:
     """flush() 返回的完整结果"""
-    output: str                           # 修复后的文本
-    repaired: bool                        # 是否进行了修复
-    confidence: RepairConfidence          # 修复置信度
-    needs_llm_fix: bool                   # 是否需要 LLM 自愈
+
+    output: str  # 修复后的文本
+    repaired: bool  # 是否进行了修复
+    confidence: RepairConfidence  # 修复置信度
+    needs_llm_fix: bool  # 是否需要 LLM 自愈
 
 
 # ========================= 非法内容规则 =========================
 
+
 @dataclass
 class ContentRule:
     """非法内容匹配规则"""
-    pattern: str                           # 正则表达式
-    description: str                       # 规则说明
-    severity: str = "block"                # block | warn | sanitize
+
+    pattern: str  # 正则表达式
+    description: str  # 规则说明
+    severity: str = "block"  # block | warn | sanitize
 
 
 # 默认规则集（可扩展）
@@ -76,13 +82,15 @@ DEFAULT_CONTENT_RULES = [
 
 # ========================= JSON 修复器 =========================
 
+
 @dataclass
 class JSONRepairState:
     """JSON 修复状态机"""
-    depth: int = 0                         # {} 嵌套深度
-    array_depth: int = 0                   # [] 嵌套深度
-    in_string: bool = False                # 是否在字符串内
-    escape_next: bool = False              # 下一个字符是否被转义
+
+    depth: int = 0  # {} 嵌套深度
+    array_depth: int = 0  # [] 嵌套深度
+    in_string: bool = False  # 是否在字符串内
+    escape_next: bool = False  # 下一个字符是否被转义
     buffer: List[str] = field(default_factory=list)
 
     def reset(self) -> None:
@@ -99,7 +107,7 @@ class JSONRepairState:
             self.escape_next = False
             return
 
-        if char == '\\' and self.in_string:
+        if char == "\\" and self.in_string:
             self.escape_next = True
             return
 
@@ -110,13 +118,13 @@ class JSONRepairState:
         if self.in_string:
             return
 
-        if char == '{':
+        if char == "{":
             self.depth += 1
-        elif char == '}':
+        elif char == "}":
             self.depth -= 1
-        elif char == '[':
+        elif char == "[":
             self.array_depth += 1
-        elif char == ']':
+        elif char == "]":
             self.array_depth -= 1
 
     @property
@@ -126,6 +134,7 @@ class JSONRepairState:
 
 
 # ========================= 输出治理器 =========================
+
 
 class OutputGovernor:
     """
@@ -193,7 +202,7 @@ class OutputGovernor:
                 if block_type == BlockType.THINKING:
                     # ThinkingBlock：透传不缓冲
                     self._block_type = BlockType.THINKING
-                    new_text = "".join(self._full_text)[self._output_len:]
+                    new_text = "".join(self._full_text)[self._output_len :]
                     output = self._filter_content(new_text)
                     self._output_len = len("".join(self._full_text))
                     return output if output else None
@@ -202,7 +211,7 @@ class OutputGovernor:
                 self._block_type = BlockType.TOOL_USE
                 self._collecting_json = True
                 self._json_start = start
-                prefix = "".join(self._full_text)[self._output_len:start]
+                prefix = "".join(self._full_text)[self._output_len : start]
                 self._output_len = start
                 text_after = "".join(self._full_text)[start:]
                 self._json_state.reset()
@@ -212,14 +221,14 @@ class OutputGovernor:
 
         if self._collecting_json:
             # 累积 JSON，不输出
-            text_after_json = "".join(self._full_text)[self._json_start:]
+            text_after_json = "".join(self._full_text)[self._json_start :]
             self._json_state.reset()
             for ch in text_after_json:
                 self._json_state.feed(ch)
             return None
 
         # 普通文本：检查非法内容后输出
-        new_text = "".join(self._full_text)[self._output_len:]
+        new_text = "".join(self._full_text)[self._output_len :]
         output = self._filter_content(new_text)
         self._output_len = len("".join(self._full_text))
         return output if output else None
@@ -233,7 +242,7 @@ class OutputGovernor:
         full = "".join(self._full_text)
 
         if self._collecting_json and self._json_start >= 0:
-            json_text = full[self._json_start:]
+            json_text = full[self._json_start :]
             repaired, confidence = self._repair_json(json_text)
             self._output_len = len(full)
             self._collecting_json = False
@@ -253,7 +262,7 @@ class OutputGovernor:
             )
 
         # 输出剩余文本
-        remaining = full[self._output_len:]
+        remaining = full[self._output_len :]
         self._output_len = len(full)
         return FlushResult(
             output=remaining,
@@ -327,21 +336,21 @@ class OutputGovernor:
                 # 跳过字符串
                 i += 1
                 while i < len(text):
-                    if text[i] == '\\':
+                    if text[i] == "\\":
                         i += 2
                         continue
                     if text[i] == '"':
                         break
                     i += 1
-            elif ch == '{':
-                stack.append('}')
-            elif ch == '[':
-                stack.append(']')
-            elif ch == '}':
-                if stack and stack[-1] == '}':
+            elif ch == "{":
+                stack.append("}")
+            elif ch == "[":
+                stack.append("]")
+            elif ch == "}":
+                if stack and stack[-1] == "}":
                     stack.pop()
-            elif ch == ']':
-                if stack and stack[-1] == ']':
+            elif ch == "]":
+                if stack and stack[-1] == "]":
                     stack.pop()
             i += 1
 
@@ -367,20 +376,20 @@ class OutputGovernor:
             if escape:
                 escape = False
                 continue
-            if ch == '\\':
+            if ch == "\\":
                 escape = True
                 continue
             if ch == '"':
                 in_str = not in_str
                 continue
-            if not in_str and ch == ',':
+            if not in_str and ch == ",":
                 last_complete = i
                 break
 
         if last_complete > 0:
             prefix = text[:last_complete].rstrip()
             # 只有当前缀以 } 结尾时才截断（避免截断到字符串内的逗号）
-            if prefix.endswith('"') or prefix.endswith('}') or prefix.endswith(']'):
+            if prefix.endswith('"') or prefix.endswith("}") or prefix.endswith("]"):
                 return prefix
 
         return text
@@ -392,10 +401,10 @@ class OutputGovernor:
             return text
         # 如果最后一个非空白字符是反斜杠，追加一个转义引号
         stripped = text.rstrip()
-        if stripped.endswith('\\'):
+        if stripped.endswith("\\"):
             return text.rstrip()[:-1] + '"'
         # 如果最后一个字符不在闭合字符集中且不是引号，追加引号
-        if stripped[-1] not in ('}', ']', '"'):
+        if stripped[-1] not in ("}", "]", '"'):
             # 检查是否在字符串中
             in_str = False
             escape = False
@@ -403,7 +412,7 @@ class OutputGovernor:
                 if escape:
                     escape = False
                     continue
-                if ch == '\\':
+                if ch == "\\":
                     escape = True
                     continue
                 if ch == '"':
@@ -419,7 +428,7 @@ class OutputGovernor:
         例: '{"a": 1,}' → '{"a": 1}'
         """
         stripped = text.rstrip()
-        if stripped.endswith(','):
+        if stripped.endswith(","):
             return stripped[:-1].rstrip()
         return text
 
@@ -499,9 +508,7 @@ class OutputGovernor:
 
     def remove_rule(self, pattern: str) -> None:
         """移除内容规则"""
-        self._content_rules = [
-            r for r in self._content_rules if r.pattern != pattern
-        ]
+        self._content_rules = [r for r in self._content_rules if r.pattern != pattern]
 
     @property
     def buffer_size(self) -> int:

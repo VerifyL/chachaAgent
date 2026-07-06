@@ -100,5 +100,6 @@ web_enabled = false
     print("您现在可以运行 'chacha' 或 'python main.py' 启动 Agent。")
     print(f"如需调整配置，请编辑 {config_file}。")
 
+
 if __name__ == "__main__":
     main()

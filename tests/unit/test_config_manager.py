@@ -384,6 +384,7 @@ def test_watch_callback(minimal_toml: Path):
         mgr.start_watch()
 
         from watchdog.events import FileModifiedEvent
+
         _event = FileModifiedEvent(str(minimal_toml.resolve()))
         mgr.reload = MagicMock(return_value=mgr._config)
         for cb in mgr._watch_callbacks:

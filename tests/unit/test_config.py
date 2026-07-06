@@ -55,7 +55,7 @@ def full_config_dict() -> Dict[str, Any]:
                     "supports_vision": True,
                     "cost_per_1k_input": 0.015,
                     "cost_per_1k_output": 0.075,
-                }
+                },
             },
             "router_strategy": "cost",
             "fallback_chain": ["default", "claude"],
@@ -106,7 +106,7 @@ def full_config_dict() -> Dict[str, Any]:
             "web_host": "0.0.0.0",
             "web_port": 8081,
             "web_auth_required": True,
-        }
+        },
     }
 
 
@@ -186,111 +186,131 @@ def test_full_config_parsing(full_config_dict):
 def test_project_id_validation_invalid_characters():
     """测试 project_id 不允许包含路径分隔符等非法字符"""
     with pytest.raises(ValidationError) as exc:
-        ChaChaConfig.model_validate({
-            "model": {"providers": {"default": {"provider": "openai", "default_model": "gpt-4"}}},
-            "project_id": "my/project"
-        })
+        ChaChaConfig.model_validate(
+            {
+                "model": {"providers": {"default": {"provider": "openai", "default_model": "gpt-4"}}},
+                "project_id": "my/project",
+            }
+        )
     assert "project_id 不能包含路径特殊字符" in str(exc.value)
 
     with pytest.raises(ValidationError) as exc:
-        ChaChaConfig.model_validate({
-            "model": {"providers": {"default": {"provider": "openai", "default_model": "gpt-4"}}},
-            "project_id": "my\\project"
-        })
+        ChaChaConfig.model_validate(
+            {
+                "model": {"providers": {"default": {"provider": "openai", "default_model": "gpt-4"}}},
+                "project_id": "my\\project",
+            }
+        )
     assert "project_id 不能包含路径特殊字符" in str(exc.value)
 
 
 def test_project_id_validation_accepts_valid():
     """测试合法的 project_id 可以通过"""
-    config = ChaChaConfig.model_validate({
-        "model": {"providers": {"default": {"provider": "openai", "default_model": "gpt-4"}}},
-        "project_id": "my-project_123"
-    })
+    config = ChaChaConfig.model_validate(
+        {
+            "model": {"providers": {"default": {"provider": "openai", "default_model": "gpt-4"}}},
+            "project_id": "my-project_123",
+        }
+    )
     assert config.project_id == "my-project_123"
 
 
 def test_model_providers_not_empty():
     """测试必须至少配置一个模型提供商"""
     with pytest.raises(ValidationError) as exc:
-        ChaChaConfig.model_validate({
-            "model": {"providers": {}}
-        })
+        ChaChaConfig.model_validate({"model": {"providers": {}}})
     assert "必须至少配置一个模型提供商" in str(exc.value)
 
 
 def test_model_router_strategy_enum():
     """测试 router_strategy 只能为允许的枚举值"""
     with pytest.raises(ValidationError):
-        ChaChaConfig.model_validate({
-            "model": {
-                "providers": {"default": {"provider": "openai", "default_model": "gpt-4"}},
-                "router_strategy": "invalid"
+        ChaChaConfig.model_validate(
+            {
+                "model": {
+                    "providers": {"default": {"provider": "openai", "default_model": "gpt-4"}},
+                    "router_strategy": "invalid",
+                }
             }
-        })
+        )
 
 
 def test_interface_cli_theme_enum():
     """测试 cli_theme 只能为允许的值"""
     with pytest.raises(ValidationError):
-        ChaChaConfig.model_validate({
-            "model": {"providers": {"default": {"provider": "openai", "default_model": "gpt-4"}}},
-            "interface": {"cli_theme": "blue"}
-        })
+        ChaChaConfig.model_validate(
+            {
+                "model": {"providers": {"default": {"provider": "openai", "default_model": "gpt-4"}}},
+                "interface": {"cli_theme": "blue"},
+            }
+        )
 
 
 # ========== 3. 边界值测试 ==========
 def test_cost_limit_zero_allowed():
     """cost_limit_dollars 可以为 0（表示不限制）"""
-    config = ChaChaConfig.model_validate({
-        "model": {"providers": {"default": {"provider": "openai", "default_model": "gpt-4"}}},
-        "policy": {"cost_limit_dollars": 0}
-    })
+    config = ChaChaConfig.model_validate(
+        {
+            "model": {"providers": {"default": {"provider": "openai", "default_model": "gpt-4"}}},
+            "policy": {"cost_limit_dollars": 0},
+        }
+    )
     assert config.policy.cost_limit_dollars == 0
 
 
 def test_cost_limit_negative_not_allowed():
     """cost_limit_dollars 不能为负数"""
     with pytest.raises(ValidationError):
-        ChaChaConfig.model_validate({
-            "model": {"providers": {"default": {"provider": "openai", "default_model": "gpt-4"}}},
-            "policy": {"cost_limit_dollars": -1}
-        })
+        ChaChaConfig.model_validate(
+            {
+                "model": {"providers": {"default": {"provider": "openai", "default_model": "gpt-4"}}},
+                "policy": {"cost_limit_dollars": -1},
+            }
+        )
 
 
 def test_timeout_seconds_boundary():
     """timeout_seconds 必须在 1~3600 之间"""
     with pytest.raises(ValidationError):
-        ChaChaConfig.model_validate({
-            "model": {"providers": {"default": {"provider": "openai", "default_model": "gpt-4"}}},
-            "sandbox": {"timeout_seconds": 0}
-        })
+        ChaChaConfig.model_validate(
+            {
+                "model": {"providers": {"default": {"provider": "openai", "default_model": "gpt-4"}}},
+                "sandbox": {"timeout_seconds": 0},
+            }
+        )
     with pytest.raises(ValidationError):
-        ChaChaConfig.model_validate({
-            "model": {"providers": {"default": {"provider": "openai", "default_model": "gpt-4"}}},
-            "sandbox": {"timeout_seconds": 4000}
-        })
+        ChaChaConfig.model_validate(
+            {
+                "model": {"providers": {"default": {"provider": "openai", "default_model": "gpt-4"}}},
+                "sandbox": {"timeout_seconds": 4000},
+            }
+        )
 
 
 def test_compression_trigger_ratio_boundary():
     """compression_trigger_ratio 必须在 0.5~1.0 之间"""
     with pytest.raises(ValidationError):
-        ChaChaConfig.model_validate({
-            "model": {"providers": {"default": {"provider": "openai", "default_model": "gpt-4"}}},
-            "context": {"compression_trigger_ratio": 0.4}
-        })
+        ChaChaConfig.model_validate(
+            {
+                "model": {"providers": {"default": {"provider": "openai", "default_model": "gpt-4"}}},
+                "context": {"compression_trigger_ratio": 0.4},
+            }
+        )
     with pytest.raises(ValidationError):
-        ChaChaConfig.model_validate({
-            "model": {"providers": {"default": {"provider": "openai", "default_model": "gpt-4"}}},
-            "context": {"compression_trigger_ratio": 1.1}
-        })
+        ChaChaConfig.model_validate(
+            {
+                "model": {"providers": {"default": {"provider": "openai", "default_model": "gpt-4"}}},
+                "context": {"compression_trigger_ratio": 1.1},
+            }
+        )
 
 
 # ========== 4. 多模态预留字段测试 ==========
 def test_multimodal_defaults():
     """多模态配置默认值为关闭状态"""
-    config = ChaChaConfig.model_validate({
-        "model": {"providers": {"default": {"provider": "openai", "default_model": "gpt-4"}}}
-    })
+    config = ChaChaConfig.model_validate(
+        {"model": {"providers": {"default": {"provider": "openai", "default_model": "gpt-4"}}}}
+    )
     assert config.multimodal.enabled is False
     assert config.multimodal.vision_model is None
     assert config.multimodal.max_image_size_mb == 10
@@ -299,15 +319,17 @@ def test_multimodal_defaults():
 
 def test_multimodal_enabled_custom():
     """可以显式启用多模态并设置自定义参数"""
-    config = ChaChaConfig.model_validate({
-        "model": {"providers": {"default": {"provider": "openai", "default_model": "gpt-4"}}},
-        "multimodal": {
-            "enabled": True,
-            "vision_model": "custom-vision",
-            "max_image_size_mb": 50,
-            "enable_ocr_fallback": False
+    config = ChaChaConfig.model_validate(
+        {
+            "model": {"providers": {"default": {"provider": "openai", "default_model": "gpt-4"}}},
+            "multimodal": {
+                "enabled": True,
+                "vision_model": "custom-vision",
+                "max_image_size_mb": 50,
+                "enable_ocr_fallback": False,
+            },
         }
-    })
+    )
     assert config.multimodal.enabled is True
     assert config.multimodal.vision_model == "custom-vision"
     assert config.multimodal.max_image_size_mb == 50
@@ -317,33 +339,23 @@ def test_multimodal_enabled_custom():
 # ========== 5. 复杂嵌套场景 ==========
 def test_complex_nested_with_missing_optional():
     """测试部分可选字段缺失时，解析仍能通过"""
-    config = ChaChaConfig.model_validate({
-        "model": {
-            "providers": {
-                "default": {"provider": "openai", "default_model": "gpt-4"}
-            }
-        },
-        "sandbox": {
-            # 未提供 allowed_commands，应使用默认列表
+    config = ChaChaConfig.model_validate(
+        {
+            "model": {"providers": {"default": {"provider": "openai", "default_model": "gpt-4"}}},
+            "sandbox": {
+                # 未提供 allowed_commands，应使用默认列表
+            },
         }
-    })
+    )
     # 默认的 allowed_commands 应为预定义列表
     assert config.sandbox.allowed_commands == ["ls", "cat", "grep", "python", "pytest", "git", "echo", "head", "tail"]
 
 
 def test_provider_api_key_as_secret():
     """api_key 应存储为 SecretStr，打印时隐藏"""
-    config = ChaChaConfig.model_validate({
-        "model": {
-            "providers": {
-                "default": {
-                    "provider": "openai",
-                    "default_model": "gpt-4",
-                    "api_key": "sk-12345"
-                }
-            }
-        }
-    })
+    config = ChaChaConfig.model_validate(
+        {"model": {"providers": {"default": {"provider": "openai", "default_model": "gpt-4", "api_key": "sk-12345"}}}}
+    )
     api_key = config.model.providers["default"].api_key
     assert api_key is not None
     assert str(api_key) != "sk-12345"  # 应被隐藏
@@ -354,21 +366,25 @@ def test_provider_api_key_as_secret():
 def test_extra_fields_forbidden():
     """配置中包含未定义的字段应报错"""
     with pytest.raises(ValidationError) as exc:
-        ChaChaConfig.model_validate({
-            "model": {"providers": {"default": {"provider": "openai", "default_model": "gpt-4"}}},
-            "unknown_field": "value"
-        })
+        ChaChaConfig.model_validate(
+            {
+                "model": {"providers": {"default": {"provider": "openai", "default_model": "gpt-4"}}},
+                "unknown_field": "value",
+            }
+        )
     assert "Extra inputs are not permitted" in str(exc.value)
 
 
 # ========== 7. 类型转换测试 ==========
 def test_path_coercion():
     """字符串路径应自动转换为 Path 对象"""
-    config = ChaChaConfig.model_validate({
-        "model": {"providers": {"default": {"provider": "openai", "default_model": "gpt-4"}}},
-        "telemetry": {
-            "log_dir": "some/logs",
+    config = ChaChaConfig.model_validate(
+        {
+            "model": {"providers": {"default": {"provider": "openai", "default_model": "gpt-4"}}},
+            "telemetry": {
+                "log_dir": "some/logs",
+            },
         }
-    })
+    )
     assert isinstance(config.telemetry.log_dir, Path)
     assert config.telemetry.log_dir == Path("some/logs")

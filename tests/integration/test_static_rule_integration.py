@@ -15,6 +15,7 @@ from core.models.session import ConversationState, MessageEvent, SessionMetadata
 
 # ====== Fixtures ======
 
+
 @pytest.fixture
 def project():
     d = Path(tempfile.mkdtemp())
@@ -35,8 +36,8 @@ def test_real_chacha_load(project):
     rules = loader.load(sub_dir="src")
 
     assert "Python 3.11+" in rules  # 项目级
-    assert "ruff 格式化" in rules   # @import
-    assert "禁止 print" in rules    # src 子目录
+    assert "ruff 格式化" in rules  # @import
+    assert "禁止 print" in rules  # src 子目录
 
 
 def test_context_manager_uses_static_rules(project):

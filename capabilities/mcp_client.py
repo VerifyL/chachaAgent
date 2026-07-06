@@ -26,8 +26,8 @@ from mcp import ClientSession
 logger = logging.getLogger(__name__)
 
 # 进程生命周期常量
-_CONNECT_TIMEOUT = 15.0       # initialize 超时（秒）
-_CALL_TIMEOUT = 60.0          # tools/call 超时（秒）
+_CONNECT_TIMEOUT = 15.0  # initialize 超时（秒）
+_CALL_TIMEOUT = 60.0  # tools/call 超时（秒）
 
 # 缓存
 CACHE_PATH = Path.home() / ".chacha" / "mcp_tools_cache.json"
@@ -71,7 +71,8 @@ def _write_cache(config_hash: str, servers_data: dict) -> None:
         "cached_at": datetime.now(timezone.utc).isoformat(),
     }
     CACHE_PATH.write_text(
-        json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8",
+        json.dumps(cache, ensure_ascii=False, indent=2),
+        encoding="utf-8",
     )
 
 
@@ -128,8 +129,7 @@ class MCPClient:
                         cached = None  # 当作缓存 miss
                     else:
                         age_left = age - (datetime.now(timezone.utc) - parsed)
-                        logger.info("[mcp] 缓存未过期（剩余 %ds），使用缓存",
-                                    int(age_left.total_seconds()))
+                        logger.info("[mcp] 缓存未过期（剩余 %ds），使用缓存", int(age_left.total_seconds()))
                 except Exception:
                     pass
         if cached and cached.get("config_hash") == self._config_hash:
@@ -137,12 +137,14 @@ class MCPClient:
             self._cached_servers = cached.get("servers", {})
             self._connected = True
             logger.info(
-                "[mcp] 缓存命中，%d server 工具从缓存加载", len(self._cached_servers),
+                "[mcp] 缓存命中，%d server 工具从缓存加载",
+                len(self._cached_servers),
             )
             return True
 
         # 缓存未命中：正常连接
         self._from_cache = False
+
         async def _connect_safe(name, cfg):
             try:
                 await self._connect_one(name, cfg)
@@ -151,9 +153,7 @@ class MCPClient:
                 logger.error("[mcp] %s 连接失败: %s", name, e)
                 return False
 
-        results = await asyncio.gather(*[
-            _connect_safe(name, cfg) for name, cfg in self._server_configs.items()
-        ])
+        results = await asyncio.gather(*[_connect_safe(name, cfg) for name, cfg in self._server_configs.items()])
         success_count = sum(results)
 
         if success_count == 0 and self._server_configs:
@@ -169,9 +169,7 @@ class MCPClient:
         """断开所有连接。"""
         for name in list(self._sessions.keys()):
             try:
-                await self._sessions[name].send_notification(
-                    {"jsonrpc": "2.0", "method": "notifications/shutdown"}
-                )
+                await self._sessions[name].send_notification({"jsonrpc": "2.0", "method": "notifications/shutdown"})
             except Exception:
                 pass
         self._sessions.clear()
@@ -214,9 +212,7 @@ class MCPClient:
             try:
                 result = await self._sessions[name].list_tools()
                 raw_schemas = [
-                    {"name": t.name, "description": t.description,
-                     "inputSchema": t.inputSchema}
-                    for t in result.tools
+                    {"name": t.name, "description": t.description, "inputSchema": t.inputSchema} for t in result.tools
                 ]
             except Exception as e:
                 logger.warning("[mcp] %s tools/list 失败: %s", name, e)
@@ -226,19 +222,19 @@ class MCPClient:
             adapters = []
             for schema in filtered:
                 try:
-                    adapters.append(MCPToolAdapter(
-                        mcp_client=self, server_name=name, tool_schema=schema,
-                    ))
+                    adapters.append(
+                        MCPToolAdapter(
+                            mcp_client=self,
+                            server_name=name,
+                            tool_schema=schema,
+                        )
+                    )
                 except Exception as e:
-                    logger.warning("[mcp] %s 工具 %s 包装失败: %s",
-                                   name, schema.get("name", "?"), e)
-            logger.info("[mcp] %s: %d/%d tools injected", name,
-                        len(filtered), len(raw_schemas))
+                    logger.warning("[mcp] %s 工具 %s 包装失败: %s", name, schema.get("name", "?"), e)
+            logger.info("[mcp] %s: %d/%d tools injected", name, len(filtered), len(raw_schemas))
             return name, raw_schemas, adapters
 
-        results = await asyncio.gather(*[
-            _get_one(name) for name in self._sessions
-        ])
+        results = await asyncio.gather(*[_get_one(name) for name in self._sessions])
         all_tools = []
         servers_data = {}
         for name, raw_schemas, adapters in results:
@@ -261,18 +257,20 @@ class MCPClient:
             for raw in srv_data.get("tools", []):
                 try:
                     adapter = MCPToolAdapter(
-                        mcp_client=self, server_name=server_name, tool_schema=raw,
+                        mcp_client=self,
+                        server_name=server_name,
+                        tool_schema=raw,
                     )
                     all_adapters.append(adapter)
                 except Exception as e:
-                    logger.warning("[mcp] %s 工具 %s 缓存恢复失败: %s",
-                                   server_name, raw.get("name", "?"), e)
+                    logger.warning("[mcp] %s 工具 %s 缓存恢复失败: %s", server_name, raw.get("name", "?"), e)
         self._apply_conflict_resolution(all_adapters)
         return all_adapters
 
     @staticmethod
     def _apply_conflict_resolution(adapters: List) -> None:
         from collections import Counter
+
         names = [a.name for a in adapters]
         conflicts = {n for n, c in Counter(names).items() if c > 1}
         if not conflicts:
@@ -297,7 +295,10 @@ class MCPClient:
     # ====== 工具调用 ======
 
     async def call_tool(
-        self, server_name: str, tool_name: str, arguments: Dict[str, Any],
+        self,
+        server_name: str,
+        tool_name: str,
+        arguments: Dict[str, Any],
     ) -> "ToolResult":  # noqa: F821
         """调用指定 MCP server 的工具。"""
         from capabilities.result import ToolResult
@@ -310,15 +311,19 @@ class MCPClient:
             if self._bg_client:
                 return await self._bg_client.call_tool(server_name, tool_name, arguments)
             return ToolResult(
-                status="error", content="",
-                error=f"MCP server '{server_name}' 后台连接失败", error_type="unknown",
+                status="error",
+                content="",
+                error=f"MCP server '{server_name}' 后台连接失败",
+                error_type="unknown",
             )
 
         session = self._sessions.get(server_name)
         if session is None:
             return ToolResult(
-                status="error", content="",
-                error=f"MCP server '{server_name}' 未连接", error_type="unknown",
+                status="error",
+                content="",
+                error=f"MCP server '{server_name}' 未连接",
+                error_type="unknown",
             )
 
         cfg = self._server_configs.get(server_name)
@@ -333,30 +338,32 @@ class MCPClient:
             )
         except asyncio.TimeoutError:
             return ToolResult(
-                status="error", content="",
+                status="error",
+                content="",
                 error=f"MCP 调用超时 ({timeout}s): {server_name}/{tool_name}",
                 error_type="timeout",
             )
-        except (ConnectionResetError, BrokenPipeError, EOFError,
-                ConnectionRefusedError, ConnectionError) as e:
+        except (ConnectionResetError, BrokenPipeError, EOFError, ConnectionRefusedError, ConnectionError) as e:
             # 连接已彻底断开 → 移除该 server 的所有工具，避免 LLM 反复尝试
             self._remove_server_tools(server_name, e)
             return ToolResult(
-                status="error", content="",
+                status="error",
+                content="",
                 error=f"MCP server '{server_name}' 连接断开，已移除其工具: {e}",
                 error_type="connection_lost",
             )
         except Exception as e:
             logger.error("[mcp] call_tool %s/%s 异常: %s", server_name, tool_name, e)
             return ToolResult(
-                status="error", content="",
+                status="error",
+                content="",
                 error=f"MCP 调用失败 ({server_name}/{tool_name}): {type(e).__name__}: {e}",
                 error_type="mcp_error",
             )
 
         # SDK 返回 CallToolResult，其 content 是 list[TextContent|ImageContent|...]
         parts = []
-        for item in (result.content or []):
+        for item in result.content or []:
             if hasattr(item, "text"):
                 parts.append(item.text)
             elif item.type == "image":
@@ -368,7 +375,8 @@ class MCPClient:
         content = "\n".join(parts)
 
         return ToolResult(
-            status="success", content=content,
+            status="success",
+            content=content,
             data={"server": server_name, "tool": tool_name},
         )
 
@@ -389,13 +397,18 @@ class MCPClient:
         if removed:
             logger.warning(
                 "[mcp] %s 连接断开 (%s: %s)，已从 ToolExecutor 移除 %d 个工具: %s",
-                server_name, type(error).__name__, error,
-                len(removed), ", ".join(removed),
+                server_name,
+                type(error).__name__,
+                error,
+                len(removed),
+                ", ".join(removed),
             )
         else:
             logger.warning(
                 "[mcp] %s 连接断开 (%s: %s)，但没有找到对应的注册工具",
-                server_name, type(error).__name__, error,
+                server_name,
+                type(error).__name__,
+                error,
             )
 
     # ====== 重连 ======
@@ -409,8 +422,10 @@ class MCPClient:
         from capabilities.mcp.adapter import MCPToolAdapter
 
         result: Dict[str, Any] = {
-            "server": server_name, "reconnected": False,
-            "tools_restored": 0, "error": None,
+            "server": server_name,
+            "reconnected": False,
+            "tools_restored": 0,
+            "error": None,
         }
 
         if server_name not in self._server_configs:
@@ -423,9 +438,7 @@ class MCPClient:
         old_session = self._sessions.pop(server_name, None)
         if old_session:
             try:
-                await old_session.send_notification(
-                    {"jsonrpc": "2.0", "method": "notifications/shutdown"}
-                )
+                await old_session.send_notification({"jsonrpc": "2.0", "method": "notifications/shutdown"})
             except Exception:
                 pass
 
@@ -459,9 +472,7 @@ class MCPClient:
             session = self._sessions[server_name]
             list_result = await session.list_tools()
             raw_schemas = [
-                {"name": t.name, "description": t.description,
-                 "inputSchema": t.inputSchema}
-                for t in list_result.tools
+                {"name": t.name, "description": t.description, "inputSchema": t.inputSchema} for t in list_result.tools
             ]
             filtered = self._filter_tools(server_name, raw_schemas)
 
@@ -469,14 +480,17 @@ class MCPClient:
             for schema in filtered:
                 try:
                     adapter = MCPToolAdapter(
-                        mcp_client=self, server_name=server_name,
+                        mcp_client=self,
+                        server_name=server_name,
                         tool_schema=schema,
                     )
                     adapters.append(adapter)
                 except Exception as e:
                     logger.warning(
                         "[mcp] %s 工具 %s 包装失败: %s",
-                        server_name, schema.get("name", "?"), e,
+                        server_name,
+                        schema.get("name", "?"),
+                        e,
                     )
         except Exception as e:
             logger.error("[mcp] %s 工具发现失败: %s", server_name, e)
@@ -495,7 +509,8 @@ class MCPClient:
             if removed:
                 logger.info(
                     "[mcp] 重连: 移除 %d 个旧工具: %s",
-                    len(removed), ", ".join(removed),
+                    len(removed),
+                    ", ".join(removed),
                 )
             for adapter in adapters:
                 self._tool_executor.register(adapter)
@@ -503,7 +518,8 @@ class MCPClient:
         result["tools_restored"] = len(adapters)
         logger.info(
             "[mcp] %s 重连成功，恢复 %d 个工具",
-            server_name, len(adapters),
+            server_name,
+            len(adapters),
         )
 
         return result
@@ -550,8 +566,7 @@ class MCPClient:
 
         self._bg_client = bg
         self._bg_ready.set()
-        logger.info("[mcp] 后台连接完成: %d tools (新增 %d, 移除 %d)",
-                     len(fresh_tools), len(added), len(removed))
+        logger.info("[mcp] 后台连接完成: %d tools (新增 %d, 移除 %d)", len(fresh_tools), len(added), len(removed))
 
     # ====== 过滤逻辑 ======
 
@@ -563,9 +578,7 @@ class MCPClient:
         exclude = getattr(cfg, "exclude", None)
 
         if include is not None and exclude is not None:
-            raise MCPClientError(
-                f"[mcp] {server_name}: include 和 exclude 不能同时配置"
-            )
+            raise MCPClientError(f"[mcp] {server_name}: include 和 exclude 不能同时配置")
         all_names = {t["name"] for t in tools}
         if include is not None:
             missing = set(include) - all_names
@@ -643,7 +656,7 @@ class MCPClient:
             args=args,
             env=env_vars if env_vars else None,
         )
-        cm = stdio_client(server_params, errlog=open(os.devnull, 'w'))
+        cm = stdio_client(server_params, errlog=open(os.devnull, "w"))
         self._transport_cms[name] = cm
         read, write = await cm.__aenter__()
         session = await ClientSession(read, write).__aenter__()

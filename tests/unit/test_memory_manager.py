@@ -40,6 +40,7 @@ def _write_to_date(mgr, date_str: str, content: str):
 
 # ====== 读写 ======
 
+
 def test_remember_and_read_today(mgr):
     mgr.remember("用户偏好 Python 3.11")
     today = mgr._today_str()
@@ -61,6 +62,7 @@ def test_list_days(mgr):
 
 
 # ====== 搜索 ======
+
 
 def test_search_finds_across_dates(mgr):
     _write_to_date(mgr, "2026-01-10", "Python 项目配置")
@@ -87,8 +89,8 @@ def test_search_respects_limit(mgr):
     assert result.count("---") <= 5
 
 
-
 # ====== 永久记忆 CHACHA_MEMORY.md ======
+
 
 def test_permanent_memory_write_and_read(mgr):
     """写入并读取 CHACHA_MEMORY.md"""
@@ -121,6 +123,7 @@ def test_permanent_memory_session_independent(mgr):
     mgr.write_permanent_memory("## Permanent\n- shared entry")
 
     from core.context.memory_manager import MemoryManager
+
     mgr2 = MemoryManager(
         project_id="test",
         base_dir=mgr._project_dir.parents[1],
@@ -130,6 +133,7 @@ def test_permanent_memory_session_independent(mgr):
 
 
 # ====== Session 隔离存储 ======
+
 
 def test_session_memory_isolated(session_mgr):
     """Session 记忆写入 session 目录"""
@@ -152,6 +156,7 @@ def test_session_and_project_memory_separate(mgr, session_mgr):
 
 # ====== prune_old_days (7天) ======
 
+
 def test_prune_old_days_removes_old_files(mgr):
     """7 天前的文件被删除"""
     _write_to_date(mgr, "2000-01-01", "old memory")
@@ -166,6 +171,7 @@ def test_prune_old_days_removes_old_files(mgr):
 def test_prune_old_days_keeps_recent_files(mgr):
     """最近 7 天内的文件不被删除"""
     from datetime import datetime, timedelta, timezone
+
     today = datetime.now(tz=timezone.utc)
     recent = (today - timedelta(days=3)).strftime("%Y-%m-%d")
     _write_to_date(mgr, recent, "recent")

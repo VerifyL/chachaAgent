@@ -16,10 +16,24 @@ logger = logging.getLogger(__name__)
 
 # 副作用关键词：匹配到则标记为高风险 + 需审批
 _SIDE_EFFECT_KEYWORDS = [
-    "write", "delete", "remove", "execute", "run",
-    "create", "update", "insert", "drop", "alter",
-    "move", "rename", "chmod", "chown", "kill",
-    "deploy", "push", "publish",
+    "write",
+    "delete",
+    "remove",
+    "execute",
+    "run",
+    "create",
+    "update",
+    "insert",
+    "drop",
+    "alter",
+    "move",
+    "rename",
+    "chmod",
+    "chown",
+    "kill",
+    "deploy",
+    "push",
+    "publish",
 ]
 
 
@@ -32,7 +46,7 @@ class MCPToolAdapter(BaseTool):
 
     def __init__(
         self,
-        mcp_client: Any,       # MCPClient（避免循环导入）
+        mcp_client: Any,  # MCPClient（避免循环导入）
         server_name: str,
         tool_schema: Dict[str, Any],
     ):
@@ -73,9 +87,8 @@ class MCPToolAdapter(BaseTool):
         _apply_conflict_resolution 会调用此方法修改 name 以避免冲突。
         """
         import hashlib
-        suffix = hashlib.md5(
-            f"{self._server}_{self._tool_name}".encode()
-        ).hexdigest()[:6]
+
+        suffix = hashlib.md5(f"{self._server}_{self._tool_name}".encode()).hexdigest()[:6]
         self.name = f"{self.name}__dup_{suffix}"
 
     def __repr__(self) -> str:

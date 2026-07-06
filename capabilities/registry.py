@@ -26,39 +26,50 @@ def build_tools(
     """
     # ✅ read — 读取文件内容
     from capabilities.builtins.read_tool import ReadTool
+
     read_tool = ReadTool()
     # ✅ write — 创建/覆盖文件
     from capabilities.builtins.write_tool import WriteTool
+
     write_tool = WriteTool()
     # ✅ edit — 精确文本替换
     from capabilities.builtins.edit_tool import EditTool
+
     edit_tool = EditTool()
     # ✅ bash — 执行 shell 命令
     from capabilities.builtins.bash_tool import BashTool
+
     bash_tool = BashTool()
     # ✅ grep — 正则文本搜索
     from capabilities.builtins.grep_tool import GrepTool
+
     grep_tool = GrepTool()
     # ✅ glob — 按模式查找文件
     from capabilities.builtins.glob_tool import GlobTool
+
     glob_tool = GlobTool()
     # ✅ task — 委派子Agent 执行独立任务
     from capabilities.builtins.task_tool import TaskTool
+
     task_tool = TaskTool()
     if subagent_spawner:
         task_tool.configure(subagent_spawner=subagent_spawner)
     # ✅ memory — 管理项目记忆
     from capabilities.builtins.memory_tool import MemoryTool
+
     memory_tool = MemoryTool()
     memory_tool.memory_manager = memory_manager
     # ✅ cache_read — 续读被截断的缓存输出
     from capabilities.builtins.cache_read_tool import CacheReadTool
+
     cache_read_tool = CacheReadTool()
     # ✅ clock — 获取当前日期时间
     from capabilities.builtins.clock_tool import ClockTool
+
     clock_tool = ClockTool()
     # ✅ approval_control — 查询/设置审批旁路
     from capabilities.builtins.approval_control import ApprovalControl
+
     approval_control = ApprovalControl()
 
     tools = [
@@ -78,7 +89,7 @@ def build_tools(
     # 统一注入 project_root（之前仅 approval_control 有）
     if root is not None:
         for tool in tools:
-            if hasattr(tool, 'project_root'):
+            if hasattr(tool, "project_root"):
                 tool.project_root = root
 
     # 合并 MCP 工具（若有）

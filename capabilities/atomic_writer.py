@@ -34,34 +34,40 @@ LOCK_TIMEOUT = 5.0  # 文件锁超时（秒）
 
 try:
     import fcntl
+
     _HAS_FCNTL = True
 except ImportError:
-    _HAS_FCNTL = False   # Windows 回退 — 无锁
+    _HAS_FCNTL = False  # Windows 回退 — 无锁
 
 
 @dataclass
 class WriteResult:
     """写入结果摘要，返回给 LLM 的结构化反馈。"""
+
     ok: bool
     path: str
-    action: str                    # created | updated | appended
+    action: str  # created | updated | appended
     verified: bool
-    backup: Optional[str] = None   # 备份路径（仅项目文件）
-    preview: str = ""              # 前 N 字预览
+    backup: Optional[str] = None  # 备份路径（仅项目文件）
+    preview: str = ""  # 前 N 字预览
     error: Optional[str] = None
 
     def to_json_str(self) -> str:
         """单行 JSON，LLM 友好。"""
         import json as _json
-        return _json.dumps({
-            "ok": self.ok,
-            "path": self.path,
-            "action": self.action,
-            "verified": self.verified,
-            "backup": self.backup,
-            "preview": self.preview[:PREVIEW_LENGTH],
-            "error": self.error,
-        }, ensure_ascii=False)
+
+        return _json.dumps(
+            {
+                "ok": self.ok,
+                "path": self.path,
+                "action": self.action,
+                "verified": self.verified,
+                "backup": self.backup,
+                "preview": self.preview[:PREVIEW_LENGTH],
+                "error": self.error,
+            },
+            ensure_ascii=False,
+        )
 
 
 class AtomicWriter:
@@ -118,9 +124,13 @@ class AtomicWriter:
             tmp.unlink(missing_ok=True)
             logger.error("写入失败: %s → %s", path, e)
             return WriteResult(
-                ok=False, path=str(path), action=action,
-                verified=False, backup=str(backup_path) if backup_path else None,
-                preview="", error=str(e),
+                ok=False,
+                path=str(path),
+                action=action,
+                verified=False,
+                backup=str(backup_path) if backup_path else None,
+                preview="",
+                error=str(e),
             )
         finally:
             self._release_lock(lock_fd)
@@ -134,14 +144,19 @@ class AtomicWriter:
 
         logger.info(
             "写入完成: %s | 校验=%s | 备份=%s",
-            path.name, verified, backup_path,
+            path.name,
+            verified,
+            backup_path,
         )
 
         return WriteResult(
-            ok=True, path=str(path), action=action,
+            ok=True,
+            path=str(path),
+            action=action,
             verified=verified,
             backup=str(backup_path) if backup_path else None,
-            preview=preview, error=None,
+            preview=preview,
+            error=None,
         )
 
     def write_chunks(self, path: Path, chunks: list, backup: bool = True) -> WriteResult:
@@ -178,9 +193,13 @@ class AtomicWriter:
             tmp.unlink(missing_ok=True)
             logger.error("写入失败: %s → %s", path, e)
             return WriteResult(
-                ok=False, path=str(path), action=action,
-                verified=False, backup=str(backup_path) if backup_path else None,
-                preview="", error=str(e),
+                ok=False,
+                path=str(path),
+                action=action,
+                verified=False,
+                backup=str(backup_path) if backup_path else None,
+                preview="",
+                error=str(e),
             )
         finally:
             self._release_lock(lock_fd)
@@ -199,14 +218,19 @@ class AtomicWriter:
 
         logger.info(
             "写入完成(chunks): %s | 校验=%s | 备份=%s",
-            path.name, verified, backup_path,
+            path.name,
+            verified,
+            backup_path,
         )
 
         return WriteResult(
-            ok=True, path=str(path), action=action,
+            ok=True,
+            path=str(path),
+            action=action,
             verified=verified,
             backup=str(backup_path) if backup_path else None,
-            preview=preview, error=None,
+            preview=preview,
+            error=None,
         )
 
     def append(self, path: Path, entry: str) -> WriteResult:
@@ -335,8 +359,7 @@ class AtomicWriter:
                         except OSError:
                             pass
                     raise TimeoutError(
-                        f"无法获取文件锁 '{path.name}'，超时 {LOCK_TIMEOUT}s "
-                        f"(可能有其他进程正在写入同一文件)"
+                        f"无法获取文件锁 '{path.name}'，超时 {LOCK_TIMEOUT}s (可能有其他进程正在写入同一文件)"
                     )
                 time.sleep(0.1)
 
@@ -386,7 +409,7 @@ class AtomicWriter:
         hasher = hashlib.sha256()
         with tmp.open("wb") as f:
             for i in range(0, len(content_bytes), AtomicWriter._CHUNK_SIZE):
-                chunk = content_bytes[i:i + AtomicWriter._CHUNK_SIZE]
+                chunk = content_bytes[i : i + AtomicWriter._CHUNK_SIZE]
                 f.write(chunk)
                 hasher.update(chunk)
         if hasher.hexdigest() != expected:
@@ -406,5 +429,3 @@ class AtomicWriter:
             return path.stat().st_size == len(content_bytes)
         except Exception:
             return False
-
-

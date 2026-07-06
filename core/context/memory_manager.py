@@ -38,6 +38,7 @@ _TOPICS = [
     "project-progress",
 ]
 
+
 class MemoryManager:
     """按日期分散存储，支持搜索/去重/修剪。
 
@@ -62,9 +63,7 @@ class MemoryManager:
         if project_id:
             self._project_id = project_id
         elif project_root:
-            self._project_id = hashlib.sha256(
-                str(project_root.resolve()).encode()
-            ).hexdigest()[:12]
+            self._project_id = hashlib.sha256(str(project_root.resolve()).encode()).hexdigest()[:12]
         else:
             self._project_id = "default"
 
@@ -152,9 +151,7 @@ class MemoryManager:
         """列出所有已存在的主题名称。"""
         if not self._topics_dir.exists():
             return []
-        return sorted([
-            f.stem for f in self._topics_dir.glob("*.md")
-        ])
+        return sorted([f.stem for f in self._topics_dir.glob("*.md")])
 
     def all_topics_content(self) -> str:
         """收集所有主题文件内容（供 DreamPipeline 使用）。"""
@@ -174,7 +171,6 @@ class MemoryManager:
         path = self._index_path()
         return self._read(path)
 
-
     def read_recent_days(self, n_days: int = 3) -> str:
         """读取最近 N 天的会话记忆。"""
         if self._session_dir is None:
@@ -182,6 +178,7 @@ class MemoryManager:
         parts = []
         for i in range(n_days):
             from datetime import timedelta
+
             d = datetime.now(tz=timezone(timedelta(hours=8))) - timedelta(days=i)
             content = self.read_day(d.strftime("%Y-%m-%d"))
             if content.strip():
@@ -264,6 +261,7 @@ class MemoryManager:
     def delete_session(self, session_id: str) -> bool:
         """递归删除指定 session 目录及其所有内容。"""
         import shutil
+
         target = self._base / "sessions" / session_id
         if not target.exists():
             return False
@@ -275,7 +273,7 @@ class MemoryManager:
 
     # MEMORY.md 索引长度保护常量
     _INDEX_MAX_SUMMARY_CHARS = 200  # 每条摘要最多 200 字符（索引，不是全文）
-    _INDEX_MAX_LINES = 200          # 超过则裁剪最旧条目
+    _INDEX_MAX_LINES = 200  # 超过则裁剪最旧条目
 
     def _append_to_index(self, topic_name: str, content: str) -> None:
         """向 MEMORY.md 追加一行索引摘要（不影响 Dream 后续全量重写）。
@@ -300,11 +298,11 @@ class MemoryManager:
             summary = raw_summary
 
         cat_map = {
-            "user-preferences":   "User Preferences",
-            "project-decisions":  "Project Decisions",
-            "lessons-learned":    "Lessons Learned",
-            "errors-fixed":       "Errors Fixed",
-            "project-progress":   "Project Progress",
+            "user-preferences": "User Preferences",
+            "project-decisions": "Project Decisions",
+            "lessons-learned": "Lessons Learned",
+            "errors-fixed": "Errors Fixed",
+            "project-progress": "Project Progress",
         }
         cat = cat_map.get(topic_name, topic_name)
         entry = f"- [{ts}] {summary}  → topics/{topic_name}.md\n"
@@ -316,16 +314,14 @@ class MemoryManager:
         if heading in existing:
             new_content = self._insert_under_heading(existing, heading, entry)
         else:
-            new_content = (existing.strip() + f"\n\n{heading}\n{entry}"
-                           if existing.strip() else f"{heading}\n{entry}")
+            new_content = existing.strip() + f"\n\n{heading}\n{entry}" if existing.strip() else f"{heading}\n{entry}"
 
         # 行数保护：超过上限则裁剪最旧条目（保留前导注释行）
         lines = new_content.strip().split("\n")
         if len(lines) > self._INDEX_MAX_LINES:
-            kept = lines[:self._INDEX_MAX_LINES]
+            kept = lines[: self._INDEX_MAX_LINES]
             new_content = "\n".join(kept).strip() + "\n"
-            logger.info("MEMORY.md 超过 %d 行，已裁剪至 %d 行",
-                         self._INDEX_MAX_LINES, len(kept))
+            logger.info("MEMORY.md 超过 %d 行，已裁剪至 %d 行", self._INDEX_MAX_LINES, len(kept))
 
         result = self._writer.write(idx_path, new_content.strip() + "\n", backup=False)
         if not result.ok:

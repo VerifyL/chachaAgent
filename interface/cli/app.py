@@ -54,6 +54,7 @@ def _get_version(project_root: Path) -> str:
         return data["project"]["version"]
     # Fallback：从已安装包读取
     import importlib.metadata
+
     try:
         return importlib.metadata.version("chachaAgent")
     except importlib.metadata.PackageNotFoundError:
@@ -84,7 +85,7 @@ class ChachaCLI:
         write_default_theme()
         self._t = load_theme()
         self._show_reasoning = True  # Ctrl+R 切换
-        self._cli_history = None     # SessionHistory，initialize() 中创建
+        self._cli_history = None  # SessionHistory，initialize() 中创建
 
     # ====== 启动 ======
 
@@ -117,8 +118,7 @@ class ChachaCLI:
         if self._bridge._telemetry:
             self._session._telemetry = self._bridge._telemetry
         self._session.set_llm(self._bridge._invoker)
-        self._bridge.set_checkpoint_dir(
-            self._session.memory_manager.session_dir)
+        self._bridge.set_checkpoint_dir(self._session.memory_manager.session_dir)
         # 构建 Orchestrator（为 Hook/Policy 准备）
         self._bridge.build_orchestrator(
             session_id=self._session.session_id,
@@ -132,6 +132,7 @@ class ChachaCLI:
     def _ensure_default_constitution() -> None:
         """首次运行自动创建 ~/.chacha/CHACHA.md"""
         import shutil
+
         root_md = Path.home() / ".chacha" / "CHACHA.md"
         if root_md.exists():
             return
@@ -200,8 +201,9 @@ class ChachaCLI:
         """临时切到 cook 模式：信号 + 换行翻译 + 回显"""
         try:
             import termios
+
             attrs = termios.tcgetattr(sys.stdin.fileno())
-            attrs[0] |= termios.ICRNL   # \r → \n 翻译
+            attrs[0] |= termios.ICRNL  # \r → \n 翻译
             attrs[3] |= termios.ISIG | termios.ICANON | termios.ECHO
             termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, attrs)
         except Exception:
@@ -225,7 +227,8 @@ class ChachaCLI:
 
         try:
             async for chunk in self._bridge.send_message_orchestrated(
-                text, session_id=self._session.session_id,
+                text,
+                session_id=self._session.session_id,
                 project_id=self._bridge._project_id or "",
             ):
                 # Ctrl+C 中断检查
@@ -255,12 +258,13 @@ class ChachaCLI:
                     if not in_tools:
                         in_tools = True
                         RICH_CONSOLE.print()
-                        RICH_CONSOLE.print(
-                            f"[{self._t['separator']}]" + "━" * 30 + "[/]"
-                        )
-                    tool_trace.append({
-                        "tool": chunk.tool_name, "t0": time.monotonic(),
-                    })
+                        RICH_CONSOLE.print(f"[{self._t['separator']}]" + "━" * 30 + "[/]")
+                    tool_trace.append(
+                        {
+                            "tool": chunk.tool_name,
+                            "t0": time.monotonic(),
+                        }
+                    )
 
                 elif isinstance(chunk, ToolExecStartEvent):
                     if tool_trace:
@@ -270,9 +274,7 @@ class ChachaCLI:
                     if chunk.tool_name not in ("memory", "cache_read"):
                         if chunk.args:
                             RICH_CONSOLE.print(
-                                f"  [{self._t['tool_thinking']}]🔧"
-                                f" {escape(chunk.tool_name)}"
-                                f" — {escape(chunk.args)}[/]"
+                                f"  [{self._t['tool_thinking']}]🔧 {escape(chunk.tool_name)} — {escape(chunk.args)}[/]"
                             )
                         else:
                             RICH_CONSOLE.print(f"  [{self._t['tool_thinking']}]🔧 {escape(chunk.tool_name)}[/]")
@@ -307,7 +309,9 @@ class ChachaCLI:
         # 审计
         elapsed_ms = int((time.monotonic() - t0) * 1000)
         await self._session.add_round(
-            tokens=tokens, duration_ms=elapsed_ms, errors=errors,
+            tokens=tokens,
+            duration_ms=elapsed_ms,
+            errors=errors,
         )
 
         # 上下文利用率 + 缓存命中
@@ -315,9 +319,10 @@ class ChachaCLI:
         cache_str = ""
         if self._bridge._messages:
             from core.context.context_compressor import ContextCompressor
+
             est = ContextCompressor.estimate_tokens(self._bridge._messages)
             ctx_w = getattr(self._bridge, "_context_window", 1_048_576)
-            ctx_pct = f" | 📦 {int(est/ctx_w*100)}%"
+            ctx_pct = f" | 📦 {int(est / ctx_w * 100)}%"
         cache_hit = usage.get("cache_hit", 0)
         if cache_hit:
             cache_str = f" | 📥 +{cache_hit}T"
@@ -326,7 +331,7 @@ class ChachaCLI:
         if errors:
             audit += f"  |  ⚠ {len(errors)}错"
         if self._debug and tool_trace:
-            steps = "; ".join(f"{t['tool']}({t.get('ms','?')}ms)" for t in tool_trace)
+            steps = "; ".join(f"{t['tool']}({t.get('ms', '?')}ms)" for t in tool_trace)
             audit += f"  |  🐛 {steps}"
         RICH_CONSOLE.print()
         RICH_CONSOLE.print(f"[{self._t['audit']}]{escape(audit)}[/]")
@@ -445,8 +450,7 @@ class ChachaCLI:
         await self._bridge.rebuild()
         # 重置引擎并切换 checkpoint 目录
         await self._bridge.reset()
-        self._bridge.set_checkpoint_dir(
-            self._session.memory_manager.session_dir)
+        self._bridge.set_checkpoint_dir(self._session.memory_manager.session_dir)
         # 更新 Orchestrator 的 memory_manager 引用
         self._bridge.build_orchestrator(
             session_id=self._session.session_id,
@@ -458,6 +462,7 @@ class ChachaCLI:
             return "未连接"
         try:
             from core.context.context_compressor import ContextCompressor
+
             n = len(self._bridge._messages)
             cfg = dict(getattr(self._bridge, "_compress_cfg", {}))
             cfg.pop("trigger_ratio", None)  # 显式传入 trigger_ratio=0.0 覆盖配置
@@ -604,15 +609,18 @@ class ChachaCLI:
     def _print_user(self, text: str) -> None:
         """用户输入 Panel：圆角 + 黄边 + 黄色粗体文字"""
         from rich.panel import Panel
+
         RICH_CONSOLE.print()
-        RICH_CONSOLE.print(Panel(
-            f"[{self._t['user_text']}]{text}[/]",
-            title=f"[{self._t['user_title']}] ❯ You [/]",
-            title_align="left",
-            border_style=self._t["user_border"],
-            box=box.ROUNDED,
-            padding=(0, 1),
-        ))
+        RICH_CONSOLE.print(
+            Panel(
+                f"[{self._t['user_text']}]{text}[/]",
+                title=f"[{self._t['user_title']}] ❯ You [/]",
+                title_align="left",
+                border_style=self._t["user_border"],
+                box=box.ROUNDED,
+                padding=(0, 1),
+            )
+        )
 
     def _print_system(self, text: str) -> None:
         RICH_CONSOLE.print(f"[{self._t['system']}]{escape(text)}[/]")
@@ -629,8 +637,7 @@ class ChachaCLI:
             self._print_system("暂无 session")
             return
         RICH_CONSOLE.print()
-        table = Table(box=box.SIMPLE, show_header=True,
-                      header_style="bold cyan", border_style="dim")
+        table = Table(box=box.SIMPLE, show_header=True, header_style="bold cyan", border_style="dim")
         table.add_column("#", width=4, style="bold yellow")
         table.add_column("", width=2)
         table.add_column("时间", width=14)
@@ -699,17 +706,16 @@ class ChachaCLI:
             table.add_section()
             RICH_CONSOLE.print(f"\n[{self._t['help_title']}] {cat} [/]")
             for cmd, desc in cmds:
-                RICH_CONSOLE.print(
-                    f"  [{self._t['help_cmd']}]{cmd:<20}[/]  "
-                    f"[{self._t['help_desc']}]{desc}[/]"
-                )
+                RICH_CONSOLE.print(f"  [{self._t['help_cmd']}]{cmd:<20}[/]  [{self._t['help_desc']}]{desc}[/]")
         return ""
 
 
 # ====== 入口 ======
 
+
 def main():
     import argparse
+
     parser = argparse.ArgumentParser(description="ChachaAgent CLI")
     parser.add_argument("project", nargs="?", default=".", help="项目路径")
     parser.add_argument("-d", "--debug", action="store_true", help="启用遥测（结构化日志+指标+审计）")
@@ -726,11 +732,13 @@ def main():
             raise KeyboardInterrupt  # 审批时中断同步 input()
 
     signal.signal(signal.SIGINT, _on_sigint)
+
     def _on_sigquit(_sig, _frame):
         bridge = cli._bridge
         if bridge and bridge._mcp_client:
             bridge._mcp_client._force_kill_all_sync()
         os._exit(0)
+
     signal.signal(signal.SIGQUIT, _on_sigquit)
 
     loop = asyncio.new_event_loop()

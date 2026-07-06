@@ -22,6 +22,7 @@ from core.telemetry import (
 
 # ========== 1. 结构化日志 ==========
 
+
 class TestStructuredLogger:
     @pytest.fixture
     def tmp_config(self):
@@ -75,6 +76,7 @@ class TestStructuredLogger:
         )
         logger = StructuredLogger(cfg)
         from core.models.audit import AuditEvent, AuditEventCategory
+
         logger.audit(AuditEvent(category=AuditEventCategory.SYSTEM))
         assert not (cfg.log_dir / "audit.jsonl").exists()
 
@@ -91,6 +93,7 @@ class TestStructuredLogger:
 
 
 # ========== 2. 指标收集器 ==========
+
 
 class TestMetricsCollector:
     @pytest.fixture
@@ -146,6 +149,7 @@ class TestMetricsCollector:
 
 # ========== 3. Span 追踪 ==========
 
+
 class TestTracer:
     @pytest.fixture
     def tracer(self):
@@ -176,6 +180,7 @@ class TestTracer:
 
 
 # ========== 4. 领域指标 ==========
+
 
 class TestAgentMetrics:
     @pytest.fixture
@@ -214,6 +219,7 @@ class TestAgentMetrics:
 
 
 # ========== 5. Telemetry 总成 ==========
+
 
 class TestTelemetry:
     @pytest.fixture

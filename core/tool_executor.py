@@ -59,36 +59,43 @@ NON_RETRYABLE_EXCEPTIONS = (
 
 # ========================= 错误分类 =========================
 
+
 class ToolNotFoundError(Exception):
     """工具未注册"""
+
     pass
 
 
 class ToolTimeoutError(Exception):
     """工具执行超时"""
+
     pass
 
 
 class ToolPermissionError(Exception):
     """权限不足（PolicyEngine 拦截）"""
+
     pass
 
 
 # ========================= 审批请求 =========================
 
+
 class ApprovalRequest(BaseModel):
     """审批请求上下文"""
+
     tool_name: str
     arguments: Dict[str, Any]
-    risk_level: str                # RiskLevel.value
+    risk_level: str  # RiskLevel.value
     risk_score: float
     session_id: str
     tool_use_id: str
-    diff: Optional[str] = None     # edit 的变更 diff
-    reason: str = ""               # 需要审批的原因
+    diff: Optional[str] = None  # edit 的变更 diff
+    reason: str = ""  # 需要审批的原因
 
 
 # ========================= 工具执行器 =========================
+
 
 class ToolExecutor:
     """
@@ -102,10 +109,10 @@ class ToolExecutor:
 
     def __init__(
         self,
-        tools: Optional[list] = None,                # List[BaseTool] 或 Dict[str, Callable]（向后兼容）
-        policy_engine: Optional[Any] = None,        # PolicyEngine
-        hook_orchestrator: Optional[Any] = None,     # HookOrchestrator
-        telemetry: Optional[Any] = None,             # Telemetry
+        tools: Optional[list] = None,  # List[BaseTool] 或 Dict[str, Callable]（向后兼容）
+        policy_engine: Optional[Any] = None,  # PolicyEngine
+        hook_orchestrator: Optional[Any] = None,  # HookOrchestrator
+        telemetry: Optional[Any] = None,  # Telemetry
         approval_handler: Optional[Callable[[ApprovalRequest], Coroutine[Any, Any, bool]]] = None,
         max_concurrent: int = 5,
         default_timeout: float = 60.0,
@@ -115,7 +122,7 @@ class ToolExecutor:
         self._tools: dict[str, Any] = {}
         self._tool_objects: list = list(tools or [])
 
-        if self._tool_objects and hasattr(self._tool_objects[0], 'name'):
+        if self._tool_objects and hasattr(self._tool_objects[0], "name"):
             # List[BaseTool] → 建立 name→object 映射
             for t in self._tool_objects:
                 self._tools[t.name] = t
@@ -138,7 +145,7 @@ class ToolExecutor:
 
     def get_schemas(self) -> list[dict]:
         """获取所有工具的 function calling schema"""
-        if self._tool_objects and hasattr(self._tool_objects[0], 'to_function_schema'):
+        if self._tool_objects and hasattr(self._tool_objects[0], "to_function_schema"):
             return [t.to_function_schema() for t in self._tool_objects]
         return []
 
@@ -158,7 +165,9 @@ class ToolExecutor:
         if tool_fn is None:
             return ToolResult(
                 tool_name=tool_name,
-                status="error", content="", error=f"Tool '{tool_name}' not found",
+                status="error",
+                content="",
+                error=f"Tool '{tool_name}' not found",
                 error_type="invalid_argument",
                 execution_time_ms=0,
             )
@@ -166,15 +175,17 @@ class ToolExecutor:
         # 1. 策略评估
         if self._policy:
             decision = self._policy.evaluate_tool(
-                tool_name, command_or_action=str(arguments.get("cmd", "")),
+                tool_name,
+                command_or_action=str(arguments.get("cmd", "")),
                 session_id=session_id,
                 parameters=arguments,
-                requires_approval=getattr(tool_fn, 'requires_approval', None),
+                requires_approval=getattr(tool_fn, "requires_approval", None),
             )
             if not decision.allowed:
                 return ToolResult(
                     tool_name=tool_name,
-                    status="error", content="",
+                    status="error",
+                    content="",
                     error=decision.blocked_reason or "Policy blocked",
                     error_type="blocked",
                     execution_time_ms=int((time.monotonic() - t0) * 1000),
@@ -194,9 +205,9 @@ class ToolExecutor:
                     tool_use_id=tool_use_id,
                     diff=diff,
                     reason=(
-                f"工具 '{tool_name}' 需要审批 "
-                f"(风险等级: {decision.risk_level.value}, 分数: {decision.risk_score:.0f})"
-            ),
+                        f"工具 '{tool_name}' 需要审批 "
+                        f"(风险等级: {decision.risk_level.value}, 分数: {decision.risk_score:.0f})"
+                    ),
                 )
 
                 # 2. 调用审批处理器
@@ -205,13 +216,15 @@ class ToolExecutor:
                 else:
                     # 无审批处理器 → 系统类默认拒绝，其余默认放行
                     from core.policy_engine import PolicyEngine
+
                     approved = tool_name not in PolicyEngine.SYSTEM_TOOLS
 
                 # 3. 审批结果
                 if not approved:
                     return ToolResult(
                         tool_name=tool_name,
-                        status="error", content="",
+                        status="error",
+                        content="",
                         error=f"用户拒绝了 '{tool_name}' 的执行",
                         error_type="blocked",
                         execution_time_ms=int((time.monotonic() - t0) * 1000),
@@ -225,8 +238,10 @@ class ToolExecutor:
         _hook_bypass_tools = {"memory"}
         if self._hooks and tool_name not in _hook_bypass_tools:
             from core.models.hook import HookPoint, ToolCallContext
+
             tc = ToolCallContext(
-                tool_name=tool_name, tool_use_id=tool_use_id,
+                tool_name=tool_name,
+                tool_use_id=tool_use_id,
                 arguments=arguments,
             )
             result = await self._hooks.run(
@@ -237,7 +252,8 @@ class ToolExecutor:
             if result.is_blocked():
                 return ToolResult(
                     tool_name=tool_name,
-                    status="error", content="",
+                    status="error",
+                    content="",
                     error=result.message or "Hooks blocked",
                     error_type="blocked",
                     execution_time_ms=int((time.monotonic() - t0) * 1000),
@@ -246,9 +262,15 @@ class ToolExecutor:
                 arguments.update(result.modified_tool_args)
 
         # 3. 执行（带超时 + 重试）
-        output, error, status, tool_data, tool_warnings, tool_truncated, tool_cache_key = (
-            await self._execute_with_retry(tool_name, arguments)
-        )
+        (
+            output,
+            error,
+            status,
+            tool_data,
+            tool_warnings,
+            tool_truncated,
+            tool_cache_key,
+        ) = await self._execute_with_retry(tool_name, arguments)
 
         # 错误透传：output 为空时把 error 注入，避免 LLM 误判为"文件空"
         if not output and error:
@@ -258,15 +280,16 @@ class ToolExecutor:
         # 合并工具自身报告的截断标志（如 task 子Agent LLM 截断）
         truncated = tool_truncated
         cache_key = tool_cache_key
-        if len(output) > self._max_output_chars and not getattr(tool_fn, 'no_truncate', False):
+        if len(output) > self._max_output_chars and not getattr(tool_fn, "no_truncate", False):
             # 在 \n 边界截断，避免切断行
-            cut = output[:self._max_output_chars]
+            cut = output[: self._max_output_chars]
             last_nl = cut.rfind("\n")
             if last_nl > self._max_output_chars // 2:
                 cut = cut[:last_nl]
             remaining = len(output) - len(cut)
             # 缓存完整输出，生成续读 key
             import hashlib as _hl
+
             cache_key = _hl.md5(f"{tool_name}:{tool_use_id}:{time.time()}".encode()).hexdigest()[:12]
             self._output_cache[cache_key] = (output, time.time())
             # 分页提示（根据工具类型给出具体建议）
@@ -279,6 +302,7 @@ class ToolExecutor:
         # 5. 后置钩子
         if self._hooks:
             from core.models.hook import HookPoint
+
             await self._hooks.run(
                 session_id=session_id,
                 hook_point=HookPoint.POST_TOOL_EXECUTION,
@@ -288,7 +312,9 @@ class ToolExecutor:
         # 6. 遥测
         if self._telemetry and self._telemetry.agent:
             self._telemetry.agent.record_tool_call(
-                tool_name, duration, status == "success",
+                tool_name,
+                duration,
+                status == "success",
                 output_lines=output.count("\n") + 1,
                 _logger=self._telemetry.logger,
             )
@@ -317,9 +343,12 @@ class ToolExecutor:
 
         return ToolResult(
             tool_name=tool_name,
-            status=canonical_status, content=output, error=error,
+            status=canonical_status,
+            content=output,
+            error=error,
             error_type=error_type,
-            execution_time_ms=duration, truncated=truncated,
+            execution_time_ms=duration,
+            truncated=truncated,
             cache_key=cache_key,
             data=tool_data,
             warnings=tool_warnings,
@@ -345,9 +374,7 @@ class ToolExecutor:
 
     # ====== 内部 ======
 
-    async def _execute_with_retry(
-        self, tool_name: str, arguments: Dict[str, Any]
-    ) -> tuple:
+    async def _execute_with_retry(self, tool_name: str, arguments: Dict[str, Any]) -> tuple:
         """超时退避重试（参考 Harness：权限/黑名单不重试，超时/网络错误重试）。
 
         Returns:
@@ -367,7 +394,7 @@ class ToolExecutor:
                 async with self._semaphore:
                     tool = self._tools[tool_name]
                     # BaseTool → call .execute(**args); Callable → call directly
-                    if hasattr(tool, 'execute'):
+                    if hasattr(tool, "execute"):
                         output = await asyncio.wait_for(
                             tool.execute(**arguments),
                             timeout=self._timeout,
@@ -379,10 +406,17 @@ class ToolExecutor:
                         )
                 # ToolResult: 解包，避免双重包装；保留 data/warnings/truncated/cache_key 元数据
                 from capabilities.result import ToolResult as _TR  # noqa: N814
+
                 if isinstance(output, _TR):
-                    return (output.content, output.error, output.status,
-                            output.data, output.warnings,
-                            output.truncated, output.cache_key or "")
+                    return (
+                        output.content,
+                        output.error,
+                        output.status,
+                        output.data,
+                        output.warnings,
+                        output.truncated,
+                        output.cache_key or "",
+                    )
                 return str(output), None, "success", {}, [], False, ""
 
             except asyncio.TimeoutError:
@@ -391,7 +425,7 @@ class ToolExecutor:
                     f"(attempt {attempt + 1}/{self._max_retries + 1})"
                 )
                 if attempt < self._max_retries:
-                    backoff = 2 ** attempt
+                    backoff = 2**attempt
                     logger.warning("%s, retrying in %ds", last_error, backoff)
                     await asyncio.sleep(backoff)
                 else:
@@ -403,7 +437,7 @@ class ToolExecutor:
                     f"(attempt {attempt + 1}/{self._max_retries + 1})"
                 )
                 if attempt < self._max_retries:
-                    backoff = 2 ** attempt
+                    backoff = 2**attempt
                     logger.warning("%s, retrying in %ds", last_error, backoff)
                     await asyncio.sleep(backoff)
                 else:
@@ -414,7 +448,6 @@ class ToolExecutor:
                 return "", f"{type(e).__name__}: {e}", "error", {}, [], False, ""
 
         return "", last_error or "unknown", "timeout", {}, [], False, ""
-
 
     # ====== 截断辅助 ======
 
@@ -439,13 +472,12 @@ class ToolExecutor:
         if entry is None:
             return "[错误] 缓存已过期或不存在，请重新执行原始工具调用"
         full_output, _ = entry
-        chunk = full_output[offset:offset + limit]
+        chunk = full_output[offset : offset + limit]
         has_more = offset + limit < len(full_output)
         result = f"[cache_key={cache_key}] offset={offset} limit={limit}\n{chunk}"
         if has_more:
             result += f"\n... [还有 {len(full_output) - offset - limit} 字符，续读: offset={offset + limit}]"
         return result
-
 
     def _cleanup_cache(self) -> None:
         """清理超过 10 分钟的过期缓存。"""
@@ -467,12 +499,17 @@ class ToolExecutor:
             return None
 
         import difflib
+
         old_lines = old_str.splitlines(keepends=True)
         new_lines = new_str.splitlines(keepends=True)
-        diff_lines = list(difflib.unified_diff(
-            old_lines, new_lines,
-            fromfile=f"a/{path}", tofile=f"b/{path}",
-        ))
+        diff_lines = list(
+            difflib.unified_diff(
+                old_lines,
+                new_lines,
+                fromfile=f"a/{path}",
+                tofile=f"b/{path}",
+            )
+        )
         return "".join(diff_lines) if diff_lines else "(无变更)"
 
     # ====== 查询 ======

@@ -11,6 +11,7 @@ from core.models.config import ModelConfig, ModelProviderConfig
 
 # ====== Fixtures ======
 
+
 @pytest.fixture
 def providers():
     return {
@@ -26,10 +27,12 @@ def factory(providers):
         @staticmethod
         def create(cfg):
             return f"client:{cfg.default_model}"
+
     return FakeFactory()
 
 
 # ====== 1. priority 策略 ======
+
 
 def test_priority_with_fallback_chain(providers, factory):
     config = ModelConfig(
@@ -71,6 +74,7 @@ def test_priority_all_banned_returns_none(providers, factory):
 
 def test_priority_recovery_after_ban_expiry(providers, factory):
     import time
+
     config = ModelConfig(providers=providers, fallback_chain=["default"])
 
     # 缩短 BAN TTL 以加速测试
@@ -82,6 +86,7 @@ def test_priority_recovery_after_ban_expiry(providers, factory):
 
 
 # ====== 2. cost 策略 ======
+
 
 def test_cost_picks_cheapest(providers, factory):
     config = ModelConfig(providers=providers, router_strategy="cost")
@@ -101,6 +106,7 @@ def test_cost_skips_banned(providers, factory):
 
 # ====== 3. random 策略 ======
 
+
 def test_random_returns_client(providers, factory):
     config = ModelConfig(providers=providers, router_strategy="random")
     router = ModelRouter(config)
@@ -118,6 +124,7 @@ def test_random_all_banned_returns_none(providers, factory):
 
 
 # ====== 4. 故障追踪 ======
+
 
 def test_failed_count(providers, factory):
     config = ModelConfig(providers=providers)
@@ -138,6 +145,7 @@ def test_mark_success_resets_count(providers, factory):
 
 
 # ====== 5. 降级策略 ======
+
 
 def test_verify_supports_vision_field(providers, factory):
     """验证 supports_vision 属性可访问（v1.5 预留）"""

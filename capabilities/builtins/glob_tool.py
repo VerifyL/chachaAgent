@@ -1,4 +1,5 @@
 """glob_tool.py — find files by pattern."""
+
 from pathlib import Path
 
 from capabilities.base import BaseTool
@@ -35,8 +36,16 @@ class GlobTool(BaseTool):
     }
 
     _SKIP_DIRS = {
-        ".git", ".chacha", "node_modules", "__pycache__",
-        ".venv", ".mypy_cache", ".pytest_cache", ".tox", ".eggs", "build",
+        ".git",
+        ".chacha",
+        "node_modules",
+        "__pycache__",
+        ".venv",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".tox",
+        ".eggs",
+        "build",
     }
 
     async def execute(
@@ -53,7 +62,8 @@ class GlobTool(BaseTool):
         if not root.is_absolute():
             if self.project_root is None:
                 return ToolResult(
-                    status="error", content="",
+                    status="error",
+                    content="",
                     error="工具未初始化：project_root 未设置",
                     error_type="internal_error",
                 )
@@ -63,7 +73,8 @@ class GlobTool(BaseTool):
             target = root.resolve()
         except Exception:
             return ToolResult(
-                status="error", content="",
+                status="error",
+                content="",
                 error=f"路径不存在: {path}",
                 error_type="path_not_found",
                 data={"path": path},
@@ -71,18 +82,18 @@ class GlobTool(BaseTool):
 
         if not target.exists():
             return ToolResult(
-                status="error", content="",
+                status="error",
+                content="",
                 error=f"路径不存在: {path}",
                 error_type="path_not_found",
                 data={"path": path},
             )
 
         # 2. Safety: ensure within project root
-        if self.project_root and not str(target).startswith(
-            str(self.project_root.resolve())
-        ):
+        if self.project_root and not str(target).startswith(str(self.project_root.resolve())):
             return ToolResult(
-                status="error", content="",
+                status="error",
+                content="",
                 error="路径越界：不允许访问项目根目录以外的路径",
                 error_type="path_out_of_bounds",
                 data={"path": path},
@@ -91,7 +102,8 @@ class GlobTool(BaseTool):
         # 3. Is a file? Guide user to grep instead
         if target.is_file():
             return ToolResult(
-                status="error", content="",
+                status="error",
+                content="",
                 error=f"{path} 是文件，搜内容请用 grep",
                 error_type="path_is_file",
                 data={"path": path},

@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field, SecretStr, field_validator
 # ==========================
 class ModelProviderConfig(BaseModel):
     """单个模型提供商配置"""
+
     provider: Literal["openai", "anthropic", "ollama"] = Field(..., description="模型提供商类型")
     api_key: Optional[SecretStr] = Field(None, description="API 密钥，支持从环境变量读取")
     base_url: Optional[str] = Field(None, description="自定义 API 端点，用于代理或兼容服务")
@@ -23,11 +24,14 @@ class ModelProviderConfig(BaseModel):
     cost_per_1k_input: float = Field(0.0, ge=0, description="每千输入 token 成本（美元）")
     cost_per_1k_output: float = Field(0.0, ge=0, description="每千输出 token 成本（美元）")
     context_window: int = Field(1_048_576, description="上下文窗口大小（token），用于自动压缩阈值")
-    max_tokens: Optional[int] = Field(None, description="最大输出 token 数（None=使用客户端默认值 16384）。DeepSeek 等服务商建议 65536~131072")  # noqa: E501
+    max_tokens: Optional[int] = Field(
+        None, description="最大输出 token 数（None=使用客户端默认值 16384）。DeepSeek 等服务商建议 65536~131072"
+    )  # noqa: E501
 
 
 class ModelConfig(BaseModel):
     """模型管理层总配置"""
+
     providers: Dict[str, ModelProviderConfig] = Field(..., description="提供商标识 => 配置，如 'default', 'claude'")
     router_strategy: Literal["priority", "cost", "random"] = Field("priority", description="模型路由策略")
     fallback_chain: List[str] = Field(default_factory=list, description="降级顺序（按 provider 标识）")
@@ -40,9 +44,10 @@ class ModelConfig(BaseModel):
 # ==========================
 class PolicyConfig(BaseModel):
     """安全策略引擎配置"""
+
     command_blacklist: List[str] = Field(
         default_factory=lambda: ["rm -rf", "sudo", "chmod 777", "dd", "mkfs"],
-        description="禁止执行的命令关键字（子串匹配）"
+        description="禁止执行的命令关键字（子串匹配）",
     )
     cost_limit_dollars: float = Field(10.0, ge=0, description="单次会话成本上限（美元），0 表示不限制")
     approval_cache_ttl_seconds: int = Field(300, ge=0, description="审批结果缓存时间（秒），0 表示不缓存")
@@ -50,9 +55,10 @@ class PolicyConfig(BaseModel):
 
 class SandboxConfig(BaseModel):
     """沙箱执行器配置"""
+
     allowed_commands: List[str] = Field(
         default_factory=lambda: ["ls", "cat", "grep", "python", "pytest", "git", "echo", "head", "tail"],
-        description="允许执行的命令白名单（前缀匹配）"
+        description="允许执行的命令白名单（前缀匹配）",
     )
     timeout_seconds: int = Field(60, ge=1, le=3600, description="命令执行超时（秒）")
     max_output_lines: int = Field(1000, ge=1, description="命令输出最大行数，超出则截断")
@@ -64,6 +70,7 @@ class SandboxConfig(BaseModel):
 # ==========================
 class ContextConfig(BaseModel):
     """上下文管理配置"""
+
     max_tokens: int = Field(1_048_576, ge=1, description="上下文窗口总 token 上限")
     compression_trigger_ratio: float = Field(0.7, ge=0.5, le=1.0, description="触发压缩的 token 使用比例 (0-1)")
     warn_ratio: float = Field(0.9, ge=0.5, le=1.0, description="触发告警的 token 使用比例 (0-1)")
@@ -80,7 +87,9 @@ class ContextConfig(BaseModel):
     summarize_keep_tail: int = Field(8, ge=1, description="SUMMARIZED: 保留后 N 条消息")
 
     # 多模态压缩策略预留（当前透传）
-    multimodal_compression: Literal["drop", "describe", "keep"] = Field("keep", description="【预留】压缩时对多模态内容的处理方式")  # noqa: E501
+    multimodal_compression: Literal["drop", "describe", "keep"] = Field(
+        "keep", description="【预留】压缩时对多模态内容的处理方式"
+    )  # noqa: E501
 
 
 # ==========================
@@ -88,6 +97,7 @@ class ContextConfig(BaseModel):
 # ==========================
 class MemoryConfig(BaseModel):
     """记忆子系统（.chacha/memory）配置"""
+
     project_dir: Path = Field(Path.cwd() / ".chacha" / "memory", description="记忆根目录")
     auto_clean_interval_hours: int = Field(24, ge=1, description="Auto Dream 自动清理间隔（小时）")
     max_topic_files: int = Field(10, ge=1, description="最多保留的主题文件数，超出按 LRU 清理")
@@ -100,8 +110,11 @@ class MemoryConfig(BaseModel):
 # ==========================
 class MultimodalConfig(BaseModel):
     """多模态扩展配置（当前版本仅占位，v1.5+ 启用）"""
+
     enabled: bool = Field(False, description="是否启用多模态功能")
-    vision_model: Optional[str] = Field(None, description="指定视觉模型名称，若为空则自动选择 supports_vision=True 的第一个提供商")  # noqa: E501
+    vision_model: Optional[str] = Field(
+        None, description="指定视觉模型名称，若为空则自动选择 supports_vision=True 的第一个提供商"
+    )  # noqa: E501
     max_image_size_mb: int = Field(10, ge=1, description="单张图片最大大小（MB）")
     enable_ocr_fallback: bool = Field(True, description="图片解析失败时是否降级为 OCR 文本提取")
 
@@ -111,6 +124,7 @@ class MultimodalConfig(BaseModel):
 # ==========================
 class TelemetryConfig(BaseModel):
     """统一可观测性配置"""
+
     enabled: bool = Field(False, description="总开关，关闭则不产生任何日志/指标")
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = Field("INFO", description="日志级别")
     log_dir: Path = Field(Path.home() / ".chacha" / "logs", description="日志目录")
@@ -123,8 +137,10 @@ class TelemetryConfig(BaseModel):
 # MCP 客户端配置
 # ==========================
 
+
 class MCPServerConfig(BaseModel):
     """单个 MCP server 配置"""
+
     name: str = Field("", description="服务标识名，如 'filesystem'")
     command: str = Field("", description="启动命令，如 'npx' 或 'python'（SSE 模式可不填）")
     args: List[str] = Field(default_factory=list, description="启动参数列表")
@@ -138,10 +154,9 @@ class MCPServerConfig(BaseModel):
 
 class MCPConfig(BaseModel):
     """MCP 客户端总配置"""
+
     enabled: bool = Field(True, description="是否启用 MCP 客户端")
-    servers: Dict[str, MCPServerConfig] = Field(
-        default_factory=dict, description="server 标识 → 配置"
-    )
+    servers: Dict[str, MCPServerConfig] = Field(default_factory=dict, description="server 标识 → 配置")
 
 
 # ==========================
@@ -149,6 +164,7 @@ class MCPConfig(BaseModel):
 # ==========================
 class InterfaceConfig(BaseModel):
     """表现层配置（CLI / Web）"""
+
     cli_theme: Literal["dark", "light", "default"] = Field("default", description="CLI 配色主题")
     cli_enable_ansi_parser: bool = Field(True, description="是否渲染 ANSI 转义序列")
     web_enabled: bool = Field(False, description="是否启用 Web 服务器")
@@ -165,6 +181,7 @@ class ChaChaConfig(BaseModel):
     完整的 ChachaAgent 配置，对应 chachaConfig.toml 文件。
     所有子配置均有默认值，未填项使用默认。
     """
+
     project_id: Optional[str] = Field(None, description="项目标识符，用于隔离会话和记忆，若为空则自动生成")
     environment: Literal["dev", "prod"] = Field("dev", description="运行环境")
 

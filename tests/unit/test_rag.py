@@ -12,6 +12,7 @@ from capabilities.rag.vector_store import VectorStore
 
 # ====== VectorStore ======
 
+
 @pytest.mark.asyncio
 async def test_vector_store_index_returns_zero():
     vs = VectorStore()
@@ -31,6 +32,7 @@ async def test_vector_store_delete_returns_false():
 
 
 # ====== SymbolParser ======
+
 
 @pytest.mark.asyncio
 async def test_symbol_parser_parse_empty():

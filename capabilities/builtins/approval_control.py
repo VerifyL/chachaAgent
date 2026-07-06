@@ -32,10 +32,7 @@ class ApprovalControl(BaseTool):
         "properties": {
             "action": {
                 "type": "string",
-                "description": (
-                    "操作类型：enable（开启旁路）、disable（关闭旁路）、"
-                    "status（查看旁路状态）"
-                ),
+                "description": ("操作类型：enable（开启旁路）、disable（关闭旁路）、status（查看旁路状态）"),
                 "enum": sorted(VALID_ACTIONS),
             },
             "categories": {
@@ -50,8 +47,7 @@ class ApprovalControl(BaseTool):
             "persist": {
                 "type": "boolean",
                 "description": (
-                    "是否持久化到 ~/.chacha/settings.json。"
-                    "默认 false（仅当前会话有效）。action=status 时无需提供。"
+                    "是否持久化到 ~/.chacha/settings.json。默认 false（仅当前会话有效）。action=status 时无需提供。"
                 ),
                 "default": False,
             },
@@ -112,9 +108,7 @@ class ApprovalControl(BaseTool):
             return self._do_disable(kwargs)
 
         # unreachable
-        return ToolResult(
-            status="error", content="", error="内部错误", error_type="unknown"
-        )
+        return ToolResult(status="error", content="", error="内部错误", error_type="unknown")
 
     # ── action 实现 ──
 

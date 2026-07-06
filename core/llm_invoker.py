@@ -29,8 +29,10 @@ logger = logging.getLogger(__name__)
 
 # ========================= 接口定义 =========================
 
+
 class StreamChunkType(str, Enum):
     """流式块类型枚举"""
+
     TEXT = "text"
     REASONING = "reasoning"
     TOOL_CALL_START = "tool_call_start"
@@ -42,18 +44,21 @@ class StreamChunkType(str, Enum):
 
 class TextChunk(BaseModel):
     """文本增量块"""
+
     type: Literal[StreamChunkType.TEXT] = StreamChunkType.TEXT
     content: str
 
 
 class ReasoningChunk(BaseModel):
     """推理过程块（DeepSeek-R1 / o1 等思考链模型）"""
+
     type: Literal[StreamChunkType.REASONING] = StreamChunkType.REASONING
     content: str
 
 
 class ToolCallStartChunk(BaseModel):
     """工具调用开始"""
+
     type: Literal[StreamChunkType.TOOL_CALL_START] = StreamChunkType.TOOL_CALL_START
     tool_index: int
     tool_id: str
@@ -62,6 +67,7 @@ class ToolCallStartChunk(BaseModel):
 
 class ToolCallDeltaChunk(BaseModel):
     """工具调用参数增量"""
+
     type: Literal[StreamChunkType.TOOL_CALL_DELTA] = StreamChunkType.TOOL_CALL_DELTA
     tool_index: int
     tool_args_delta: str = ""
@@ -69,6 +75,7 @@ class ToolCallDeltaChunk(BaseModel):
 
 class ToolCallEndChunk(BaseModel):
     """工具调用参数结束"""
+
     type: Literal[StreamChunkType.TOOL_CALL_END] = StreamChunkType.TOOL_CALL_END
     tool_index: int
     tool_args_delta: str = ""
@@ -76,16 +83,18 @@ class ToolCallEndChunk(BaseModel):
 
 class DoneChunk(BaseModel):
     """流结束"""
+
     type: Literal[StreamChunkType.DONE] = StreamChunkType.DONE
-    finish_reason: str = ""      # stop | tool_calls | length | error
+    finish_reason: str = ""  # stop | tool_calls | length | error
     usage: Optional[Dict[str, Any]] = None  # {input, output, total}
 
 
 class ErrorChunk(BaseModel):
     """错误块"""
+
     type: Literal[StreamChunkType.ERROR] = StreamChunkType.ERROR
     error: Optional[str] = None  # 错误详情
-    content: str = ""            # 兼容旧接口：某些调用方用 content 传错误描述
+    content: str = ""  # 兼容旧接口：某些调用方用 content 传错误描述
 
 
 # 联合类型（Pydantic v2 discriminated union）
@@ -105,6 +114,7 @@ StreamChunk = Annotated[
 
 class ToolCall(BaseModel):
     """解析后的工具调用"""
+
     id: str
     name: str
     arguments: Dict[str, Any] = Field(default_factory=dict)
@@ -113,16 +123,18 @@ class ToolCall(BaseModel):
 
 class LLMResponse(BaseModel):
     """LLM 调用完整结果"""
-    text: str = ""                         # 文本输出（所有 text chunk 拼接）
-    reasoning: str = ""                    # 推理过程（DeepSeek-R1 / o1 等思考链模型），不在 text 中
+
+    text: str = ""  # 文本输出（所有 text chunk 拼接）
+    reasoning: str = ""  # 推理过程（DeepSeek-R1 / o1 等思考链模型），不在 text 中
     tool_calls: List[ToolCall] = Field(default_factory=list)
-    finish_reason: str = "stop"            # stop | tool_calls | length | content_filter
+    finish_reason: str = "stop"  # stop | tool_calls | length | content_filter
     error: Optional[str] = None
     usage: Dict[str, Any] = Field(default_factory=dict)  # {input, output, total, model, ...}
     duration_ms: int = 0
 
 
 # ========================= 调用器 =========================
+
 
 class LLMInvoker:
     """
@@ -139,12 +151,12 @@ class LLMInvoker:
 
     def __init__(
         self,
-        model_client: Optional[Any] = None,         # stream() → AsyncIterator[StreamChunk]
-        gateway: Optional[Any] = None,              # ChaChaAsyncGateway
-        telemetry: Optional[Any] = None,            # Telemetry
-        output_governor: Optional[Any] = None,      # OutputGovernor
-        policy_engine: Optional[Any] = None,        # PolicyEngine（成本熔断）
-        retry_handler: Optional[Any] = None,        # RetryHandler（指数退避）
+        model_client: Optional[Any] = None,  # stream() → AsyncIterator[StreamChunk]
+        gateway: Optional[Any] = None,  # ChaChaAsyncGateway
+        telemetry: Optional[Any] = None,  # Telemetry
+        output_governor: Optional[Any] = None,  # OutputGovernor
+        policy_engine: Optional[Any] = None,  # PolicyEngine（成本熔断）
+        retry_handler: Optional[Any] = None,  # RetryHandler（指数退避）
     ):
         self._client = model_client
         self._gateway = gateway
@@ -175,7 +187,9 @@ class LLMInvoker:
         try:
             if self._retry:
                 async for chunk in self._retry.execute(
-                    self._client.stream, messages, tools or [],
+                    self._client.stream,
+                    messages,
+                    tools or [],
                 ):
                     yield chunk
             else:
@@ -214,7 +228,9 @@ class LLMInvoker:
         try:
             if self._retry:
                 it = self._retry.execute(
-                    self._client.stream, messages, tools or [],
+                    self._client.stream,
+                    messages,
+                    tools or [],
                 )
             else:
                 it = self._client.stream(messages, tools or [])
@@ -223,6 +239,7 @@ class LLMInvoker:
                     text_parts.append(chunk.content)
                     if self._gateway:
                         from protocol.rpc_schema import TokenChunkEvent
+
                         await self._gateway.publish(
                             TokenChunkEvent().set_delta(chunk.content),
                             session_id=session_id,
@@ -233,7 +250,8 @@ class LLMInvoker:
 
                 elif isinstance(chunk, ToolCallStartChunk):
                     tool_calls[chunk.tool_index] = ToolCall(
-                        id=chunk.tool_id, name=chunk.tool_name,
+                        id=chunk.tool_id,
+                        name=chunk.tool_name,
                     )
 
                 elif isinstance(chunk, ToolCallDeltaChunk):
@@ -270,6 +288,7 @@ class LLMInvoker:
         # 3. 流结束 → Gateway 通知
         if self._gateway:
             from protocol.rpc_schema import TokenChunkEvent
+
             await self._gateway.publish(
                 TokenChunkEvent().set_finish(finish_reason),
                 session_id=session_id,
@@ -333,8 +352,10 @@ class LLMInvoker:
         if "401" in msg or "403" in msg:
             # 遮罩 API key
             import re
-            msg = re.sub(r'(api[ _]?key[:\s]*["\']?)([^"\'}\]]+)',
-                         lambda m: m.group(1) + "***", msg, flags=re.IGNORECASE)
+
+            msg = re.sub(
+                r'(api[ _]?key[:\s]*["\']?)([^"\'}\]]+)', lambda m: m.group(1) + "***", msg, flags=re.IGNORECASE
+            )
             return f"Authentication error: {msg}"
         if "timeout" in msg.lower():
             return f"Timeout: {msg}"

@@ -29,8 +29,8 @@ class MockMemoryManager:
     def remember(self, content):
         self.remembered.append(content)
         from pathlib import Path
-        return Path("/fake")
 
+        return Path("/fake")
 
 
 class MockDreamPipeline:
@@ -49,6 +49,7 @@ class MockDreamPipeline:
 
 class MockDispatcher:
     """最小 dispatcher，返回几个文本 chunk 然后结束。"""
+
     def __init__(self):
         self.calls = []
 
@@ -59,6 +60,7 @@ class MockDispatcher:
 
 
 # ====== run_stream 基本 ======
+
 
 @pytest.mark.asyncio
 async def test_run_stream_requires_engine():
@@ -88,6 +90,7 @@ async def test_run_stream_yields_chunks():
 
 # ====== 会话结束清理 ======
 
+
 @pytest.mark.asyncio
 async def test_end_session_cleanup_via_run_stream():
     """run_stream 正常结束后记录 DreamPipeline。"""
@@ -96,15 +99,19 @@ async def test_end_session_cleanup_via_run_stream():
     disp = MockDispatcher()
     orch = Orchestrator(memory_manager=memory, dispatcher=disp)
     orch.set_engine(engine)
+
     # 注入 DreamPipeline mock
     class MockDream:
         def __init__(self):
             self.recorded = False
             self.should = False
+
         def record_session(self):
             self.recorded = True
+
         def should_run(self):
             return self.should
+
     orch._dream = MockDream()
 
     async for _ in orch.run_stream("hello", session_id="s-clean"):
@@ -114,6 +121,7 @@ async def test_end_session_cleanup_via_run_stream():
 
 
 # ====== DreamPipeline ======
+
 
 @pytest.mark.asyncio
 async def test_dream_record_session_via_run_stream():

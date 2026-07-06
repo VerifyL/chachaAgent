@@ -29,8 +29,7 @@ def test_full_orchestration_metrics_flow():
     # ---- 2. LLM 调用 ----
     root = t.tracer.start_span("orchestration")
     llm_span = t.tracer.start_span("llm_call", parent=root, tags={"model": "gpt-4"})
-    t.agent.record_llm_call("gpt-4", input_tokens=1000, output_tokens=500,
-                            latency_ms=2000, success=True)
+    t.agent.record_llm_call("gpt-4", input_tokens=1000, output_tokens=500, latency_ms=2000, success=True)
     llm_span.finish()
 
     # ---- 3. 工具调用 ----

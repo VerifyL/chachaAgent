@@ -57,9 +57,9 @@ class RetryHandler:
                     raise
 
                 if "429" in msg or "rate" in msg:
-                    wait = self._extract_retry_after(e) or self._initial_backoff * (2 ** attempt)
+                    wait = self._extract_retry_after(e) or self._initial_backoff * (2**attempt)
                 else:
-                    wait = min(self._initial_backoff * (2 ** attempt), self._max_backoff)
+                    wait = min(self._initial_backoff * (2**attempt), self._max_backoff)
 
                 if attempt < self._max_retries - 1:
                     logger.warning("重试 %d/%d (%.1fs): %s", attempt + 1, self._max_retries, wait, e)

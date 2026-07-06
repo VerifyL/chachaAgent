@@ -14,6 +14,7 @@ from core.tool_executor import ToolExecutor
 
 # ====== Mock 实现 ======
 
+
 async def _read_file(args):
     path = args.get("path", "")
     return f"content of {path}"
@@ -32,6 +33,7 @@ class MockClient:
             ToolCallEndChunk,
             ToolCallStartChunk,
         )
+
         if self._call_count == 1:
             yield ToolCallStartChunk(tool_index=0, tool_id="c1", tool_name="read_file")
             yield ToolCallDeltaChunk(tool_index=0, tool_args_delta='{"path": "/tmp/main.py"}')
@@ -43,6 +45,7 @@ class MockClient:
 
 
 # ====== 构造和属性测试 ======
+
 
 def test_orchestrator_construction():
     """Orchestrator 可以正常构造"""
@@ -109,10 +112,14 @@ async def test_orchestrator_run_stream_requires_engine():
 
 def test_orchestrator_memory_manager_injection():
     """memory_manager 可以注入"""
-    memory = type('MockMemory', (), {
-        'remember': lambda self, c: None,
-        'read_permanent_memory': lambda self: '',
-        'read': lambda self: '',
-    })()
+    memory = type(
+        "MockMemory",
+        (),
+        {
+            "remember": lambda self, c: None,
+            "read_permanent_memory": lambda self: "",
+            "read": lambda self: "",
+        },
+    )()
     orch = Orchestrator(memory_manager=memory)
     assert orch._memory is memory

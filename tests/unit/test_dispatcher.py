@@ -47,8 +47,10 @@ from core.tool_executor import ToolResult
 
 # ====== Mock 实现 ======
 
+
 class MockLLM:
     """同步 invoke 模式 Mock（dispatch 用）"""
+
     def __init__(self, responses=None):
         self._responses = responses or []
         self._idx = 0
@@ -61,6 +63,7 @@ class MockLLM:
 
 class MockStreamingLLM:
     """流式 stream 模式 Mock（dispatch_stream 用）"""
+
     def __init__(self, chunks_list=None):
         self._chunks_list = chunks_list or []  # list[list[StreamChunk]]，每轮一个列表
         self._round = 0
@@ -73,7 +76,7 @@ class MockStreamingLLM:
                 yield c
         else:
             yield TextChunk(content="done")
-            yield DoneChunk( finish_reason="stop")
+            yield DoneChunk(finish_reason="stop")
 
 
 class MockTools:
@@ -93,17 +96,22 @@ class MockTools:
             if isinstance(preset, ToolResult):
                 return preset
             return ToolResult(
-                tool_use_id=tool_use_id, tool_name=tool_name,
-                content=str(preset), status="success",
+                tool_use_id=tool_use_id,
+                tool_name=tool_name,
+                content=str(preset),
+                status="success",
             )
         return ToolResult(
-            tool_use_id=tool_use_id, tool_name=tool_name,
-            content=f"read {arguments.get('path', '')}", status="success",
+            tool_use_id=tool_use_id,
+            tool_name=tool_name,
+            content=f"read {arguments.get('path', '')}",
+            status="success",
         )
 
 
 class BlockingTools:
     """工具返回 blocked 状态"""
+
     def __init__(self):
         self.executed: list[tuple] = []
 
@@ -113,14 +121,18 @@ class BlockingTools:
     async def execute(self, tool_name, arguments, session_id="", tool_use_id="", **kwargs):
         self.executed.append((tool_name, arguments))
         return ToolResult(
-            tool_use_id=tool_use_id, tool_name=tool_name,
-            content="", status="error", error="Policy blocked",
+            tool_use_id=tool_use_id,
+            tool_name=tool_name,
+            content="",
+            status="error",
+            error="Policy blocked",
             error_type="blocked",
         )
 
 
 class FailingTools:
     """工具连续失败（断路器测试用）"""
+
     def __init__(self, fail_count=10):
         self.executed: list[tuple] = []
         self._fail_count = fail_count
@@ -134,17 +146,23 @@ class FailingTools:
         self.executed.append((tool_name, arguments))
         if self._calls <= self._fail_count:
             return ToolResult(
-                tool_use_id=tool_use_id, tool_name=tool_name,
-                content="", status="error", error="ConnectionError: timeout",
+                tool_use_id=tool_use_id,
+                tool_name=tool_name,
+                content="",
+                status="error",
+                error="ConnectionError: timeout",
             )
         return ToolResult(
-            tool_use_id=tool_use_id, tool_name=tool_name,
-            content="success at last", status="success",
+            tool_use_id=tool_use_id,
+            tool_name=tool_name,
+            content="success at last",
+            status="success",
         )
 
 
 class MultiToolMock:
     """多工具并发测试用"""
+
     def __init__(self):
         self.executed: list[tuple] = []
         self._call_order: list[str] = []
@@ -163,8 +181,10 @@ class MultiToolMock:
         if tool_name == "bash":
             await asyncio.sleep(0.02)
         return ToolResult(
-            tool_use_id=tool_use_id, tool_name=tool_name,
-            content=f"{tool_name} result: {arguments}", status="success",
+            tool_use_id=tool_use_id,
+            tool_name=tool_name,
+            content=f"{tool_name} result: {arguments}",
+            status="success",
         )
 
 
@@ -175,6 +195,7 @@ def memory():
 
 
 # ====== 1. 纯文本（原有，保留） ======
+
 
 @pytest.mark.asyncio
 async def test_text_only_no_tools():
@@ -189,16 +210,19 @@ async def test_text_only_no_tools():
 
 # ====== 2. 工具调用链（原有，保留） ======
 
+
 @pytest.mark.asyncio
 async def test_dispatch_with_tool_call():
-    llm = MockLLM([
-        LLMResponse(
-            text="Let me read that",
-            tool_calls=[ToolCall(id="c1", name="read_file", arguments={"path": "main.py"})],
-            finish_reason="tool_calls",
-        ),
-        LLMResponse(text="File contents: print('hi')", finish_reason="stop"),
-    ])
+    llm = MockLLM(
+        [
+            LLMResponse(
+                text="Let me read that",
+                tool_calls=[ToolCall(id="c1", name="read_file", arguments={"path": "main.py"})],
+                finish_reason="tool_calls",
+            ),
+            LLMResponse(text="File contents: print('hi')", finish_reason="stop"),
+        ]
+    )
     tools = MockTools()
     d = Dispatcher(llm, tools)
 
@@ -210,6 +234,7 @@ async def test_dispatch_with_tool_call():
 
 # ====== 3. schema 属性（原有） ======
 
+
 def test_tool_count():
     d = Dispatcher(MockLLM(), MockTools())
     assert d.tool_count == 1
@@ -217,6 +242,7 @@ def test_tool_count():
 
 
 # ====== 4. 错误处理（原有） ======
+
 
 @pytest.mark.asyncio
 async def test_dispatch_llm_error():
@@ -229,6 +255,7 @@ async def test_dispatch_llm_error():
 
 
 # ====== 5. 无 schema（原有） ======
+
 
 @pytest.mark.asyncio
 async def test_dispatch_no_tools():
@@ -245,16 +272,19 @@ async def test_dispatch_no_tools():
 
 # ── U-D1: 纯文本流式输出 ──
 
+
 @pytest.mark.asyncio
 async def test_dispatch_stream_text_only():
     """dispatch_stream 纯文本流式输出"""
-    llm = MockStreamingLLM([
+    llm = MockStreamingLLM(
         [
-            TextChunk(content="Hello, "),
-            TextChunk(content="world!"),
-            DoneChunk( finish_reason="stop", usage={"total": 10}),
-        ],
-    ])
+            [
+                TextChunk(content="Hello, "),
+                TextChunk(content="world!"),
+                DoneChunk(finish_reason="stop", usage={"total": 10}),
+            ],
+        ]
+    )
     d = Dispatcher(llm, MockTools())
 
     chunks = []
@@ -268,24 +298,27 @@ async def test_dispatch_stream_text_only():
 
 # ── U-D2: 流式工具调用 → 执行 → 返回 ──
 
+
 @pytest.mark.asyncio
 async def test_dispatch_stream_with_tool_calls():
     """dispatch_stream：LLM 请求工具 → 执行 → 继续 → 最终回答"""
-    llm = MockStreamingLLM([
-        # 第 1 轮：工具调用
+    llm = MockStreamingLLM(
         [
-            TextChunk(content="Let me read..."),
-            ToolCallStartChunk(tool_index=0, tool_id="c1", tool_name="read_file"),
-            ToolCallDeltaChunk(tool_index=0, tool_args_delta='{"path": "main.py"}'),
-            ToolCallEndChunk(tool_index=0),
-            DoneChunk( finish_reason="tool_calls"),
-        ],
-        # 第 2 轮：最终回答
-        [
-            TextChunk(content="File contents here"),
-            DoneChunk( finish_reason="stop", usage={"total": 15}),
-        ],
-    ])
+            # 第 1 轮：工具调用
+            [
+                TextChunk(content="Let me read..."),
+                ToolCallStartChunk(tool_index=0, tool_id="c1", tool_name="read_file"),
+                ToolCallDeltaChunk(tool_index=0, tool_args_delta='{"path": "main.py"}'),
+                ToolCallEndChunk(tool_index=0),
+                DoneChunk(finish_reason="tool_calls"),
+            ],
+            # 第 2 轮：最终回答
+            [
+                TextChunk(content="File contents here"),
+                DoneChunk(finish_reason="stop", usage={"total": 15}),
+            ],
+        ]
+    )
     tools = MockTools()
     d = Dispatcher(llm, tools)
 
@@ -307,27 +340,30 @@ async def test_dispatch_stream_with_tool_calls():
 
 # ── U-D3: 并发工具执行 ──
 
+
 @pytest.mark.asyncio
 async def test_dispatch_stream_concurrent_tools():
     """同轮多个 tool_calls → 并发执行 (asyncio.gather)"""
-    llm = MockStreamingLLM([
+    llm = MockStreamingLLM(
         [
-            ToolCallStartChunk(tool_index=0, tool_id="c1", tool_name="read_file"),
-            ToolCallDeltaChunk(tool_index=0, tool_args_delta='{"path": "a.py"}'),
-            ToolCallEndChunk(tool_index=0),
-            ToolCallStartChunk(tool_index=1, tool_id="c2", tool_name="grep"),
-            ToolCallDeltaChunk(tool_index=1, tool_args_delta='{"pattern": "foo"}'),
-            ToolCallEndChunk(tool_index=1),
-            ToolCallStartChunk(tool_index=2, tool_id="c3", tool_name="bash"),
-            ToolCallDeltaChunk(tool_index=2, tool_args_delta='{"command": "ls"}'),
-            ToolCallEndChunk(tool_index=2),
-            DoneChunk( finish_reason="tool_calls"),
-        ],
-        [
-            TextChunk(content="all done"),
-            DoneChunk( finish_reason="stop"),
-        ],
-    ])
+            [
+                ToolCallStartChunk(tool_index=0, tool_id="c1", tool_name="read_file"),
+                ToolCallDeltaChunk(tool_index=0, tool_args_delta='{"path": "a.py"}'),
+                ToolCallEndChunk(tool_index=0),
+                ToolCallStartChunk(tool_index=1, tool_id="c2", tool_name="grep"),
+                ToolCallDeltaChunk(tool_index=1, tool_args_delta='{"pattern": "foo"}'),
+                ToolCallEndChunk(tool_index=1),
+                ToolCallStartChunk(tool_index=2, tool_id="c3", tool_name="bash"),
+                ToolCallDeltaChunk(tool_index=2, tool_args_delta='{"command": "ls"}'),
+                ToolCallEndChunk(tool_index=2),
+                DoneChunk(finish_reason="tool_calls"),
+            ],
+            [
+                TextChunk(content="all done"),
+                DoneChunk(finish_reason="stop"),
+            ],
+        ]
+    )
     tools = MultiToolMock()
     d = Dispatcher(llm, tools)
 
@@ -349,24 +385,27 @@ async def test_dispatch_stream_concurrent_tools():
 
 # ── U-D4: 单工具异常不中断其他（return_exceptions=True） ──
 
+
 @pytest.mark.asyncio
 async def test_dispatch_stream_tool_exception_wrapped():
     """并发中单个工具抛异常 → 包装为 error ToolResult，不中断其他"""
-    llm = MockStreamingLLM([
+    llm = MockStreamingLLM(
         [
-            ToolCallStartChunk(tool_index=0, tool_id="c1", tool_name="read_file"),
-            ToolCallDeltaChunk(tool_index=0, tool_args_delta='{"path": "a.py"}'),
-            ToolCallEndChunk(tool_index=0),
-            ToolCallStartChunk(tool_index=1, tool_id="c2", tool_name="grep"),
-            ToolCallDeltaChunk(tool_index=1, tool_args_delta='{"pattern": "x"}'),
-            ToolCallEndChunk(tool_index=1),
-            DoneChunk( finish_reason="tool_calls"),
-        ],
-        [
-            TextChunk(content="partial success"),
-            DoneChunk( finish_reason="stop"),
-        ],
-    ])
+            [
+                ToolCallStartChunk(tool_index=0, tool_id="c1", tool_name="read_file"),
+                ToolCallDeltaChunk(tool_index=0, tool_args_delta='{"path": "a.py"}'),
+                ToolCallEndChunk(tool_index=0),
+                ToolCallStartChunk(tool_index=1, tool_id="c2", tool_name="grep"),
+                ToolCallDeltaChunk(tool_index=1, tool_args_delta='{"pattern": "x"}'),
+                ToolCallEndChunk(tool_index=1),
+                DoneChunk(finish_reason="tool_calls"),
+            ],
+            [
+                TextChunk(content="partial success"),
+                DoneChunk(finish_reason="stop"),
+            ],
+        ]
+    )
     tools = MultiToolMock()
     # grep 工具抛异常
     tools._results = {"grep": ConnectionError("network down")}
@@ -390,21 +429,24 @@ async def test_dispatch_stream_tool_exception_wrapped():
 
 # ── U-D5: 工具执行事件验证 ──
 
+
 @pytest.mark.asyncio
 async def test_dispatch_stream_tool_exec_events():
     """验证 tool_exec_start / tool_exec_end 事件正确 yield"""
-    llm = MockStreamingLLM([
+    llm = MockStreamingLLM(
         [
-            ToolCallStartChunk(tool_index=0, tool_id="c42", tool_name="read_file"),
-            ToolCallDeltaChunk(tool_index=0, tool_args_delta='{"path": "x.py"}'),
-            ToolCallEndChunk(tool_index=0),
-            DoneChunk( finish_reason="tool_calls"),
-        ],
-        [
-            TextChunk(content="ok"),
-            DoneChunk( finish_reason="stop"),
-        ],
-    ])
+            [
+                ToolCallStartChunk(tool_index=0, tool_id="c42", tool_name="read_file"),
+                ToolCallDeltaChunk(tool_index=0, tool_args_delta='{"path": "x.py"}'),
+                ToolCallEndChunk(tool_index=0),
+                DoneChunk(finish_reason="tool_calls"),
+            ],
+            [
+                TextChunk(content="ok"),
+                DoneChunk(finish_reason="stop"),
+            ],
+        ]
+    )
     d = Dispatcher(llm, MockTools())
 
     chunks = []
@@ -423,18 +465,21 @@ async def test_dispatch_stream_tool_exec_events():
 
 # ── U-D6: 断路器——同一调用连续失败 → 终止 ──
 
+
 @pytest.mark.asyncio
 async def test_dispatch_stream_circuit_breaker_trips():
     """同一 (tool+args) 连续失败 N 次 → 断路器断开 → error chunk + return"""
     # 构造：LLM 每次都返回同样的工具调用
     rounds_of_tool_calls = []
     for _ in range(6):
-        rounds_of_tool_calls.append([
-            ToolCallStartChunk(tool_index=0, tool_id="c1", tool_name="flaky_tool"),
-            ToolCallDeltaChunk(tool_index=0, tool_args_delta='{"target": "server"}'),
-            ToolCallEndChunk(tool_index=0),
-            DoneChunk( finish_reason="tool_calls"),
-        ])
+        rounds_of_tool_calls.append(
+            [
+                ToolCallStartChunk(tool_index=0, tool_id="c1", tool_name="flaky_tool"),
+                ToolCallDeltaChunk(tool_index=0, tool_args_delta='{"target": "server"}'),
+                ToolCallEndChunk(tool_index=0),
+                DoneChunk(finish_reason="tool_calls"),
+            ]
+        )
     llm = MockStreamingLLM(rounds_of_tool_calls)
     tools = FailingTools(fail_count=10)  # 总是失败
     d = Dispatcher(llm, tools)
@@ -453,39 +498,42 @@ async def test_dispatch_stream_circuit_breaker_trips():
 
 # ── U-D7: 断路器——不同调用失败重置计数 ──
 
+
 @pytest.mark.asyncio
 async def test_dispatch_stream_circuit_breaker_resets():
     """不同调用失败 → _same_call_failures 重置 → 不触发断路器"""
     # 第 1 轮：tool A
     # 第 2 轮：tool B（不同于 A）→ 计数器重置
     # 第 3 轮：tool A 又失败 1 次 → 总共 A 失败 2 次 < 5
-    llm = MockStreamingLLM([
-        [  # Round 1: flaky_tool + read_file
-            ToolCallStartChunk(tool_index=0, tool_id="c1", tool_name="flaky_tool"),
-            ToolCallDeltaChunk(tool_index=0, tool_args_delta='{"target": "x"}'),
-            ToolCallEndChunk(tool_index=0),
-            ToolCallStartChunk(tool_index=1, tool_id="c2", tool_name="read_file"),
-            ToolCallDeltaChunk(tool_index=1, tool_args_delta='{"path": "y.py"}'),
-            ToolCallEndChunk(tool_index=1),
-            DoneChunk( finish_reason="tool_calls"),
-        ],
-        [  # Round 2: read_file（不同于 flaky_tool）→ 应重置
-            ToolCallStartChunk(tool_index=0, tool_id="c3", tool_name="read_file"),
-            ToolCallDeltaChunk(tool_index=0, tool_args_delta='{"path": "z.py"}'),
-            ToolCallEndChunk(tool_index=0),
-            DoneChunk( finish_reason="tool_calls"),
-        ],
-        [  # Round 3: flaky_tool 又失败 → 计数器重新从 1 开始
-            ToolCallStartChunk(tool_index=0, tool_id="c4", tool_name="flaky_tool"),
-            ToolCallDeltaChunk(tool_index=0, tool_args_delta='{"target": "x"}'),
-            ToolCallEndChunk(tool_index=0),
-            DoneChunk( finish_reason="tool_calls"),
-        ],
+    llm = MockStreamingLLM(
         [
-            TextChunk(content="final"),
-            DoneChunk( finish_reason="stop"),
-        ],
-    ])
+            [  # Round 1: flaky_tool + read_file
+                ToolCallStartChunk(tool_index=0, tool_id="c1", tool_name="flaky_tool"),
+                ToolCallDeltaChunk(tool_index=0, tool_args_delta='{"target": "x"}'),
+                ToolCallEndChunk(tool_index=0),
+                ToolCallStartChunk(tool_index=1, tool_id="c2", tool_name="read_file"),
+                ToolCallDeltaChunk(tool_index=1, tool_args_delta='{"path": "y.py"}'),
+                ToolCallEndChunk(tool_index=1),
+                DoneChunk(finish_reason="tool_calls"),
+            ],
+            [  # Round 2: read_file（不同于 flaky_tool）→ 应重置
+                ToolCallStartChunk(tool_index=0, tool_id="c3", tool_name="read_file"),
+                ToolCallDeltaChunk(tool_index=0, tool_args_delta='{"path": "z.py"}'),
+                ToolCallEndChunk(tool_index=0),
+                DoneChunk(finish_reason="tool_calls"),
+            ],
+            [  # Round 3: flaky_tool 又失败 → 计数器重新从 1 开始
+                ToolCallStartChunk(tool_index=0, tool_id="c4", tool_name="flaky_tool"),
+                ToolCallDeltaChunk(tool_index=0, tool_args_delta='{"target": "x"}'),
+                ToolCallEndChunk(tool_index=0),
+                DoneChunk(finish_reason="tool_calls"),
+            ],
+            [
+                TextChunk(content="final"),
+                DoneChunk(finish_reason="stop"),
+            ],
+        ]
+    )
 
     class MixedFailingTools:
         def __init__(self):
@@ -501,12 +549,17 @@ async def test_dispatch_stream_circuit_breaker_resets():
             self.executed.append((tool_name, arguments))
             if tool_name == "flaky_tool":
                 return ToolResult(
-                    tool_use_id=tool_use_id, tool_name=tool_name,
-                    content="", status="error", error="timeout",
+                    tool_use_id=tool_use_id,
+                    tool_name=tool_name,
+                    content="",
+                    status="error",
+                    error="timeout",
                 )
             return ToolResult(
-                tool_use_id=tool_use_id, tool_name=tool_name,
-                content="read ok", status="success",
+                tool_use_id=tool_use_id,
+                tool_name=tool_name,
+                content="read ok",
+                status="success",
             )
 
     tools = MixedFailingTools()
@@ -527,21 +580,24 @@ async def test_dispatch_stream_circuit_breaker_resets():
 
 # ── U-D8: blocked 工具 → 转为错误消息 ──
 
+
 @pytest.mark.asyncio
 async def test_dispatch_stream_blocked_tool():
     """blocked / pending_approval 状态 → output 变为 [status] 前缀"""
-    llm = MockStreamingLLM([
+    llm = MockStreamingLLM(
         [
-            ToolCallStartChunk(tool_index=0, tool_id="c1", tool_name="dangerous_tool"),
-            ToolCallDeltaChunk(tool_index=0, tool_args_delta='{"cmd": "rm -rf /"}'),
-            ToolCallEndChunk(tool_index=0),
-            DoneChunk( finish_reason="tool_calls"),
-        ],
-        [
-            TextChunk(content="blocked and reported"),
-            DoneChunk( finish_reason="stop"),
-        ],
-    ])
+            [
+                ToolCallStartChunk(tool_index=0, tool_id="c1", tool_name="dangerous_tool"),
+                ToolCallDeltaChunk(tool_index=0, tool_args_delta='{"cmd": "rm -rf /"}'),
+                ToolCallEndChunk(tool_index=0),
+                DoneChunk(finish_reason="tool_calls"),
+            ],
+            [
+                TextChunk(content="blocked and reported"),
+                DoneChunk(finish_reason="stop"),
+            ],
+        ]
+    )
     d = Dispatcher(llm, BlockingTools())
 
     chunks = []
@@ -558,14 +614,17 @@ async def test_dispatch_stream_blocked_tool():
 
 # ── U-D9: LLM error → yield error chunk → return ──
 
+
 @pytest.mark.asyncio
 async def test_dispatch_stream_llm_error():
     """LLM 返回 error chunk → yield + return（不崩溃）"""
-    llm = MockStreamingLLM([
+    llm = MockStreamingLLM(
         [
-            ErrorChunk(error="API rate limit exceeded"),
-        ],
-    ])
+            [
+                ErrorChunk(error="API rate limit exceeded"),
+            ],
+        ]
+    )
     d = Dispatcher(llm, MockTools())
 
     chunks = []
@@ -579,16 +638,19 @@ async def test_dispatch_stream_llm_error():
 
 # ── U-D10: reasoning_content 透传 ──
 
+
 @pytest.mark.asyncio
 async def test_dispatch_stream_reasoning_chunks():
     """DeepSeek reasoning_content 透传"""
-    llm = MockStreamingLLM([
+    llm = MockStreamingLLM(
         [
-            ReasoningChunk(content="Let me think..."),
-            TextChunk(content="The answer is 42"),
-            DoneChunk( finish_reason="stop"),
-        ],
-    ])
+            [
+                ReasoningChunk(content="Let me think..."),
+                TextChunk(content="The answer is 42"),
+                DoneChunk(finish_reason="stop"),
+            ],
+        ]
+    )
     d = Dispatcher(llm, MockTools())
 
     chunks = []
@@ -605,24 +667,29 @@ async def test_dispatch_stream_reasoning_chunks():
 
 # ── U-D11: max_rounds 超限终止 ──
 
+
 @pytest.mark.asyncio
 async def test_dispatch_stream_max_rounds():
     """超过 max_rounds → 强制终止"""
     # 构造永不停歇的工具调用
     endless_rounds = []
     for _ in range(5):
-        endless_rounds.append([
-            ToolCallStartChunk(tool_index=0, tool_id="c1", tool_name="read_file"),
-            ToolCallDeltaChunk(tool_index=0, tool_args_delta='{"path": "x.py"}'),
-            ToolCallEndChunk(tool_index=0),
-            DoneChunk( finish_reason="tool_calls"),
-        ])
+        endless_rounds.append(
+            [
+                ToolCallStartChunk(tool_index=0, tool_id="c1", tool_name="read_file"),
+                ToolCallDeltaChunk(tool_index=0, tool_args_delta='{"path": "x.py"}'),
+                ToolCallEndChunk(tool_index=0),
+                DoneChunk(finish_reason="tool_calls"),
+            ]
+        )
     llm = MockStreamingLLM(endless_rounds)
     d = Dispatcher(llm, MockTools())
 
     chunks = []
     async for chunk in d.dispatch_stream(
-        [{"role": "user", "content": "loop"}], "s1", max_rounds=3,
+        [{"role": "user", "content": "loop"}],
+        "s1",
+        max_rounds=3,
     ):
         chunks.append(chunk)
 
@@ -633,21 +700,24 @@ async def test_dispatch_stream_max_rounds():
 
 # ── U-D12: 无效 JSON args → {} + 继续 ──
 
+
 @pytest.mark.asyncio
 async def test_dispatch_stream_tool_args_invalid_json():
     """工具参数 JSON 无效 → 回退 {}，不崩溃"""
-    llm = MockStreamingLLM([
+    llm = MockStreamingLLM(
         [
-            ToolCallStartChunk(tool_index=0, tool_id="c1", tool_name="read_file"),
-            ToolCallDeltaChunk(tool_index=0, tool_args_delta="NOT VALID JSON {{{"),
-            ToolCallEndChunk(tool_index=0),
-            DoneChunk( finish_reason="tool_calls"),
-        ],
-        [
-            TextChunk(content="handled bad args"),
-            DoneChunk( finish_reason="stop"),
-        ],
-    ])
+            [
+                ToolCallStartChunk(tool_index=0, tool_id="c1", tool_name="read_file"),
+                ToolCallDeltaChunk(tool_index=0, tool_args_delta="NOT VALID JSON {{{"),
+                ToolCallEndChunk(tool_index=0),
+                DoneChunk(finish_reason="tool_calls"),
+            ],
+            [
+                TextChunk(content="handled bad args"),
+                DoneChunk(finish_reason="stop"),
+            ],
+        ]
+    )
     tools = MockTools()
     d = Dispatcher(llm, tools)
 
@@ -666,23 +736,27 @@ async def test_dispatch_stream_tool_args_invalid_json():
 
 # ── U-D13: freeze 触发（超过 KEEP） ──
 
+
 @pytest.mark.asyncio
 async def test_dispatch_stream_freeze_triggers(memory):
     """工具结果超过 KEEP(8) → JSON 占位符"""
     # 构造：12 轮工具调用，每轮 1 个工具 = 12 个 tool 消息
     tool_rounds = []
     for i in range(12):
-        tool_rounds.append([
-            ToolCallStartChunk(tool_index=0, tool_id=f"c{i}", tool_name="read_file"),
-            ToolCallDeltaChunk(tool_index=0,
-                        tool_args_delta=json.dumps({"path": f"f{i}.py"})),
-            ToolCallEndChunk(tool_index=0),
-            DoneChunk( finish_reason="tool_calls"),
-        ])
-    tool_rounds.append([
-        TextChunk(content="all processed"),
-        DoneChunk( finish_reason="stop"),
-    ])
+        tool_rounds.append(
+            [
+                ToolCallStartChunk(tool_index=0, tool_id=f"c{i}", tool_name="read_file"),
+                ToolCallDeltaChunk(tool_index=0, tool_args_delta=json.dumps({"path": f"f{i}.py"})),
+                ToolCallEndChunk(tool_index=0),
+                DoneChunk(finish_reason="tool_calls"),
+            ]
+        )
+    tool_rounds.append(
+        [
+            TextChunk(content="all processed"),
+            DoneChunk(finish_reason="stop"),
+        ]
+    )
     llm = MockStreamingLLM(tool_rounds)
 
     # 返回较长结果触发 freeze
@@ -692,8 +766,9 @@ async def test_dispatch_stream_freeze_triggers(memory):
 
         async def execute(self, tool_name, arguments, session_id="", tool_use_id="", **kwargs):
             return ToolResult(
-                tool_use_id=tool_use_id, tool_name=tool_name,
-                content=f"file content for {arguments.get('path','?')}: " + "x" * 300,
+                tool_use_id=tool_use_id,
+                tool_name=tool_name,
+                content=f"file content for {arguments.get('path', '?')}: " + "x" * 300,
                 status="success",
             )
 
@@ -709,23 +784,27 @@ async def test_dispatch_stream_freeze_triggers(memory):
 
 # ── U-D14: freeze 不触发（低于阈值） ──
 
+
 @pytest.mark.asyncio
 async def test_dispatch_stream_freeze_below_threshold():
     """少于 KEEP 个工具结果 → 不触发 freeze"""
     # 只有 2 轮工具调用
     tool_rounds = []
     for i in range(2):
-        tool_rounds.append([
-            ToolCallStartChunk(tool_index=0, tool_id=f"c{i}", tool_name="read_file"),
-            ToolCallDeltaChunk(tool_index=0,
-                        tool_args_delta=json.dumps({"path": f"f{i}.py"})),
-            ToolCallEndChunk(tool_index=0),
-            DoneChunk( finish_reason="tool_calls"),
-        ])
-    tool_rounds.append([
-        TextChunk(content="only two tools"),
-        DoneChunk( finish_reason="stop"),
-    ])
+        tool_rounds.append(
+            [
+                ToolCallStartChunk(tool_index=0, tool_id=f"c{i}", tool_name="read_file"),
+                ToolCallDeltaChunk(tool_index=0, tool_args_delta=json.dumps({"path": f"f{i}.py"})),
+                ToolCallEndChunk(tool_index=0),
+                DoneChunk(finish_reason="tool_calls"),
+            ]
+        )
+    tool_rounds.append(
+        [
+            TextChunk(content="only two tools"),
+            DoneChunk(finish_reason="stop"),
+        ]
+    )
     llm = MockStreamingLLM(tool_rounds)
     d = Dispatcher(llm, MockTools())
 
@@ -741,6 +820,7 @@ async def test_dispatch_stream_freeze_below_threshold():
 # v2.0: Stage 1 工具结果缓存（原有，保留）
 # ======================================================================
 
+
 @pytest.mark.asyncio
 async def test_freeze_old_tool_results_below_threshold():
     """少于 KEEP_TOOL_RESULTS 个 → 不触发缓存"""
@@ -752,11 +832,13 @@ async def test_freeze_old_tool_results_below_threshold():
         {"role": "user", "content": "hi"},
     ]
     for i in range(3):
-        messages.append({
-            "role": "tool",
-            "tool_call_id": f"c{i}",
-            "content": f"result {i}: " + "x" * 200,
-        })
+        messages.append(
+            {
+                "role": "tool",
+                "tool_call_id": f"c{i}",
+                "content": f"result {i}: " + "x" * 200,
+            }
+        )
 
     d._freeze_old_tool_results(messages, "s1")
 
@@ -774,11 +856,13 @@ async def test_freeze_old_tool_results_above_threshold(memory):
 
     messages = [{"role": "user", "content": "hi"}]
     for i in range(15):
-        messages.append({
-            "role": "tool",
-            "tool_call_id": f"c{i}",
-            "content": f"result {i}: " + "x" * 200,
-        })
+        messages.append(
+            {
+                "role": "tool",
+                "tool_call_id": f"c{i}",
+                "content": f"result {i}: " + "x" * 200,
+            }
+        )
 
     d._freeze_old_tool_results(messages, "s1")
 
@@ -797,14 +881,16 @@ async def test_freeze_old_tool_results_above_threshold(memory):
 @pytest.mark.asyncio
 async def test_freeze_old_tool_results_json_format(memory):
     """验证 JSON 占位符格式"""
-    llm = MockLLM([
-        LLMResponse(
-            text="Let me check",
-            tool_calls=[ToolCall(id="c99", name="read_file", arguments={"path": "main.py"})],
-            finish_reason="tool_calls",
-        ),
-        LLMResponse(text="Done", finish_reason="stop"),
-    ])
+    llm = MockLLM(
+        [
+            LLMResponse(
+                text="Let me check",
+                tool_calls=[ToolCall(id="c99", name="read_file", arguments={"path": "main.py"})],
+                finish_reason="tool_calls",
+            ),
+            LLMResponse(text="Done", finish_reason="stop"),
+        ]
+    )
     tools = MockTools()
     d = Dispatcher(llm, tools, memory_manager=memory)
     d._max_context_window = 0  # 强制 keep=KEEP_TOOL_RESULTS，避免大默认窗口掩盖 bug
@@ -813,20 +899,26 @@ async def test_freeze_old_tool_results_json_format(memory):
         {"role": "user", "content": "read all files"},
     ]
     for i in range(15):
-        messages.append({
-            "role": "assistant",
-            "content": None,
-            "tool_calls": [{
-                "id": f"c{i}",
-                "type": "function",
-                "function": {"name": "read_file", "arguments": '{"path": "f.py"}'},
-            }],
-        })
-        messages.append({
-            "role": "tool",
-            "tool_call_id": f"c{i}",
-            "content": f"file content {i}: " + "y" * 200,
-        })
+        messages.append(
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": f"c{i}",
+                        "type": "function",
+                        "function": {"name": "read_file", "arguments": '{"path": "f.py"}'},
+                    }
+                ],
+            }
+        )
+        messages.append(
+            {
+                "role": "tool",
+                "tool_call_id": f"c{i}",
+                "content": f"file content {i}: " + "y" * 200,
+            }
+        )
 
     d._freeze_old_tool_results(messages, "s1")
 
@@ -847,11 +939,13 @@ async def test_freeze_skips_short_results(memory):
 
     messages = [{"role": "user", "content": "hi"}]
     for i in range(15):
-        messages.append({
-            "role": "tool",
-            "tool_call_id": f"c{i}",
-            "content": f"short {i}",
-        })
+        messages.append(
+            {
+                "role": "tool",
+                "tool_call_id": f"c{i}",
+                "content": f"short {i}",
+            }
+        )
 
     d._freeze_old_tool_results(messages, "s1")
 
@@ -860,6 +954,7 @@ async def test_freeze_skips_short_results(memory):
 
 
 # ====== v2.0: _guess_tool_name（原有） ======
+
 
 def test_guess_tool_name_finds_match():
     """从前一条 assistant 消息中匹配 tool_call_id"""
@@ -890,6 +985,7 @@ def test_guess_tool_name_not_found():
 
 
 # ====== v2.0: dispatcher 集成 memory_manager（原有） ======
+
 
 def test_dispatcher_accepts_memory_manager(memory):
     """Dispatcher 接受 MemoryManager 参数"""

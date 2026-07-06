@@ -22,6 +22,7 @@ from core.models.context import (
 
 # ========== 1. 枚举测试 ==========
 
+
 def test_block_source_values():
     assert BlockSource.SYSTEM_PROMPT == "system_prompt"
     assert BlockSource.STATIC_RULE == "static_rule"
@@ -56,6 +57,7 @@ def test_trigger_reason_values():
 
 
 # ========== 2. ContextBlock 测试 ==========
+
 
 class TestContextBlock:
     def test_minimal_block(self):
@@ -125,23 +127,31 @@ class TestContextBlock:
     def test_new_block_sources(self):
         """新增来源类型构造正确"""
         skill_block = ContextBlock(
-            source=BlockSource.SKILL, role="system",
-            content="skill: code_review", zone="protected",
-            priority=1, importance_score=0.9, cache_ttl=1200,
+            source=BlockSource.SKILL,
+            role="system",
+            content="skill: code_review",
+            zone="protected",
+            priority=1,
+            importance_score=0.9,
+            cache_ttl=1200,
         )
         assert skill_block.source == "skill"
         assert skill_block.cache_ttl == 1200
 
         rag_block = ContextBlock(
-            source=BlockSource.RAG_RESULT, role="tool",
-            content="search result: def main()", cache_ttl=120,
+            source=BlockSource.RAG_RESULT,
+            role="tool",
+            content="search result: def main()",
+            cache_ttl=120,
         )
         assert rag_block.source == "rag_result"
         assert rag_block.cache_ttl == 120
 
         sub_block = ContextBlock(
-            source=BlockSource.SUBAGENT_RESULT, role="assistant",
-            content="子Agent 完成: 修复了 3 个 bug", importance_score=0.8,
+            source=BlockSource.SUBAGENT_RESULT,
+            role="assistant",
+            content="子Agent 完成: 修复了 3 个 bug",
+            importance_score=0.8,
         )
         assert sub_block.source == "subagent_result"
         assert sub_block.importance_score == 0.8
@@ -193,6 +203,7 @@ class TestContextBlock:
 
 
 # ========== 3. ContextAssemblyMeta 测试 ==========
+
 
 class TestContextAssemblyMeta:
     def test_defaults(self):
@@ -265,6 +276,7 @@ class TestContextAssemblyMeta:
 
 
 # ========== 4. AssembledContext 测试 ==========
+
 
 class TestAssembledContext:
     @pytest.fixture
@@ -376,8 +388,7 @@ class TestAssembledContext:
             compression_pressure=0.75,
             trigger_reason=TriggerReason.THRESHOLD,
         )
-        ctx = AssembledContext(blocks=[], meta=meta, needs_compression=True,
-                               recommended_level=CompressionLevel.TRIMMED)
+        ctx = AssembledContext(blocks=[], meta=meta, needs_compression=True, recommended_level=CompressionLevel.TRIMMED)
         assert ctx.needs_compression is True
         assert ctx.recommended_level == "trimmed"
 
@@ -457,6 +468,7 @@ class TestAssembledContext:
 
 
 # ========== 5. 场景测试 ==========
+
 
 def test_full_assembly_workflow():
     """模拟完整的上下文组装 → 压缩决策 → LLM 格式转换流程"""
@@ -540,7 +552,7 @@ def test_full_assembly_workflow():
     # 4. 压缩决策：按 importance_score 升序删除最低分块
     dynamic_blocks = ctx.get_dynamic_slice()
     assert dynamic_blocks[0].importance_score == 0.85  # 对话历史
-    assert dynamic_blocks[-1].importance_score == 0.5   # 工具结果 → 最先被删
+    assert dynamic_blocks[-1].importance_score == 0.5  # 工具结果 → 最先被删
 
     # 5. 生成 LLM 消息
     msgs = ctx.get_messages()

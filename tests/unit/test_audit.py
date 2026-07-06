@@ -25,6 +25,7 @@ from core.models.audit import (
 
 # ========== 1. SensitiveString 测试 ==========
 
+
 class TestSensitiveString:
     def test_short_value_fully_redacted(self):
         s = SensitiveString(value="ab")
@@ -59,6 +60,7 @@ class TestSensitiveString:
 
 
 # ========== 2. AuditEvent 基类测试 ==========
+
 
 class TestAuditEvent:
     def test_default_id_and_timestamp(self):
@@ -97,6 +99,7 @@ class TestAuditEvent:
 
 
 # ========== 3. ToolCallAuditEvent 测试 ==========
+
 
 class TestToolCallAuditEvent:
     def test_required_fields(self):
@@ -154,6 +157,7 @@ class TestToolCallAuditEvent:
 
 
 # ========== 4. CostAuditEvent 测试 ==========
+
 
 class TestCostAuditEvent:
     def test_full_event(self):
@@ -224,6 +228,7 @@ class TestCostAuditEvent:
 
 # ========== 5. MemoryChangeAuditEvent 测试 ==========
 
+
 class TestMemoryChangeAuditEvent:
     def test_write_operation(self):
         e = MemoryChangeAuditEvent(
@@ -276,6 +281,7 @@ class TestMemoryChangeAuditEvent:
 
 # ========== 6. PermissionAuditEvent 测试 ==========
 
+
 class TestPermissionAuditEvent:
     def test_pending_approval(self):
         e = PermissionAuditEvent(
@@ -319,6 +325,7 @@ class TestPermissionAuditEvent:
 
 # ========== 7. SessionAuditEvent 测试 ==========
 
+
 class TestSessionAuditEvent:
     def test_session_started(self):
         e = SessionAuditEvent(
@@ -356,6 +363,7 @@ class TestSessionAuditEvent:
 
 
 # ========== 8. ModelCallAuditEvent 测试 ==========
+
 
 class TestModelCallAuditEvent:
     def test_successful_call(self):
@@ -397,6 +405,7 @@ class TestModelCallAuditEvent:
 
 
 # ========== 9. 联合类型与工厂函数测试 ==========
+
 
 class TestAuditRecordUnion:
     def test_union_deserialize_tool_call(self):
@@ -533,6 +542,7 @@ class TestAuditFactory:
 
 # ========== 10. JSONL 批量序列化场景 ==========
 
+
 class TestJSONLBatch:
     def test_multiple_events_jsonl_format(self):
         """模拟一次会话中的审计事件序列化为 JSONL"""
@@ -540,12 +550,16 @@ class TestJSONLBatch:
             SessionAuditEvent(session_id="s1", project_id="p1", event="started"),
             ToolCallAuditEvent(tool_name="read_file", tool_use_id="c1", status="success"),
             CostAuditEvent(
-                model_name="gpt-4", provider="openai",
-                input_tokens=100, output_tokens=50,
-                cost_usd=0.003, cumulative_cost_usd=0.003,
+                model_name="gpt-4",
+                provider="openai",
+                input_tokens=100,
+                output_tokens=50,
+                cost_usd=0.003,
+                cumulative_cost_usd=0.003,
             ),
-            SessionAuditEvent(session_id="s1", project_id="p1", event="ended",
-                              total_tokens_at_event=150, total_cost_at_event=0.003),
+            SessionAuditEvent(
+                session_id="s1", project_id="p1", event="ended", total_tokens_at_event=150, total_cost_at_event=0.003
+            ),
         ]
 
         # 模拟写入 audit.jsonl
@@ -570,11 +584,11 @@ class TestJSONLBatch:
         events = {
             "system": AuditEvent(category=AuditEventCategory.SYSTEM),
             "tool": ToolCallAuditEvent(tool_name="t", tool_use_id="id", status="success"),
-            "cost": CostAuditEvent(model_name="m", provider="p",
-                                   input_tokens=0, output_tokens=0, cost_usd=0, cumulative_cost_usd=0),
+            "cost": CostAuditEvent(
+                model_name="m", provider="p", input_tokens=0, output_tokens=0, cost_usd=0, cumulative_cost_usd=0
+            ),
             "memory": MemoryChangeAuditEvent(operation="read", file_path="f"),
-            "permission": PermissionAuditEvent(request_id="r", tool_name="t",
-                                               command_or_action="c", reason="r"),
+            "permission": PermissionAuditEvent(request_id="r", tool_name="t", command_or_action="c", reason="r"),
             "session": SessionAuditEvent(event="started"),
             "model_call": ModelCallAuditEvent(model_name="m", provider="p", status="success"),
         }

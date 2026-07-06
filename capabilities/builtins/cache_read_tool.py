@@ -20,8 +20,7 @@ class CacheReadTool(BaseTool):
 
     name = "cache_read"
     description = (
-        "续读被截断工具的完整输出。当工具返回 truncated=true 且带有 cache_key 时，"
-        "使用此工具按页读取缓存的完整内容。"
+        "续读被截断工具的完整输出。当工具返回 truncated=true 且带有 cache_key 时，使用此工具按页读取缓存的完整内容。"
     )
 
     parameters = {
@@ -79,12 +78,15 @@ class CacheReadTool(BaseTool):
 
         # 诊断日志：记录当前缓存状态
         _cache_keys = list(self._executor._output_cache.keys())
-        _now = __import__('time').time()
+        _now = __import__("time").time()
         _ages = {k: f"{_now - ts:.1f}s" for k, (_, ts) in self._executor._output_cache.items()}
         logger.debug(
             "CacheReadTool: 请求 key=%s offset=%s limit=%s | 缓存中共 %d 条: %s",
-            cache_key, offset, limit, len(_cache_keys),
-            {k: _ages.get(k, '?') for k in _cache_keys},
+            cache_key,
+            offset,
+            limit,
+            len(_cache_keys),
+            {k: _ages.get(k, "?") for k in _cache_keys},
         )
 
         try:
@@ -102,7 +104,9 @@ class CacheReadTool(BaseTool):
         if cached.startswith("[错误]"):
             logger.warning(
                 "CacheReadTool: 缓存缺失! 请求 key=%s 不存在。当前 keys: %s, ages: %s",
-                cache_key, _cache_keys, _ages,
+                cache_key,
+                _cache_keys,
+                _ages,
             )
             return ToolResult(
                 status="error",

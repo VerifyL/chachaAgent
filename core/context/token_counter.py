@@ -67,6 +67,7 @@ class TokenCounter:
     def count_tool_schemas(self, tools: List[Dict[str, Any]]) -> int:
         """计算工具定义的 token 数"""
         import json
+
         text = json.dumps(tools, ensure_ascii=False, indent=2)
         return self.count_text(text)
 

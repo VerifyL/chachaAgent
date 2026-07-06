@@ -13,18 +13,22 @@ from core.tool_executor import ToolExecutor
 
 # ========== Fixtures ==========
 
+
 async def _echo(args):
     return f"echo: {args}"
+
 
 async def _slow(args):
     await asyncio.sleep(10)
     return "done"
+
 
 async def _crash(args):
     raise ValueError("boom")
 
 
 # ========== 1. 基本执行 ==========
+
 
 @pytest.mark.asyncio
 async def test_execute_success():
@@ -44,6 +48,7 @@ async def test_tool_not_found():
 
 
 # ========== 2. 超时 + 重试 ==========
+
 
 @pytest.mark.asyncio
 async def test_timeout_and_retry():
@@ -67,6 +72,7 @@ async def test_execution_error():
 
 # ========== 3. 输出截断 ==========
 
+
 @pytest.mark.asyncio
 async def test_output_truncation():
     async def _big(args):
@@ -80,6 +86,7 @@ async def test_output_truncation():
 
 
 # ========== 4. PolicyEngine 拦截 ==========
+
 
 @pytest.mark.asyncio
 async def test_policy_block():
@@ -105,6 +112,7 @@ async def test_policy_allow():
 
 # ========== 5. 钩子拦截 ==========
 
+
 @pytest.mark.asyncio
 async def test_hook_block():
     from core.hook_orchestrator import HookOrchestrator
@@ -124,6 +132,7 @@ async def test_hook_block():
 
 
 # ========== 6. 遥测 ==========
+
 
 @pytest.mark.asyncio
 async def test_telemetry_called():
@@ -145,6 +154,7 @@ async def test_telemetry_called():
 
 # ========== 7. 批量执行 ==========
 
+
 @pytest.mark.asyncio
 async def test_execute_batch():
     executor = ToolExecutor({"echo": _echo})
@@ -161,6 +171,7 @@ async def test_execute_batch():
 
 # ========== 8. 查询 ==========
 
+
 def test_list_tools():
     executor = ToolExecutor({"a": _echo, "b": _echo})
     assert executor.list_tools() == ["a", "b"]
@@ -170,11 +181,13 @@ def test_list_tools():
 
 # ========== 9. 缓存读写 ==========
 
+
 def test_cache_write_and_read():
     """主 Agent 截断 → 写入缓存 → cache_read 续读成功"""
     executor = ToolExecutor({"echo": _echo}, max_output_chars=100)
     # 手动写入缓存（模拟截断流程的内部操作）
     import time
+
     executor._output_cache["abc123"] = ("hello world " * 50, time.time())
 
     result = executor._get_cached_output("abc123", offset=20, limit=30)
@@ -192,6 +205,7 @@ def test_cache_miss_on_unknown_key():
 def test_cache_cleanup_removes_expired():
     """超过 600 秒的缓存被清理"""
     import time
+
     executor = ToolExecutor({"echo": _echo}, max_output_chars=100)
     executor._output_cache["fresh"] = ("data", time.time())
     executor._output_cache["stale"] = ("data", time.time() - 3600)  # 1 小时前
@@ -206,6 +220,7 @@ def test_cache_cleanup_removes_expired():
 def test_cache_merge_from_subagent():
     """spawner 合并子 Agent 缓存 → 时间戳应刷新为当前时间"""
     import time
+
     parent = ToolExecutor({"echo": _echo})
 
     # 模拟子 Agent 在 300 秒前写入缓存
@@ -227,6 +242,7 @@ def test_cache_ttl_is_600_seconds():
     """验证 TTL 为 600"""
     executor = ToolExecutor({"echo": _echo})
     import time
+
     executor._output_cache["test"] = ("data", time.time() - 590)  # 590 秒前
     executor._cleanup_cache()
     assert "test" in executor._output_cache, "590 秒不应过期"
@@ -237,6 +253,7 @@ def test_cache_ttl_is_600_seconds():
 
 
 # ========== 10. optional injected ==========
+
 
 @pytest.mark.asyncio
 async def test_no_policy_no_hooks_no_telemetry():

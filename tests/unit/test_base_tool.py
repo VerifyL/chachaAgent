@@ -10,6 +10,7 @@ from core.tool_executor import ToolExecutor
 
 # ====== 示例工具 ======
 
+
 class ReadFileTool(BaseTool):
     name = "read_file"
     description = "读取文件内容"
@@ -38,6 +39,7 @@ class ShellTool(BaseTool):
 
 # ====== 1. schema 生成 ======
 
+
 @pytest.fixture
 def read_tool():
     return ReadFileTool()
@@ -52,6 +54,7 @@ def test_to_function_schema(read_tool):
 
 # ====== 2. 执行 ======
 
+
 @pytest.mark.asyncio
 async def test_execute(read_tool):
     result = await read_tool.execute(path="/tmp/test.py")
@@ -59,6 +62,7 @@ async def test_execute(read_tool):
 
 
 # ====== 3. 元数据 ======
+
 
 def test_risk_level(read_tool):
     assert read_tool.risk == "low"
@@ -73,6 +77,7 @@ def test_high_risk_tool():
 
 # ====== 4. 上下文元数据 ======
 
+
 def test_to_context_metadata(read_tool):
     meta = read_tool.to_context_metadata()
     assert meta["name"] == "read_file"
@@ -81,13 +86,13 @@ def test_to_context_metadata(read_tool):
 
 # ====== 5. 不能直接实例化 ======
 
+
 def test_base_tool_is_abstract():
     with pytest.raises(TypeError):
         BaseTool()  # type: ignore
 
 
 # ====== 6. ToolExecutor 集成 ======
-
 
 
 @pytest.mark.asyncio
@@ -111,7 +116,9 @@ async def test_tool_executor_with_base_tool():
 @pytest.mark.asyncio
 async def test_tool_executor_backward_compatible():
     """向后兼容：仍支持 Dict[str, Callable]"""
-    async def dummy(args): return "ok"
+
+    async def dummy(args):
+        return "ok"
 
     executor = ToolExecutor(tools={"old_tool": dummy})
     schemas = executor.get_schemas()

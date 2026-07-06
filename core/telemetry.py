@@ -33,6 +33,7 @@ from core.models.config import TelemetryConfig
 
 # ========================= 日志级别 =========================
 
+
 class LogLevel(str, Enum):
     DEBUG = "DEBUG"
     INFO = "INFO"
@@ -43,6 +44,7 @@ class LogLevel(str, Enum):
 
 # ========================= 结构化日志记录器 =========================
 
+
 class StructuredLogger:
     """双轨结构化日志记录器（参考 Harness StructuredLogger）"""
 
@@ -50,8 +52,11 @@ class StructuredLogger:
         self._config = config
         self._session_id = ""
         self._level_rank = {
-            LogLevel.DEBUG: 10, LogLevel.INFO: 20,
-            LogLevel.WARNING: 30, LogLevel.ERROR: 40, LogLevel.CRITICAL: 50,
+            LogLevel.DEBUG: 10,
+            LogLevel.INFO: 20,
+            LogLevel.WARNING: 30,
+            LogLevel.ERROR: 40,
+            LogLevel.CRITICAL: 50,
         }
         self._min_level = self._level_rank.get(LogLevel(config.log_level), 20)
         log_dir = Path(config.log_dir)
@@ -87,17 +92,27 @@ class StructuredLogger:
             return
         self._write_line(self._audit_path, record.model_dump())
 
-    def debug(self, msg: str, **kw) -> None: self.log(LogLevel.DEBUG, msg, **kw)
-    def info(self, msg: str, **kw) -> None: self.log(LogLevel.INFO, msg, **kw)
-    def warning(self, msg: str, **kw) -> None: self.log(LogLevel.WARNING, msg, **kw)
-    def error(self, msg: str, **kw) -> None: self.log(LogLevel.ERROR, msg, **kw)
-    def critical(self, msg: str, **kw) -> None: self.log(LogLevel.CRITICAL, msg, **kw)
+    def debug(self, msg: str, **kw) -> None:
+        self.log(LogLevel.DEBUG, msg, **kw)
+
+    def info(self, msg: str, **kw) -> None:
+        self.log(LogLevel.INFO, msg, **kw)
+
+    def warning(self, msg: str, **kw) -> None:
+        self.log(LogLevel.WARNING, msg, **kw)
+
+    def error(self, msg: str, **kw) -> None:
+        self.log(LogLevel.ERROR, msg, **kw)
+
+    def critical(self, msg: str, **kw) -> None:
+        self.log(LogLevel.CRITICAL, msg, **kw)
 
 
 # ========================= 指标收集器 =========================
 
+
 class MetricsCollector:
-    """指标收集器：counter / gauge / histogram """
+    """指标收集器：counter / gauge / histogram"""
 
     def __init__(self):
         self.counters: Dict[str, int] = defaultdict(int)
@@ -112,9 +127,12 @@ class MetricsCollector:
         self.gauges[self._key(name, tags)] = value
 
     def observe(self, name: str, value: float, tags: Optional[Dict[str, str]] = None) -> None:
-        self.histograms[self._key(name, tags)].append({
-            "value": value, "ts": datetime.now(tz=timezone(timedelta(hours=8))).isoformat(),
-        })
+        self.histograms[self._key(name, tags)].append(
+            {
+                "value": value,
+                "ts": datetime.now(tz=timezone(timedelta(hours=8))).isoformat(),
+            }
+        )
 
     def percentile(self, name: str, pct: int) -> float:
         """P50 / P99 百分位"""
@@ -129,9 +147,12 @@ class MetricsCollector:
         for name, vals in self.histograms.items():
             nums = [v["value"] for v in vals]
             hist_summary[name] = {
-                "count": len(nums), "min": min(nums), "max": max(nums),
+                "count": len(nums),
+                "min": min(nums),
+                "max": max(nums),
                 "avg": sum(nums) / len(nums) if nums else 0,
-                "p50": self.percentile(name, 50), "p99": self.percentile(name, 99),
+                "p50": self.percentile(name, 50),
+                "p99": self.percentile(name, 99),
             }
         return {
             "counters": dict(self.counters),
@@ -174,6 +195,7 @@ class MetricsCollector:
 
 # ========================= 单进程 Span 追踪 =========================
 
+
 @dataclass
 class Span:
     trace_id: str
@@ -203,8 +225,9 @@ class Tracer:
     def __init__(self):
         self._spans: Dict[str, Span] = {}
 
-    def start_span(self, operation: str, parent: Optional["Span"] = None,
-                   tags: Optional[Dict[str, str]] = None) -> Span:
+    def start_span(
+        self, operation: str, parent: Optional["Span"] = None, tags: Optional[Dict[str, str]] = None
+    ) -> Span:
         span = Span(
             trace_id=parent.trace_id if parent else uuid.uuid4().hex[:32],
             parent_span_id=parent.span_id if parent else None,
@@ -224,6 +247,7 @@ class Tracer:
 
 # ========================= 领域指标 =========================
 
+
 class AgentMetrics:
     """Agent 领域指标（参考 Harness AgentMetrics，扩展 LLM/钩子/会话维度）"""
 
@@ -231,8 +255,9 @@ class AgentMetrics:
         self._m = collector
 
     # ---- LLM 调用 ----
-    def record_llm_call(self, model: str, input_tokens: int, output_tokens: int,
-                        latency_ms: float, success: bool) -> None:
+    def record_llm_call(
+        self, model: str, input_tokens: int, output_tokens: int, latency_ms: float, success: bool
+    ) -> None:
         tags = {"model": model, "status": "success" if success else "error"}
         self._m.inc("chacha_llm_calls_total", tags=tags)
         self._m.inc("chacha_llm_input_tokens_total", input_tokens, tags={"model": model})
@@ -241,16 +266,22 @@ class AgentMetrics:
         self._m.gauge("chacha_llm_last_latency_ms", latency_ms, tags={"model": model})
 
     # ---- 工具调用 ----
-    def record_tool_call(self, tool_name: str, duration_ms: float,
-                         success: bool, output_lines: int = 0,
-                         _logger: Optional[StructuredLogger] = None) -> None:
+    def record_tool_call(
+        self,
+        tool_name: str,
+        duration_ms: float,
+        success: bool,
+        output_lines: int = 0,
+        _logger: Optional[StructuredLogger] = None,
+    ) -> None:
         tags = {"tool": tool_name, "status": "success" if success else "error"}
         self._m.inc("chacha_tool_calls_total", tags=tags)
         self._m.observe("chacha_tool_duration_ms", duration_ms, tags=tags)
         self._m.observe("chacha_tool_output_lines", output_lines, tags={"tool": tool_name})
         if _logger:
-            _logger.info("工具调用", tool=tool_name, duration_ms=int(duration_ms),
-                         success=success, output_lines=output_lines)
+            _logger.info(
+                "工具调用", tool=tool_name, duration_ms=int(duration_ms), success=success, output_lines=output_lines
+            )
 
     # ---- 钩子 ----
     def record_hook(self, hook_name: str, duration_ms: float, action: str) -> None:
@@ -258,8 +289,7 @@ class AgentMetrics:
         self._m.observe("chacha_hook_duration_ms", duration_ms, tags={"hook": hook_name})
 
     # ---- 会话 ----
-    def record_session(self, session_id: str, total_tokens: int,
-                       total_cost: float, duration_ms: int) -> None:
+    def record_session(self, session_id: str, total_tokens: int, total_cost: float, duration_ms: int) -> None:
         self._m.inc("chacha_sessions_total")
         self._m.observe("chacha_session_tokens", total_tokens)
         self._m.observe("chacha_session_cost_usd", total_cost)
@@ -272,8 +302,7 @@ class AgentMetrics:
         self._m.gauge("chacha_cost_cumulative_usd", current + cost_usd)
 
     # ---- 上下文 ----
-    def record_context(self, total_tokens: int, utilization: float,
-                       compression_triggered: bool = False) -> None:
+    def record_context(self, total_tokens: int, utilization: float, compression_triggered: bool = False) -> None:
         self._m.gauge("chacha_context_tokens", total_tokens)
         self._m.gauge("chacha_context_utilization", utilization)
         if compression_triggered:
@@ -281,6 +310,7 @@ class AgentMetrics:
 
 
 # ========================= 统一可观测性 =========================
+
 
 class Telemetry:
     """
@@ -309,9 +339,7 @@ class Telemetry:
             self.logger._session_id = session_id
 
     def start(self) -> None:
-        self.logger.info("Telemetry 已启动",
-                         prometheus=self._config.enable_prometheus,
-                         audit=self._config.enable_audit)
+        self.logger.info("Telemetry 已启动", prometheus=self._config.enable_prometheus, audit=self._config.enable_audit)
 
     def stop(self) -> None:
         """停止遥测，导出最终指标摘要"""
@@ -375,9 +403,9 @@ class Telemetry:
             "uptime_seconds": time.time() - self.metrics._start_time,
         }
 
-    def read_logs(self, log_type: str = "debug", n: int = 10,
-                  level: Optional[str] = None,
-                  filter_text: Optional[str] = None) -> List[Dict[str, Any]]:
+    def read_logs(
+        self, log_type: str = "debug", n: int = 10, level: Optional[str] = None, filter_text: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         """读取最近 N 条日志，支持按级别/关键词过滤。
 
         Args:
@@ -407,9 +435,10 @@ class Telemetry:
                         continue
                     if level and entry.get("level", "").upper() != level.upper():
                         continue
-                    if filter_text and filter_text.lower() not in json.dumps(
-                        entry, ensure_ascii=False, default=str
-                    ).lower():
+                    if (
+                        filter_text
+                        and filter_text.lower() not in json.dumps(entry, ensure_ascii=False, default=str).lower()
+                    ):
                         continue
                     lines.append(entry)
         except Exception:
@@ -425,15 +454,17 @@ class Telemetry:
             return []
         spans = []
         for sid, span in self.tracer._spans.items():
-            spans.append({
-                "span_id": span.span_id[:8],
-                "trace_id": span.trace_id[:16],
-                "parent": span.parent_span_id[:8] if span.parent_span_id else "-",
-                "operation": span.operation,
-                "duration_ms": round(span.duration_ms, 1),
-                "error": span.error,
-                "tags": span.tags,
-            })
+            spans.append(
+                {
+                    "span_id": span.span_id[:8],
+                    "trace_id": span.trace_id[:16],
+                    "parent": span.parent_span_id[:8] if span.parent_span_id else "-",
+                    "operation": span.operation,
+                    "duration_ms": round(span.duration_ms, 1),
+                    "error": span.error,
+                    "tags": span.tags,
+                }
+            )
         return sorted(spans, key=lambda s: s["duration_ms"], reverse=True)
 
     def cost_summary(self) -> Dict[str, Any]:

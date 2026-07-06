@@ -27,6 +27,7 @@ async def gateway():
 
 # ========== 多生产者 + 多消费者 ==========
 
+
 async def test_multi_producer_multi_consumer_seq_accurate(gateway):
     """两个生产者并发写入 3 个会话，各消费者验证消息完整且 seq 全局有序"""
     sessions = ["s-a", "s-b", "s-c"]
@@ -44,9 +45,7 @@ async def test_multi_producer_multi_consumer_seq_accurate(gateway):
     # 生产者 A 写入 s-a, s-b
     async def producer_a():
         for i in range(5):
-            await gateway.publish(
-                TokenChunkEvent().set_delta(f"A-{i}"), session_id=sessions[i % 2]
-            )
+            await gateway.publish(TokenChunkEvent().set_delta(f"A-{i}"), session_id=sessions[i % 2])
 
     # 生产者 B 写入 s-b, s-c
     async def producer_b():
@@ -100,6 +99,7 @@ async def test_multi_producer_multi_consumer_seq_accurate(gateway):
 
 # ========== 完整消息流：请求→流式→工具→权限→响应 ==========
 
+
 async def test_full_message_flow(gateway):
     """模拟从用户请求到最终响应的完整 RPC 流程"""
     gateway.register("session-x")
@@ -110,30 +110,32 @@ async def test_full_message_flow(gateway):
         RPCRequest(method="user/message", params={"content": "帮我读 main.py"}),
         session_id="session-x",
     )
+    await gateway.publish(TokenChunkEvent().set_delta("正在"), session_id="session-x")
+    await gateway.publish(TokenChunkEvent().set_delta("读取"), session_id="session-x")
     await gateway.publish(
-        TokenChunkEvent().set_delta("正在"), session_id="session-x"
-    )
-    await gateway.publish(
-        TokenChunkEvent().set_delta("读取"), session_id="session-x"
-    )
-    await gateway.publish(
-        ToolStatusEvent(params={
-            "tool_use_id": "call_1", "tool_name": "read_file",
-            "status": "running", "progress": "Reading",
-        }),
+        ToolStatusEvent(
+            params={
+                "tool_use_id": "call_1",
+                "tool_name": "read_file",
+                "status": "running",
+                "progress": "Reading",
+            }
+        ),
         session_id="session-x",
     )
     await gateway.publish(
-        ToolStatusEvent(params={
-            "tool_use_id": "call_1", "tool_name": "read_file",
-            "status": "done", "output_summary": "100 lines",
-        }),
+        ToolStatusEvent(
+            params={
+                "tool_use_id": "call_1",
+                "tool_name": "read_file",
+                "status": "done",
+                "output_summary": "100 lines",
+            }
+        ),
         session_id="session-x",
     )
     # 同时 session-y 收到无关消息
-    await gateway.publish(
-        TokenChunkEvent().set_delta("y-msg"), session_id="session-y"
-    )
+    await gateway.publish(TokenChunkEvent().set_delta("y-msg"), session_id="session-y")
 
     await gateway.publish(
         RPCResponse(id="req-1", result={"content": "print('hello')"}),
@@ -142,6 +144,7 @@ async def test_full_message_flow(gateway):
 
     # 消费者 X 只收到自己的消息
     x_msgs = []
+
     async def collect_x():
         nonlocal x_msgs
         async for msg in gateway.subscribe("session-x"):
@@ -173,6 +176,7 @@ async def test_full_message_flow(gateway):
 
 # ========== 背压场景 ==========
 
+
 async def test_backpressure_does_not_block_other_sessions(gateway):
     """s-a 队列满阻塞，s-b 不受影响"""
     # 用小队列
@@ -198,6 +202,7 @@ async def test_backpressure_does_not_block_other_sessions(gateway):
 
 
 # ========== 并发 seq 无空洞 ==========
+
 
 async def test_concurrent_publishers_no_holes(gateway):
     """20 个并发发布者，seq 无空洞"""

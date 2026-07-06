@@ -75,6 +75,7 @@ class ChatEngine:
     def set_checkpoint_dir(self, path: Path) -> None:
         self._checkpoint_dir = path
         from core.checkpoint_manager import CheckpointManager
+
         self._checkpoint_mgr = CheckpointManager(base_dir=path.parent)
         self._session_id = path.name
         self._try_restore()
@@ -83,6 +84,7 @@ class ChatEngine:
             from pathlib import Path
 
             from core.context.memory_manager import MemoryManager
+
             try:
                 mgr = MemoryManager(project_root=self._project_root)
                 idx = mgr.read_index()
@@ -93,8 +95,7 @@ class ChatEngine:
                     self._cm.set_permanent_memory(perm)
                 user_path = Path.home() / ".chacha" / "USER_MEMORY.md"
                 if user_path.exists():
-                    self._cm.set_global_permanent_memory(
-                        user_path.read_text(encoding="utf-8"))
+                    self._cm.set_global_permanent_memory(user_path.read_text(encoding="utf-8"))
             except Exception:
                 pass
 

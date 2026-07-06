@@ -19,8 +19,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 # ========================= 1. 敏感信息处理 =========================
 
+
 class SensitiveString(BaseModel):
     """敏感字符串包装器：存储原文，序列化时自动脱敏。"""
+
     model_config = ConfigDict(frozen=True)
 
     value: str
@@ -49,22 +51,26 @@ class SensitiveString(BaseModel):
 
 # ========================= 2. 审计事件分类 =========================
 
+
 class AuditEventCategory(str, Enum):
     """审计事件分类枚举"""
-    TOOL_CALL = "tool_call"                # 工具调用（含参数摘要、结果状态）
-    MEMORY_CHANGE = "memory_change"        # 记忆变更（读写删）
-    COST = "cost"                          # 成本记录（token 消耗、金额）
-    PERMISSION = "permission"              # 权限审批（请求/结果/缓存命中）
-    SESSION = "session"                    # 会话生命周期（开始/结束/检查点）
-    MODEL_CALL = "model_call"              # 模型调用（请求/响应摘要）
-    CONFIG_CHANGE = "config_change"        # 配置变更（热重载）
-    SYSTEM = "system"                      # 系统事件（启动/关闭/环境校验）
+
+    TOOL_CALL = "tool_call"  # 工具调用（含参数摘要、结果状态）
+    MEMORY_CHANGE = "memory_change"  # 记忆变更（读写删）
+    COST = "cost"  # 成本记录（token 消耗、金额）
+    PERMISSION = "permission"  # 权限审批（请求/结果/缓存命中）
+    SESSION = "session"  # 会话生命周期（开始/结束/检查点）
+    MODEL_CALL = "model_call"  # 模型调用（请求/响应摘要）
+    CONFIG_CHANGE = "config_change"  # 配置变更（热重载）
+    SYSTEM = "system"  # 系统事件（启动/关闭/环境校验）
 
 
 # ========================= 3. 审计事件基类 =========================
 
+
 class AuditEvent(BaseModel):
     """审计事件基类（不可变）—— JSONL 中每个对象均为一条完整审计记录。"""
+
     model_config = ConfigDict(
         frozen=True,
         use_enum_values=True,
@@ -88,16 +94,15 @@ class AuditEvent(BaseModel):
 
 # ---------- 4.1 工具调用 ----------
 
+
 class ToolCallAuditEvent(AuditEvent):
     """工具调用审计"""
+
     category: AuditEventCategory = Field(default=AuditEventCategory.TOOL_CALL, frozen=True)
 
     tool_name: str = Field(..., description="工具名称")
     tool_use_id: str = Field(..., description="工具调用唯一 ID")
-    arguments_summary: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="参数摘要（已脱敏后的键值对）"
-    )
+    arguments_summary: Dict[str, Any] = Field(default_factory=dict, description="参数摘要（已脱敏后的键值对）")
     status: Literal["success", "error", "blocked"] = Field(..., description="执行结果状态")
     error_message: Optional[str] = Field(None, description="错误信息（失败时）")
     duration_ms: Optional[int] = Field(None, description="执行耗时（毫秒）")
@@ -121,8 +126,10 @@ class ToolCallAuditEvent(AuditEvent):
 
 # ---------- 4.2 成本记录 ----------
 
+
 class CostAuditEvent(AuditEvent):
     """成本审计"""
+
     category: AuditEventCategory = Field(default=AuditEventCategory.COST, frozen=True)
 
     model_name: str = Field(..., description="使用的模型名称")
@@ -137,13 +144,13 @@ class CostAuditEvent(AuditEvent):
 
 # ---------- 4.3 记忆变更 ----------
 
+
 class MemoryChangeAuditEvent(AuditEvent):
     """记忆变更审计"""
+
     category: AuditEventCategory = Field(default=AuditEventCategory.MEMORY_CHANGE, frozen=True)
 
-    operation: Literal["read", "write", "delete", "prune", "auto_clean"] = Field(
-        ..., description="操作类型"
-    )
+    operation: Literal["read", "write", "delete", "prune", "auto_clean"] = Field(..., description="操作类型")
     file_path: str = Field(..., description="变动的记忆文件路径（相对 .chacha/memory）")
     change_summary: Optional[str] = Field(None, description="变更内容摘要（最大 500 字符）")
     lines_before: Optional[int] = Field(None, description="变更前行数")
@@ -152,8 +159,10 @@ class MemoryChangeAuditEvent(AuditEvent):
 
 # ---------- 4.4 权限审批 ----------
 
+
 class PermissionAuditEvent(AuditEvent):
     """权限审批审计"""
+
     category: AuditEventCategory = Field(default=AuditEventCategory.PERMISSION, frozen=True)
 
     request_id: str = Field(..., description="审批请求 ID")
@@ -167,8 +176,10 @@ class PermissionAuditEvent(AuditEvent):
 
 # ---------- 4.5 会话生命周期 ----------
 
+
 class SessionAuditEvent(AuditEvent):
     """会话审计"""
+
     category: AuditEventCategory = Field(default=AuditEventCategory.SESSION, frozen=True)
 
     event: Literal["started", "ended", "checkpoint_created", "checkpoint_restored", "resumed"] = Field(
@@ -183,8 +194,10 @@ class SessionAuditEvent(AuditEvent):
 
 # ---------- 4.6 模型调用 ----------
 
+
 class ModelCallAuditEvent(AuditEvent):
     """模型调用审计（不含完整 prompt/response，仅元数据）"""
+
     category: AuditEventCategory = Field(default=AuditEventCategory.MODEL_CALL, frozen=True)
 
     model_name: str = Field(..., description="模型名称")
@@ -210,6 +223,7 @@ AuditRecord = Union[
 
 
 # ========================= 6. 便捷工厂函数 =========================
+
 
 def audit_factory(
     category: AuditEventCategory,

@@ -28,6 +28,7 @@ async def gateway():
 
 # ========== 1. 生命周期 ==========
 
+
 class TestLifecycle:
     async def test_start_stop(self, gateway):
         assert gateway.running is True
@@ -40,6 +41,7 @@ class TestLifecycle:
 
 
 # ========== 2. 会话管理 ==========
+
 
 class TestSessionManagement:
     async def test_register_and_list(self, gateway):
@@ -68,6 +70,7 @@ class TestSessionManagement:
 
 # ========== 3. 发布与订阅 ==========
 
+
 class TestPublishSubscribe:
     async def test_single_message(self, gateway):
         gateway.register("s1")
@@ -91,9 +94,7 @@ class TestPublishSubscribe:
         gateway.register("s1")
 
         for i in range(5):
-            await gateway.publish(
-                RPCRequest(method="test", params={"i": i}), session_id="s1"
-            )
+            await gateway.publish(RPCRequest(method="test", params={"i": i}), session_id="s1")
 
         msgs = []
         async for msg in gateway.subscribe("s1"):
@@ -136,6 +137,7 @@ class TestPublishSubscribe:
 
 # ========== 4. seq 全局有序 ==========
 
+
 class TestSeqOrdering:
     async def test_seq_increments_globally(self, gateway):
         gateway.register("s1")
@@ -158,6 +160,7 @@ class TestSeqOrdering:
 
 
 # ========== 5. 背压 ==========
+
 
 class TestBackpressure:
     async def test_backpressure_ratio_zero_when_empty(self, gateway):
@@ -202,6 +205,7 @@ class TestBackpressure:
 
 
 # ========== 6. 全局监听者 ==========
+
 
 class TestGlobalHandlers:
     async def test_global_handler_receives_events(self, gateway):
@@ -255,9 +259,7 @@ class TestGlobalHandlers:
             received.append(msg)
 
         gateway.on_event(handler)
-        await gateway.publish(SystemNotificationEvent(
-            params={"level": "info", "message": "test"}
-        ))
+        await gateway.publish(SystemNotificationEvent(params={"level": "info", "message": "test"}))
 
         await asyncio.sleep(0.05)
         assert len(received) == 1
@@ -265,6 +267,7 @@ class TestGlobalHandlers:
 
 
 # ========== 7. 事件历史 ==========
+
 
 class TestEventHistory:
     async def test_event_history_stores_messages(self, gateway):
@@ -306,6 +309,7 @@ class TestEventHistory:
 
 # ========== 8. stop 哨兵 ==========
 
+
 class TestStopSentinel:
     async def test_stop_sends_none_sentinel(self, gateway):
         gateway.register("s1")
@@ -328,6 +332,7 @@ class TestStopSentinel:
 
 
 # ========== 9. 并发 ==========
+
 
 class TestConcurrent:
     async def test_concurrent_publishers(self, gateway):

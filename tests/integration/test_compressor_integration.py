@@ -26,17 +26,21 @@ def compressor():
 
 # ====== 长工具输出压缩 ======
 
+
 @pytest.mark.asyncio
 async def test_compress_long_tool_output_then_chat(compressor):
     """模拟：长工具输出 → 压缩 → 注入上下文 → 继续对话"""
     meta = SessionMetadata(project_id="p1")
     state = ConversationState(metadata=meta)
     state.add_event(MessageEvent(source="user", role="user", content="列出所有文件"))
-    state.add_event(ObservationEvent(
-        source="tool", tool_use_id="c1",
-        content="\n".join([f"file_{i:04d}.py" for i in range(10000)]),
-        status="success",
-    ))
+    state.add_event(
+        ObservationEvent(
+            source="tool",
+            tool_use_id="c1",
+            content="\n".join([f"file_{i:04d}.py" for i in range(10000)]),
+            status="success",
+        )
+    )
 
     mgr = ContextManager()
     ctx = mgr.assemble(state, session_id="s1")
@@ -47,7 +51,8 @@ async def test_compress_long_tool_output_then_chat(compressor):
 
     # v3.2: 使用 compress() 在 pressure=0.8 触发 TRIMMED
     ctx2 = AssembledContext(
-        meta=ctx.meta, blocks=list(ctx.blocks),
+        meta=ctx.meta,
+        blocks=list(ctx.blocks),
         needs_compression=True,
         recommended_level=CompressionLevel.TRIMMED.value,
     )
@@ -66,6 +71,7 @@ async def test_compress_long_tool_output_then_chat(compressor):
 
 # ====== 渐进压缩级别 ======
 
+
 @pytest.mark.asyncio
 async def test_compress_progressive_levels(compressor):
     """渐进压缩：不同 pressure 触发不同级别"""
@@ -75,25 +81,30 @@ async def test_compress_progressive_levels(compressor):
 
     blocks = []
     for source, zone, content in specs:
-        blocks.append(ContextBlock(
-            source=source, role="system" if zone == "protected" else "user",
-            content=content, zone=zone, priority=0,
-            token_count=len(content) // 4,
-        ))
+        blocks.append(
+            ContextBlock(
+                source=source,
+                role="system" if zone == "protected" else "user",
+                content=content,
+                zone=zone,
+                priority=0,
+                token_count=len(content) // 4,
+            )
+        )
 
     meta = ContextAssemblyMeta(total_tokens=sum(b.token_count for b in blocks))
 
     # pressure < 0.70: 不压缩
-    ctx = AssembledContext(meta=meta, blocks=list(blocks),
-                           needs_compression=True,
-                           recommended_level=CompressionLevel.NONE.value)
+    ctx = AssembledContext(
+        meta=meta, blocks=list(blocks), needs_compression=True, recommended_level=CompressionLevel.NONE.value
+    )
     result = await compressor.compress(ctx, pressure=0.5)
     assert len(result.blocks) == len(blocks)  # 不压缩，块数不变
 
     # pressure >= 0.70: TRIMMED
-    ctx = AssembledContext(meta=meta, blocks=list(blocks),
-                           needs_compression=True,
-                           recommended_level=CompressionLevel.TRIMMED.value)
+    ctx = AssembledContext(
+        meta=meta, blocks=list(blocks), needs_compression=True, recommended_level=CompressionLevel.TRIMMED.value
+    )
     result = await compressor.compress(ctx, pressure=0.8)
     # TRIMMED 会裁剪 dynamic 区消息
     assert len(result.blocks) <= len(blocks)
@@ -101,25 +112,33 @@ async def test_compress_progressive_levels(compressor):
 
 # ====== 压缩不影响永久记忆 ======
 
+
 @pytest.mark.asyncio
 async def test_compression_skips_permanent_memory_blocks(compressor):
     """永久记忆在 protected zone，压缩跳过"""
     blocks = [
         ContextBlock(
-            source=BlockSource.SYSTEM_PROMPT, role="system",
-            content="[Permanent Memory]\n## 永久\n- 关键信息", zone="protected",
-            priority=2, token_count=20,
+            source=BlockSource.SYSTEM_PROMPT,
+            role="system",
+            content="[Permanent Memory]\n## 永久\n- 关键信息",
+            zone="protected",
+            priority=2,
+            token_count=20,
         ),
         ContextBlock(
-            source=BlockSource.TOOL_RESULT, role="tool",
-            content="huge tool result " * 5000, zone="dynamic",
-            priority=30, token_count=1250,
+            source=BlockSource.TOOL_RESULT,
+            role="tool",
+            content="huge tool result " * 5000,
+            zone="dynamic",
+            priority=30,
+            token_count=1250,
         ),
     ]
 
     meta = ContextAssemblyMeta(total_tokens=sum(b.token_count for b in blocks))
     ctx = AssembledContext(
-        meta=meta, blocks=blocks,
+        meta=meta,
+        blocks=blocks,
         needs_compression=True,
         recommended_level=CompressionLevel.TRIMMED.value,
     )

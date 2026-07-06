@@ -46,7 +46,7 @@ from core.models.stream_event import (
     ToolExecStartEvent,
 )
 
-MAX_TOOL_ROUNDS = 200          # 防止无限工具循环
+MAX_TOOL_ROUNDS = 200  # 防止无限工具循环
 KEEP_TOOL_RESULTS = 8
 
 # API Key mask regex (module-level to avoid recompilation on every error)
@@ -55,41 +55,48 @@ _API_KEY_RE = re.compile(
     re.IGNORECASE,
 )
 
+
 def _tool_args_summary(name: str, args: dict) -> str:
     """为日志/缓存 key 生成工具调用参数摘要，按工具名分发防止大参数爆日志。"""
     if name == "read":
-        return f"read {args.get('path','?')}:{args.get('offset',1)}:{args.get('limit',200)}"
+        return f"read {args.get('path', '?')}:{args.get('offset', 1)}:{args.get('limit', 200)}"
     elif name == "write":
         content = args.get("content", "")
-        return f"write {args.get('path','?')} ({len(content)} bytes)"
+        return f"write {args.get('path', '?')} ({len(content)} bytes)"
     elif name == "edit":
         old = args.get("old_string", "")
         new = args.get("new_string", "")
-        return f"edit {args.get('path','?')}: {len(old)}→{len(new)} chars"
+        return f"edit {args.get('path', '?')}: {len(old)}→{len(new)} chars"
     elif name == "bash":
         cmd = args.get("command", "")
         # bash 命令通常较长，给 300 字符展示空间
         return ("bash " + cmd[:300] + "…") if len(cmd) > 300 else ("bash " + cmd)
     elif name == "grep":
-        return f"grep {args.get('pattern','?')} [{args.get('path','.')}:{args.get('glob','*')}]"
+        return f"grep {args.get('pattern', '?')} [{args.get('path', '.')}:{args.get('glob', '*')}]"
     elif name == "glob":
-        return f"glob {args.get('pattern','?')} [{args.get('path','.')}]"
+        return f"glob {args.get('pattern', '?')} [{args.get('path', '.')}]"
     elif name == "task":
-        return f"task {args.get('subagent_type','worker')}: {args.get('description','?')[:80]}"
+        return f"task {args.get('subagent_type', 'worker')}: {args.get('description', '?')[:80]}"
     elif name == "memory":
-        return f"memory {args.get('action','?')}"
+        return f"memory {args.get('action', '?')}"
     elif name == "cache_read":
-        return f"cache_read {args.get('cache_key','?')[:40]}"
+        return f"cache_read {args.get('cache_key', '?')[:40]}"
     return " ".join(f"{k}={v}" for k, v in args.items())
-
 
 
 class Dispatcher:
     """桥接 LLM ↔ 工具执行（v2.0）"""
 
-    def __init__(self, llm_invoker, tool_executor, memory_manager=None,
-                 telemetry=None, project_id="", context_window=1_048_576,
-                 max_keep_tool_results: int = 20):
+    def __init__(
+        self,
+        llm_invoker,
+        tool_executor,
+        memory_manager=None,
+        telemetry=None,
+        project_id="",
+        context_window=1_048_576,
+        max_keep_tool_results: int = 20,
+    ):
         self._llm = llm_invoker
         self._tools = tool_executor
         self._memory = memory_manager
@@ -98,9 +105,9 @@ class Dispatcher:
         self._max_context_window = context_window
         self._max_keep_tool_results = max_keep_tool_results
         self.tool_calls_made = 0
-        self._last_failed_call = ""           # circuit breaker: (tool_name, args_hash)
-        self._same_call_failures = 0         # 同一调用连续失败计数
-        self._max_same_call_failures = 5     # 同一调用连续失败上限
+        self._last_failed_call = ""  # circuit breaker: (tool_name, args_hash)
+        self._same_call_failures = 0  # 同一调用连续失败计数
+        self._max_same_call_failures = 5  # 同一调用连续失败上限
 
     async def dispatch_stream(
         self,
@@ -174,11 +181,15 @@ class Dispatcher:
                 if tel and tel.agent and tel.logger:
                     ms = int((time.monotonic() - llm_t0) * 1000)
                     tel.agent.record_llm_call(
-                        model="", input_tokens=0, output_tokens=llm_tokens,
-                        latency_ms=ms, success=llm_ok,
+                        model="",
+                        input_tokens=0,
+                        output_tokens=llm_tokens,
+                        latency_ms=ms,
+                        success=llm_ok,
                     )
-                    tel.logger.info("LLM 调用", model=getattr(self._llm, "_model", ""),
-                                    tokens=llm_tokens, duration_ms=ms)
+                    tel.logger.info(
+                        "LLM 调用", model=getattr(self._llm, "_model", ""), tokens=llm_tokens, duration_ms=ms
+                    )
 
             if not has_tool_calls:
                 final_text = "".join(text_parts)
@@ -196,14 +207,16 @@ class Dispatcher:
                 except json.JSONDecodeError:
                     args = {}
                 _tool_args_summary(tc_info["name"], args)
-                safe_tool_calls.append({
-                    "id": tc_info["id"],
-                    "type": "function",
-                    "function": {
-                        "name": tc_info["name"],
-                        "arguments": tc_info["args"] or "{}",
-                    },
-                })
+                safe_tool_calls.append(
+                    {
+                        "id": tc_info["id"],
+                        "type": "function",
+                        "function": {
+                            "name": tc_info["name"],
+                            "arguments": tc_info["args"] or "{}",
+                        },
+                    }
+                )
                 _tc_id_to_name[tc_info["id"]] = tc_info["name"]
 
             assistant_msg = {"role": "assistant", "content": "".join(text_parts) or None}
@@ -225,17 +238,18 @@ class Dispatcher:
                 arg_summary = _tool_args_summary(tc_info["name"], args)
                 yield ToolExecStartEvent(tool_name=tc_info["name"], args=arg_summary)
                 _tc_infos.append((tc_info, arg_summary))
-                tasks.append(self._tools.execute(
-                    tool_name=tc_info["name"],
-                    arguments=args,
-                    session_id=session_id,
-                    tool_use_id=tc_info["id"],
-                    project_id=self._project_id,
-                ))
+                tasks.append(
+                    self._tools.execute(
+                        tool_name=tc_info["name"],
+                        arguments=args,
+                        session_id=session_id,
+                        tool_use_id=tc_info["id"],
+                        project_id=self._project_id,
+                    )
+                )
 
             # Phase 2: 并发执行所有工具（ToolExecutor 内部 Semaphore(5) 兜底）
             results = await asyncio.gather(*tasks, return_exceptions=True)
-
 
             # Phase 3: 按原始顺序处理结果（Circuit Breaker 顺序累加，行为不变）
             for i, (tc_info, arg_summary) in enumerate(_tc_infos):
@@ -253,7 +267,7 @@ class Dispatcher:
 
                 # blocked / pending_approval → 转为错误消息
                 if result.status == "error" and result.error_type in ("blocked", "pending_approval"):
-                    result.content = result.error or '工具执行被阻止'
+                    result.content = result.error or "工具执行被阻止"
 
                 # Dynamic circuit breaker: same (tool+args) consecutive failures
                 call_key = f"{tc_info['name']}:{arg_summary}"
@@ -275,13 +289,16 @@ class Dispatcher:
                         ),
                     )
                     return
-                yield ToolExecEndEvent(tool_name=tc_info["name"],
-                       preview=(result.content or result.error or "")[:80].split("\n")[0])
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc_info["id"],
-                    "content": result.model_dump_json(exclude_none=True),
-                })
+                yield ToolExecEndEvent(
+                    tool_name=tc_info["name"], preview=(result.content or result.error or "")[:80].split("\n")[0]
+                )
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc_info["id"],
+                        "content": result.model_dump_json(exclude_none=True),
+                    }
+                )
 
             # Stage 1: 缓存旧工具结果
             self._freeze_old_tool_results(messages, session_id, _tc_id_to_name)
@@ -332,8 +349,8 @@ class Dispatcher:
                         "function": {
                             "name": tc.name,
                             "arguments": json.dumps(
-                        tc.arguments if tc.arguments is not None else {}, ensure_ascii=False
-                    ),
+                                tc.arguments if tc.arguments is not None else {}, ensure_ascii=False
+                            ),
                         },
                     }
                     for tc in resp.tool_calls
@@ -365,7 +382,7 @@ class Dispatcher:
                     )
                 # blocked / pending_approval → 转为错误消息
                 if result.status == "error" and result.error_type in ("blocked", "pending_approval"):
-                    result.content = result.error or '工具执行被阻止'
+                    result.content = result.error or "工具执行被阻止"
 
                 # Dynamic circuit breaker: same (tool+args) consecutive failures
                 call_key = f"{tc.name}:{json.dumps(tc.arguments, sort_keys=True)}"
@@ -381,11 +398,13 @@ class Dispatcher:
 
                 if self._same_call_failures >= self._max_same_call_failures:
                     break
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc.id,
-                    "content": result.model_dump_json(exclude_none=True),
-                })
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": result.model_dump_json(exclude_none=True),
+                    }
+                )
 
             # Stage 1: 缓存旧工具结果
             # 增量计 token（只算本轮新增的非 tool 消息）
@@ -416,7 +435,9 @@ class Dispatcher:
     # ====== Stage 1 工具结果缓存（宽松） ======
 
     def _freeze_old_tool_results(
-        self, messages: List[Dict], session_id: str,
+        self,
+        messages: List[Dict],
+        session_id: str,
         tc_id_to_name: Optional[Dict[str, str]] = None,
     ) -> None:
         """保持最近 KEEP_TOOL_RESULTS 个工具结果完整，更早的替换为 JSON 占位符。
@@ -425,8 +446,7 @@ class Dispatcher:
         不再写磁盘缓存——占位符中的摘要已足够 LLM 理解上下文。
         """
         tool_indices = [
-            i for i, m in enumerate(messages)
-            if m.get("role") == "tool" and not m.get("content", "").startswith("{")
+            i for i, m in enumerate(messages) if m.get("role") == "tool" and not m.get("content", "").startswith("{")
         ]
         keep = max(KEEP_TOOL_RESULTS, min(self._max_context_window // 8000, self._max_keep_tool_results))
         freeze_count = len(tool_indices) - keep
@@ -446,10 +466,13 @@ class Dispatcher:
             if len(original) > 120:
                 summary += "..."
 
-            placeholder = json.dumps({
-                "t": tool_name,
-                "s": summary,
-            }, ensure_ascii=False)
+            placeholder = json.dumps(
+                {
+                    "t": tool_name,
+                    "s": summary,
+                },
+                ensure_ascii=False,
+            )
 
             messages[idx] = {
                 "role": "tool",

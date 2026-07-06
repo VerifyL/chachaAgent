@@ -10,10 +10,7 @@ class ClockTool(BaseTool):
     """Return the current date and time."""
 
     name = "clock"
-    description = (
-        "获取当前日期时间，返回 ISO 8601 格式的 UTC 时间、本地时间、"
-        "Unix 时间戳和时区偏移。不需要任何参数。"
-    )
+    description = "获取当前日期时间，返回 ISO 8601 格式的 UTC 时间、本地时间、Unix 时间戳和时区偏移。不需要任何参数。"
 
     parameters = {
         "type": "object",
@@ -35,10 +32,7 @@ class ClockTool(BaseTool):
         local_str = now_local.strftime("%Y-%m-%dT%H:%M:%S.%f")
         unix_ts = now_utc.timestamp()
 
-        content = (
-            f"UTC:        {utc_str}\n"
-            f"本地时间:   {local_str}  (UTC{offset_hours:+.0f})"
-        )
+        content = f"UTC:        {utc_str}\n本地时间:   {local_str}  (UTC{offset_hours:+.0f})"
 
         return ToolResult(
             status="success",

@@ -8,7 +8,6 @@ v2.0 新增:
   - 长对话中永久记忆不受压缩影响
 """
 
-
 from core.context_manager import ContextManager
 from core.models.config import ContextConfig
 from core.models.session import (
@@ -27,10 +26,14 @@ def test_long_conversation_context_budget_controlled():
     for i in range(50):
         state.add_event(MessageEvent(source="user", role="user", content=f"task {i}: " + "x" * 200))
         state.add_event(MessageEvent(source="agent", role="assistant", content="OK: " + "y" * 300))
-        state.add_event(ObservationEvent(
-            source="tool", tool_use_id=f"c{i}",
-            content="z" * 500, status="success",
-        ))
+        state.add_event(
+            ObservationEvent(
+                source="tool",
+                tool_use_id=f"c{i}",
+                content="z" * 500,
+                status="success",
+            )
+        )
 
     mgr = ContextManager(ContextConfig(max_tokens=50000, compression_trigger_ratio=0.8))
     ctx = mgr.assemble(state, session_id="s1")
@@ -71,6 +74,7 @@ def test_cache_reuse_across_assemblies():
 
 # ====== v2.0: 永久记忆在上下文中 ======
 
+
 def test_permanent_memory_survives_compression_flag():
     """永久记忆在 protected zone，即使 needs_compression=True 也不受影响"""
     mgr = ContextManager(ContextConfig(max_tokens=1000, compression_trigger_ratio=0.5))
@@ -109,7 +113,7 @@ def test_full_context_with_all_sources():
     # 统计各类型 block
     sources = {}
     for b in ctx.blocks:
-        key = b.zone + ":" + (b.source.value if hasattr(b.source, 'value') else str(b.source))
+        key = b.zone + ":" + (b.source.value if hasattr(b.source, "value") else str(b.source))
         sources[key] = sources.get(key, 0) + 1
 
     # 至少包含 system + static_rule + skill + memory + history

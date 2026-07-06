@@ -22,10 +22,16 @@ class SessionService:
     GLOBAL_DREAM_ROUNDS = 50
     GLOBAL_DREAM_HOURS = 72
 
-    def __init__(self, project_root: Path, llm_invoker=None,
-                 dream_rounds: int = None, dream_hours: int = None,
-                 global_dream_rounds: int = None, global_dream_hours: int = None,
-                 telemetry=None):
+    def __init__(
+        self,
+        project_root: Path,
+        llm_invoker=None,
+        dream_rounds: int = None,
+        dream_hours: int = None,
+        global_dream_rounds: int = None,
+        global_dream_hours: int = None,
+        telemetry=None,
+    ):
         self._root = project_root
         self._llm = llm_invoker
         self._telemetry = telemetry
@@ -34,19 +40,16 @@ class SessionService:
         auto = {}
         try:
             from core.config_manager import get_config_manager
+
             cfg = get_config_manager().load()
             auto = getattr(cfg, "auto_memory", None) or {}
         except Exception:
             pass  # 无配置文件，用默认值
 
-        self._dream_rounds = (dream_rounds or
-                              auto.get("dream_rounds") or self.DREAM_ROUNDS)
-        self._dream_hours = (dream_hours or
-                             auto.get("dream_hours") or self.DREAM_HOURS)
-        self._global_dream_rounds = (global_dream_rounds or
-                                     auto.get("global_dream_rounds") or self.GLOBAL_DREAM_ROUNDS)
-        self._global_dream_hours = (global_dream_hours or
-                                    auto.get("global_dream_hours") or self.GLOBAL_DREAM_HOURS)
+        self._dream_rounds = dream_rounds or auto.get("dream_rounds") or self.DREAM_ROUNDS
+        self._dream_hours = dream_hours or auto.get("dream_hours") or self.DREAM_HOURS
+        self._global_dream_rounds = global_dream_rounds or auto.get("global_dream_rounds") or self.GLOBAL_DREAM_ROUNDS
+        self._global_dream_hours = global_dream_hours or auto.get("global_dream_hours") or self.GLOBAL_DREAM_HOURS
 
         # 当前 session
         self._session_id = self._gen_id()
@@ -133,11 +136,13 @@ class SessionService:
                     break
             if not preview:
                 preview = "(新 session)"
-            result.append({
-                "id": sid,
-                "preview": preview,
-                "time": f"{sid[:8]} {sid[9:13]}:{sid[13:15]}" if len(sid) > 14 else sid,
-            })
+            result.append(
+                {
+                    "id": sid,
+                    "preview": preview,
+                    "time": f"{sid[:8]} {sid[9:13]}:{sid[13:15]}" if len(sid) > 14 else sid,
+                }
+            )
         return result
 
     # ====== Dream ======
@@ -147,6 +152,7 @@ class SessionService:
         if not self._llm:
             return "Dream: 未配置 LLM"
         from core.context.dream import DreamPipeline
+
         mgr = MemoryManager(
             project_root=self._root,
             session_id=sid or self._session_id,
@@ -158,6 +164,7 @@ class SessionService:
     async def run_global_dream(self) -> str:
         """运行 Global Dream（跨 session 学习）"""
         from core.context.global_dream import GlobalDream
+
         gd = GlobalDream.get_instance(
             dream_rounds=self._global_dream_rounds,
             dream_hours=self._global_dream_hours,
@@ -167,23 +174,32 @@ class SessionService:
 
     # ====== 审计 ======
 
-    async def add_round(self, tokens: int = 0, duration_ms: int = 0,
-                        errors=None) -> None:
+    async def add_round(self, tokens: int = 0, duration_ms: int = 0, errors=None) -> None:
         self.total_tokens += tokens
         self.rounds += 1
-        self._history.append({
-            "round": self.rounds, "tokens": tokens,
-            "duration_ms": duration_ms, "errors": errors or [],
-            "time": datetime.now(tz=timezone(timedelta(hours=8))).isoformat(),
-        })
+        self._history.append(
+            {
+                "round": self.rounds,
+                "tokens": tokens,
+                "duration_ms": duration_ms,
+                "errors": errors or [],
+                "time": datetime.now(tz=timezone(timedelta(hours=8))).isoformat(),
+            }
+        )
 
         # 遥测：会话统计
         tel = self._telemetry
         if tel and tel.agent and tel.logger:
             tel.agent.record_session(self.session_id, self.total_tokens, 0.0, int(duration_ms / max(self.rounds, 1)))
             err_msgs = errors or []
-            tel.logger.info("本轮完成", round=self.rounds, tokens=tokens, duration_ms=duration_ms,
-                           total_tokens=self.total_tokens, errors=err_msgs)
+            tel.logger.info(
+                "本轮完成",
+                round=self.rounds,
+                tokens=tokens,
+                duration_ms=duration_ms,
+                total_tokens=self.total_tokens,
+                errors=err_msgs,
+            )
 
     def audit_report(self) -> str:
         lines = [
@@ -195,13 +211,11 @@ class SessionService:
             avg = self.total_tokens // max(self.rounds, 1)
             dur = sum(h["duration_ms"] for h in self._history)
             errs = sum(1 for h in self._history if h["errors"])
-            lines += [f"平均Token/轮: {avg}", f"总耗时: {dur//1000}s", f"错误轮次: {errs}"]
+            lines += [f"平均Token/轮: {avg}", f"总耗时: {dur // 1000}s", f"错误轮次: {errs}"]
         return "\n".join(lines)
 
     def status_report(self) -> str:
-        return (
-            f"会话: {self.current_id}\nToken: {self.total_tokens} | 轮次: {self.rounds}"
-        )
+        return f"会话: {self.current_id}\nToken: {self.total_tokens} | 轮次: {self.rounds}"
 
     # ====== 内部 ======
 

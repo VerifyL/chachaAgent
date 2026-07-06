@@ -27,14 +27,11 @@ logger = logging.getLogger(__name__)
 @dataclass
 class SessionContext:
     """每个会话的运行时上下文"""
-    queue: asyncio.Queue[Optional[GatewayMessage]] = field(
-        default_factory=lambda: asyncio.Queue(maxsize=10000)
-    )
-    send_count: int = 0       # 已发布计数
-    received_count: int = 0   # 已消费计数
-    created_at: datetime = field(
-        default_factory=lambda: datetime.now(tz=timezone.utc)
-    )
+
+    queue: asyncio.Queue[Optional[GatewayMessage]] = field(default_factory=lambda: asyncio.Queue(maxsize=10000))
+    send_count: int = 0  # 已发布计数
+    received_count: int = 0  # 已消费计数
+    created_at: datetime = field(default_factory=lambda: datetime.now(tz=timezone.utc))
 
     def backpressure_ratio(self) -> float:
         """背压比率（0~1，队列全满 = 1）"""
@@ -45,6 +42,7 @@ class SessionContext:
 
 
 # ========================= 异步网关 =========================
+
 
 class ChaChaAsyncGateway:
     """
@@ -94,8 +92,7 @@ class ChaChaAsyncGateway:
     async def start(self) -> None:
         """启动网关"""
         self._running = True
-        logger.info("ChaChaAsyncGateway 已启动 (max_queue=%d, max_history=%d)",
-                     self._max_queue_size, self._max_history)
+        logger.info("ChaChaAsyncGateway 已启动 (max_queue=%d, max_history=%d)", self._max_queue_size, self._max_history)
 
     async def stop(self) -> None:
         """优雅关闭：等待队列清空 → 发送哨兵 → 通知全局监听者"""
@@ -147,8 +144,7 @@ class ChaChaAsyncGateway:
             except asyncio.QueueEmpty:
                 break
 
-        logger.debug("会话 %s 已注销 (send=%d, received=%d)",
-                     session_id, ctx.send_count, ctx.received_count)
+        logger.debug("会话 %s 已注销 (send=%d, received=%d)", session_id, ctx.send_count, ctx.received_count)
 
     # ====== 全局监听 ======
 
@@ -218,7 +214,9 @@ class ChaChaAsyncGateway:
             except asyncio.TimeoutError:
                 logger.warning(
                     "会话 %s 队列满，publish 超时 (seq=%d, 背压=%.2f)",
-                    session_id, seq, ctx.backpressure_ratio(),
+                    session_id,
+                    seq,
+                    ctx.backpressure_ratio(),
                 )
                 return False
             except asyncio.QueueFull:
@@ -291,10 +289,7 @@ class ChaChaAsyncGateway:
 
     def list_sessions(self) -> Dict[str, float]:
         """列出所有会话及其背压状态"""
-        return {
-            sid: ctx.backpressure_ratio()
-            for sid, ctx in self._sessions.items()
-        }
+        return {sid: ctx.backpressure_ratio() for sid, ctx in self._sessions.items()}
 
     @property
     def seq(self) -> int:

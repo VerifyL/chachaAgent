@@ -19,6 +19,7 @@ from core.models.context import (
 
 # ====== Fixtures ======
 
+
 @pytest.fixture
 def compressor():
     return ContextCompressor(preserve_recent=5)
@@ -27,21 +28,27 @@ def compressor():
 def _make_blocks(*specs) -> tuple[list[ContextBlock], AssembledContext]:
     blocks = []
     for source, zone, content in specs:
-        blocks.append(ContextBlock(
-            source=source, role="system" if zone == "protected" else "user",
-            content=content, zone=zone, priority=0,
-            token_count=len(content) // 4,
-        ))
+        blocks.append(
+            ContextBlock(
+                source=source,
+                role="system" if zone == "protected" else "user",
+                content=content,
+                zone=zone,
+                priority=0,
+                token_count=len(content) // 4,
+            )
+        )
     meta = ContextAssemblyMeta(
         total_tokens=sum(b.token_count for b in blocks),
         trigger="compression",
     )
-    return blocks, AssembledContext(meta=meta, blocks=blocks,
-                                     needs_compression=True,
-                                     recommended_level=CompressionLevel.TRIMMED.value)
+    return blocks, AssembledContext(
+        meta=meta, blocks=blocks, needs_compression=True, recommended_level=CompressionLevel.TRIMMED.value
+    )
 
 
 # ====== 1. pressure < 0.70: 不压缩 ======
+
 
 @pytest.mark.asyncio
 async def test_low_pressure_no_compression(compressor):
@@ -68,6 +75,7 @@ async def test_force_overrides_low_pressure(compressor):
 
 
 # ====== 2. TRIMMED: 裁剪中间 ======
+
 
 @pytest.mark.asyncio
 async def test_trim_cuts_middle_keeps_head_tail(compressor):
@@ -97,6 +105,7 @@ async def test_trim_small_context_noop(compressor):
 
 
 # ====== 3. protected zone 不受影响 ======
+
 
 @pytest.mark.asyncio
 async def test_protected_zone_untouched(compressor):
@@ -131,6 +140,7 @@ async def test_trim_only_affects_dynamic_zone(compressor):
 
 # ====== 4. 多模态内容 ======
 
+
 @pytest.mark.asyncio
 async def test_multimodal_content_passthrough(compressor):
     """多模态内容在压缩中保持原样"""
@@ -143,6 +153,7 @@ async def test_multimodal_content_passthrough(compressor):
 
 
 # ====== 5. 混合场景 ======
+
 
 @pytest.mark.asyncio
 async def test_mixed_protected_and_dynamic(compressor):
@@ -172,18 +183,19 @@ async def test_empty_dynamic_zone(compressor):
 
 # ====== 6. 语义完整性（原有测试保留） ======
 
+
 @pytest.mark.asyncio
 async def test_semantic_integrity_after_trim(compressor):
     """TRIMMED 裁剪中间，保留头尾，插入裁剪标记"""
-    long = "\n".join([f"[ERROR] log line {i}: exception at module {i%10}" for i in range(1000)])
+    long = "\n".join([f"[ERROR] log line {i}: exception at module {i % 10}" for i in range(1000)])
     specs = [(BlockSource.HISTORY, "dynamic", long)]
     specs += [(BlockSource.HISTORY, "dynamic", f"mid msg {i}") for i in range(10)]
     specs += [(BlockSource.HISTORY, "dynamic", f"recent-{i}") for i in range(5)]
     blocks, ctx = _make_blocks(*specs)
 
-    ctx = AssembledContext(meta=ctx.meta, blocks=blocks,
-                           needs_compression=True,
-                           recommended_level=CompressionLevel.TRIMMED.value)
+    ctx = AssembledContext(
+        meta=ctx.meta, blocks=blocks, needs_compression=True, recommended_level=CompressionLevel.TRIMMED.value
+    )
 
     result = await compressor.compress(ctx, pressure=0.75)
     # HEAD 前2条保留
@@ -205,9 +217,9 @@ async def test_trim_cuts_history(compressor):
     specs += [(BlockSource.HISTORY, "dynamic", f"recent {i}") for i in range(5)]
     blocks, ctx = _make_blocks(*specs)
 
-    ctx = AssembledContext(meta=ctx.meta, blocks=blocks,
-                           needs_compression=True,
-                           recommended_level=CompressionLevel.TRIMMED.value)
+    ctx = AssembledContext(
+        meta=ctx.meta, blocks=blocks, needs_compression=True, recommended_level=CompressionLevel.TRIMMED.value
+    )
 
     result = await compressor.compress(ctx, pressure=0.75)
     # HEAD(2) + marker + TAIL(5)
@@ -218,13 +230,11 @@ async def test_trim_cuts_history(compressor):
 @pytest.mark.asyncio
 async def test_trim_recent_keeps_untouched(compressor):
     """TRIMMED 保留最近的消息"""
-    blocks, ctx = _make_blocks(*[
-        (BlockSource.HISTORY, "dynamic", f"msg {i}") for i in range(10)
-    ])
+    blocks, ctx = _make_blocks(*[(BlockSource.HISTORY, "dynamic", f"msg {i}") for i in range(10)])
 
-    ctx = AssembledContext(meta=ctx.meta, blocks=blocks,
-                           needs_compression=True,
-                           recommended_level=CompressionLevel.TRIMMED.value)
+    ctx = AssembledContext(
+        meta=ctx.meta, blocks=blocks, needs_compression=True, recommended_level=CompressionLevel.TRIMMED.value
+    )
 
     result = await compressor.compress(ctx, pressure=0.5)  # pressure < 0.70 → no compression
     # 所有消息保持原样

@@ -35,14 +35,17 @@ from core.models.audit import AuditRecord
 
 # ========================= 1. 基础类型 =========================
 
+
 class RPCError(BaseModel):
     """JSON-RPC 2.0 错误对象"""
+
     code: int = Field(..., description="错误码（-32700 至 -32000 为标准协议码）")
     message: str = Field(..., description="人类可读的错误描述")
     data: Optional[Any] = Field(None, description="附加错误信息")
 
 
 # ========================= 2. 网关层包装 =========================
+
 
 class GatewayMessage(BaseModel):
     """
@@ -51,6 +54,7 @@ class GatewayMessage(BaseModel):
     seq 自增保证全局有序，project_id + session_id 用于会话复用和多项目隔离。
     payload 为 JSON-RPC 2.0 消息，Gateway 按 method 路由，不解析 params 细节。
     """
+
     model_config = ConfigDict(use_enum_values=True)
 
     seq: int = Field(..., ge=0, description="全局自增序列号，Gateway 分配")
@@ -72,8 +76,10 @@ class GatewayMessage(BaseModel):
 
 # ========================= 3. JSON-RPC 2.0 消息基类 =========================
 
+
 class RPCRequest(BaseModel):
     """JSON-RPC 2.0 请求"""
+
     model_config = ConfigDict(extra="allow")
 
     jsonrpc: str = Field(default="2.0", frozen=True, description="JSON-RPC 版本")
@@ -84,6 +90,7 @@ class RPCRequest(BaseModel):
 
 class RPCResponse(BaseModel):
     """JSON-RPC 2.0 响应（result 和 error 互斥）"""
+
     model_config = ConfigDict(extra="allow")
 
     jsonrpc: str = Field(default="2.0", frozen=True, description="JSON-RPC 版本")
@@ -98,6 +105,7 @@ class RPCEvent(BaseModel):
 
     子类通过 method 字段区分事件类型。
     """
+
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
 
     jsonrpc: str = Field(default="2.0", frozen=True, description="JSON-RPC 版本")
@@ -107,8 +115,10 @@ class RPCEvent(BaseModel):
 
 # ========================= 4. 具体事件类型 =========================
 
+
 class ToolCallDelta(BaseModel):
     """流式输出中 tool_calls 的增量片段"""
+
     model_config = ConfigDict(frozen=True)
 
     index: int = Field(0, ge=0, description="tool_call 在列表中的索引")
@@ -124,6 +134,7 @@ class TokenChunkEvent(RPCEvent):
     LLMInvoker 每收到一个 token 就推送此事件，前端累积渲染。
     finish_reason=stop 时流结束，finish_reason=tool_calls 时携带 tool_call_delta。
     """
+
     method: str = Field(default="stream/token", frozen=True, description="事件方法名")
     params: Dict[str, Any] = Field(
         default_factory=lambda: {
@@ -159,6 +170,7 @@ class ToolStatusEvent(RPCEvent):
 
     Orchestrator/ToolExecutor 在工具状态变化时推送，前端展示进度条或状态标签。
     """
+
     method: str = Field(default="tool/status", frozen=True, description="事件方法名")
     params: Dict[str, Any] = Field(
         default_factory=lambda: {
@@ -185,6 +197,7 @@ class PermissionRequestEvent(RPCEvent):
 
     前端展示审批弹窗，用户点击允许/拒绝后返回 PermissionResponse。
     """
+
     method: str = Field(default="permission/request", frozen=True, description="事件方法名")
     params: Dict[str, Any] = Field(
         default_factory=lambda: {
@@ -205,6 +218,7 @@ class PermissionRequestEvent(RPCEvent):
 
 class PermissionResponse(BaseModel):
     """权限审批响应（客户端→服务端，嵌入 RPCResponse.result）"""
+
     model_config = ConfigDict(frozen=True)
 
     request_id: str = Field(..., description="对应 PermissionRequestEvent 的 request_id")
@@ -218,6 +232,7 @@ class AuditTrailEvent(RPCEvent):
     复用 core/models/audit.py 的 AuditRecord，不重复定义字段。
     前端/日志系统接收后写入 audit.jsonl 或展示。
     """
+
     method: str = Field(default="audit/trail", frozen=True, description="事件方法名")
     audit: AuditRecord = Field(..., description="审计记录")
 
@@ -241,6 +256,7 @@ class SessionLifecycleEvent(RPCEvent):
 
     会话启停、检查点创建/恢复时推送，Gateway 据此管理会话路由表。
     """
+
     method: str = Field(default="session/lifecycle", frozen=True, description="事件方法名")
     params: Dict[str, Any] = Field(
         default_factory=lambda: {
@@ -268,6 +284,7 @@ class SystemNotificationEvent(RPCEvent):
 
     用于向客户端推送非致命错误或状态提示，如「环境校验失败」「热重载失败」。
     """
+
     method: str = Field(default="system/notification", frozen=True, description="事件方法名")
     params: Dict[str, Any] = Field(
         default_factory=lambda: {
