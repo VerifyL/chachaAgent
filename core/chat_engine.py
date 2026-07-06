@@ -165,4 +165,4 @@ class ChatEngine:
             return 128_000
         if "llama" in m or "qwen" in m or "mistral" in m or "mixtral" in m:
             return 128_000
-        return 1_048_576  # 未知模型保守 1M
+        return 128_000  # 未知模型保守 128K

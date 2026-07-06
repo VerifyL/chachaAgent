@@ -31,7 +31,7 @@ class ModelFactory:
         ptype = provider_cfg.provider.lower()
         api_key = provider_cfg.api_key.get_secret_value() if provider_cfg.api_key else None
 
-        if ptype in ("openai",):
+        if ptype in ("openai", "deepseek", "qwen"):
             from core.llm_clients.openai_client import OpenAIClient
 
             kwargs = dict(

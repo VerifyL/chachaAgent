@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 _PROTECTED_ZONE = "protected"
 _DEFAULT_PRESERVE_RECENT = 5
-# 默认摘要模型
+# 默认摘要模型（可通过 auto_compact() 的 summary_model 参数覆盖）
 _SUMMARY_MODEL = "deepseek-v4-flash"
 
 
@@ -293,12 +293,14 @@ class ContextCompressor:
         summary_head: int = 3,
         summary_tail: int = 8,
         force: bool = False,
+        summary_model: Optional[str] = None,
         **kwargs,
     ) -> tuple:
         """全自动压缩：判断 → dict→AssembledContext→compress()→dict。
 
         返回 (压缩后消息列表, 原因字符串)。不达阈值返回 (原消息, "")。
         已废弃的内部参数（trim_head/summary_head/summary_tail）保留兼容。
+        summary_model: 摘要用模型，None 则使用默认值 (deepseek-v4-flash)。
         """
         est = ContextCompressor.estimate_tokens(messages)
         pct = est / context_window if context_window else 0
@@ -314,11 +316,14 @@ class ContextCompressor:
         ctx = ContextCompressor._messages_to_ctx(messages)
 
         # compress
-        compressor = ContextCompressor(
+        compressor_kwargs = dict(
             llm_invoker=llm,
             context_window=context_window,
             preserve_recent=trim_tail,
         )
+        if summary_model is not None:
+            compressor_kwargs["summary_model"] = summary_model
+        compressor = ContextCompressor(**compressor_kwargs)
         ctx = await compressor.compress(ctx, pressure=pct, session_id="auto-compact", force=force)
 
         # AssembledContext → messages
