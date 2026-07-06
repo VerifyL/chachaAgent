@@ -305,6 +305,7 @@ class PolicyEngine:
         session_id: str = "",
         risk_factors: Optional[RiskFactors] = None,
         parameters: Optional[Dict[str, Any]] = None,
+        requires_approval: Optional[bool] = None,
     ) -> PolicyDecision:
         # 0. 审批旁路检查（会话级 || 持久化）
         if self._is_bypassed(tool_name):
@@ -327,14 +328,18 @@ class PolicyEngine:
                 blocked_reason=reason,
             )
 
-        # 3. 权限级别
+        # 3. 工具自身声明无需审批（如 MCP 只读工具）→ 直接放行
+        if requires_approval is False:
+            return PolicyDecision(allowed=True, permission_level=PermissionLevel.FREE)
+
+        # 4. 权限级别
         perm = self._tool_permissions.get(tool_name, PermissionLevel.ASK_FIRST)
 
-        # 4. FREE → 直接放行
+        # 5. FREE → 直接放行
         if perm == PermissionLevel.FREE:
             return PolicyDecision(allowed=True, permission_level=PermissionLevel.FREE)
 
-        # 5. APPROVE_ONCE → 检查是否已授权
+        # 6. APPROVE_ONCE → 检查是否已授权
         if perm == PermissionLevel.APPROVE_ONCE:
             task_key = f"{session_id}::{tool_name}"
             if task_key in self._task_approvals:
@@ -344,13 +349,13 @@ class PolicyEngine:
                     cache_key=task_key,
                 )
 
-        # 6. 风险评估
+        # 7. 风险评估
         if risk_factors is None:
             risk_factors = self._preset_risk_factors(tool_name)
         score = risk_factors.score()
         level = risk_factors.to_level()
 
-        # 7. 审批缓存检查
+        # 8. 审批缓存检查
         cache_key = f"{session_id}:{tool_name}:{command_or_action[:50]}"
         hashed = hashlib.sha256(cache_key.encode()).hexdigest()[:16]
         entry = self._approval_cache.get(hashed)
@@ -366,7 +371,7 @@ class PolicyEngine:
                         cache_key=hashed,
                     )
 
-        # 8. ASK_FIRST → 总是需要审批（写操作默认不可信）
+        # 9. ASK_FIRST → 总是需要审批（写操作默认不可信）
         if perm == PermissionLevel.ASK_FIRST:
             return PolicyDecision(
                 allowed=True,
@@ -377,7 +382,7 @@ class PolicyEngine:
                 cache_key=hashed,
             )
 
-        # 9. APPROVE_ONCE + 未授权 + 需要审批
+        # 10. APPROVE_ONCE + 未授权 + 需要审批
         if perm == PermissionLevel.APPROVE_ONCE:
             return PolicyDecision(
                 allowed=True,

@@ -168,6 +168,7 @@ class ToolExecutor:
                 tool_name, command_or_action=str(arguments.get("cmd", "")),
                 session_id=session_id,
                 parameters=arguments,
+                requires_approval=getattr(tool_fn, 'requires_approval', None),
             )
             if not decision.allowed:
                 return ToolResult(
