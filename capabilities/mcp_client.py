@@ -96,6 +96,7 @@ class MCPClient:
         self._writers: Dict[str, asyncio.StreamWriter] = {}
         self._server_caps: Dict[str, dict] = {}
         self._http_cms: Dict[str, Any] = {}  # streamable-http 上下文管理器引用
+        self._transport_cms: Dict[str, Any] = {}  # stdio/sse 传输层上下文管理器引用
         self._connected = False
         # 缓存相关
         self._from_cache = False
@@ -179,6 +180,13 @@ class MCPClient:
             except Exception:
                 pass
         self._sessions.clear()
+        # 清理传输层 context managers
+        for name, cm in list(self._transport_cms.items()):
+            try:
+                await cm.__aexit__(None, None, None)
+            except Exception:
+                pass
+        self._transport_cms.clear()
         self._processes.clear()
         self._readers.clear()
         self._writers.clear()
@@ -392,13 +400,20 @@ class MCPClient:
 
         cfg = self._server_configs[server_name]
 
-        # 1. 断开旧连接（session + process + 传输层）
+        # 1. 断开旧连接（session + 传输层 context manager）
         old_session = self._sessions.pop(server_name, None)
         if old_session:
             try:
                 await old_session.send_notification(
                     {"jsonrpc": "2.0", "method": "notifications/shutdown"}
                 )
+            except Exception:
+                pass
+
+        old_cm = self._transport_cms.pop(server_name, None)
+        if old_cm:
+            try:
+                await old_cm.__aexit__(None, None, None)
             except Exception:
                 pass
 
@@ -568,7 +583,9 @@ class MCPClient:
 
             headers = dict(getattr(cfg, "env", {}))
             logger.info("[mcp] %s: 连接 SSE %s", name, url)
-            read, write = await sse_client(url=url, headers=headers).__aenter__()
+            cm = sse_client(url=url, headers=headers)
+            self._transport_cms[name] = cm
+            read, write = await cm.__aenter__()
             session = await ClientSession(read, write).__aenter__()
             await asyncio.wait_for(session.initialize(), timeout=_CONNECT_TIMEOUT)
             self._sessions[name] = session
@@ -600,30 +617,24 @@ class MCPClient:
             logger.info("[mcp] %s: 已连接（streamable-http）", name)
             return
 
-        # stdio: 启动子进程
-        import os
+        # stdio: 使用 SDK 的 stdio_client 管理子进程
+        from mcp.client.stdio import stdio_client, StdioServerParameters
+
         command = getattr(cfg, "command", "")
         args = getattr(cfg, "args", [])
-        env_vars = getattr(cfg, "env", {})
-        process_env = os.environ.copy()
-        process_env.update(env_vars)
+        env_vars = dict(getattr(cfg, "env", {}))
 
         logger.info("[mcp] %s: 启动子进程 %s %s", name, command, " ".join(args))
 
-        process = await asyncio.create_subprocess_exec(
-            command, *args,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=process_env,
+        server_params = StdioServerParameters(
+            command=command,
+            args=args,
+            env=env_vars if env_vars else None,
         )
-        self._processes[name] = process
-        self._readers[name] = process.stdout
-        self._writers[name] = process.stdin
-
-        session = await ClientSession(
-            process.stdout, process.stdin,
-        ).__aenter__()
+        cm = stdio_client(server_params, errlog=open(os.devnull, 'w'))
+        self._transport_cms[name] = cm
+        read, write = await cm.__aenter__()
+        session = await ClientSession(read, write).__aenter__()
         await asyncio.wait_for(session.initialize(), timeout=_CONNECT_TIMEOUT)
         self._sessions[name] = session
         self._server_caps[name] = session.get_server_capabilities() or {}
@@ -632,10 +643,24 @@ class MCPClient:
     async def _disconnect_one(self, name: str) -> None:
         session = self._sessions.pop(name, None)
         if session:
-            await session.send_notification({"jsonrpc": "2.0", "method": "notifications/shutdown"})
+            try:
+                await session.send_notification({"jsonrpc": "2.0", "method": "notifications/shutdown"})
+            except Exception:
+                pass
+        # 清理传输层 context manager
+        cm = self._transport_cms.pop(name, None)
+        if cm:
+            try:
+                await cm.__aexit__(None, None, None)
+            except Exception:
+                pass
 
     def _force_kill_all_sync(self) -> None:
-        """同步强制终止所有子进程（信号处理器路径，无 async/await）。"""
+        """同步强制终止所有子进程（信号处理器路径，无 async/await）。
+        
+        注意: stdio transport 由 SDK 的 anyio 管理，此方法仅处理遗留的
+        asyncio 子进程引用（如 _processes 中的残留）。
+        """
         for name in list(self._processes.keys()):
             process = self._processes.get(name)
             if process is None or process.returncode is not None:
@@ -648,6 +673,7 @@ class MCPClient:
                 pass
         self._processes.clear()
         self._sessions.clear()
+        self._transport_cms.clear()
 
     # ====== 属性 ======
 
