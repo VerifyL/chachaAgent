@@ -16,7 +16,7 @@
 | `sandbox`       | `SandboxConfig`     | 见下文    | 沙箱执行器配置。                                                      |
 | `policy`        | `PolicyConfig`      | 见下文    | 安全策略引擎配置。                                                    |
 | `telemetry`     | `TelemetryConfig`   | 见下文    | 可观测性（日志、审计、指标）配置。                                    |
-| `multimodal`    | `MultimodalConfig`  | 见下文    | **v1.5+ 预留** 多模态功能配置，当前版本默认关闭。                    |
+| `multimodal`    | `MultimodalConfig`  | 见下文    | **后续版本预留** 多模态功能配置，当前版本默认关闭。                    |
 | `interface`     | `InterfaceConfig`   | 见下文    | 表现层（CLI / Web）配置。                                             |
 
 ---
@@ -39,7 +39,7 @@
 | `api_key`            | `SecretStr` 或 `None`                    | `None`    | API 密钥，支持从环境变量读取（如 `$OPENAI_API_KEY`）。              |
 | `base_url`           | `str` 或 `None`                          | `None`    | 自定义 API 端点，用于代理或兼容服务（如 Azure）。                   |
 | `default_model`      | `str`                                    | **必填**  | 该提供商默认使用的模型名称（如 `"gpt-4"`）。                        |
-| `supports_vision`    | `bool`                                   | `False`   | **预留** 是否支持视觉多模态，v1.5+ 使用。                           |
+| `supports_vision`    | `bool`                                   | `False`   | **预留** 是否支持视觉多模态，后续版本使用。                           |
 | `cost_per_1k_input`  | `float`                                  | `0.0`     | 每 1000 输入 token 的成本（美元），用于成本路由和熔断。             |
 | `cost_per_1k_output` | `float`                                  | `0.0`     | 每 1000 输出 token 的成本（美元）。                                  |
 
@@ -102,7 +102,7 @@
 
 ---
 
-## 多模态预留 `MultimodalConfig` (v1.5+)
+## 多模态预留 `MultimodalConfig` (后续版本)
 
 | 字段名                   | 类型                | 默认值    | 描述                                                                 |
 |--------------------------|---------------------|-----------|----------------------------------------------------------------------|

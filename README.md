@@ -1,7 +1,7 @@
 # ChaChaAgent
 
-[![PyPI version](https://img.shields.io/pypi/v/chachaAgent)](https://pypi.org/project/chachaAgent/)
-[![Python](https://img.shields.io/pypi/pyversions/chachaAgent)](https://pypi.org/project/chachaAgent/)
+[![GitHub release](https://img.shields.io/github/v/release/VerifyL/chachaAgent)](https://github.com/VerifyL/chachaAgent/releases)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![CI](https://github.com/VerifyL/chachaAgent/actions/workflows/ci.yml/badge.svg)](https://github.com/VerifyL/chachaAgent/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![codecov](https://codecov.io/gh/VerifyL/chachaAgent/branch/main/graph/badge.svg)](https://codecov.io/gh/VerifyL/chachaAgent)
@@ -127,7 +127,7 @@ CLI 快捷键：`Ctrl+N` 新会话 | `Ctrl+S` 保存 | `Ctrl+F` 调试 | `Ctrl+B
 | `[sandbox]` | ✅ | 命令白名单、超时限制 |
 | `[policy]` | ✅ | 命令黑名单、成本上限、审批缓存 TTL |
 | `[telemetry]` | ✅ | 日志级别、审计开关、Prometheus 端口 |
-| `[multimodal]` | 🚧 | 多模态预留（v1.5+） |
+| `[multimodal]` | 🚧 | 多模态预留（后续版本） |
 | `[interface]` | 🚧 | Web 服务器配置预留 |
 | `[auto_memory]` | ✅ | Dream/GlobalDream 触发阈值 |
 

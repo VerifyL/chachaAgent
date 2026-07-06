@@ -85,7 +85,7 @@ class TokenCounter:
     def estimate_image_tokens(width: int, height: int, detail: str = "auto") -> int:
         """估算图片 token 数（参考 OpenAI Vision pricing）。
 
-        TODO(v1.5): 接入实际多模态模型时精确化。
+        TODO: 接入实际多模态模型时精确化。
         当前返回默认值 85（low detail 基准），表示一张 512x512 图片约 85 tokens。
         """
         if detail == "low":

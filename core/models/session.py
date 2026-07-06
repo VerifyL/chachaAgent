@@ -19,7 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 class Attachment(BaseModel):
     """消息附件（预留多模态内容）
-    TODO(v1.5): get_messages_for_llm() 目前仅处理文本，需扩展为支持多模态消息格式
+    TODO: get_messages_for_llm() 目前仅处理文本，需扩展为支持多模态消息格式
     """
 
     model_config = ConfigDict(use_enum_values=True)

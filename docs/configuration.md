@@ -43,7 +43,7 @@
 | `api_key` | 字符串或 `null` | `null` | API 密钥，建议通过环境变量 `CHA_CHA_MODEL__PROVIDERS__<NAME>__API_KEY` 设置。 |
 | `base_url` | 字符串或 `null` | `null` | 自定义 API 端点（如 Azure OpenAI 或代理地址），默认使用官方端点。 |
 | `default_model` | 字符串 | **必填** | 该提供商下默认使用的模型名称（如 `"gpt-4"`、`"claude-3-opus"`）。 |
-| `supports_vision` | 布尔值 | `false` | 该模型是否支持图像输入（v1.5+ 多模态功能使用）。 |
+| `supports_vision` | 布尔值 | `false` | 该模型是否支持图像输入（后续版本多模态功能使用）。 |
 | `cost_per_1k_input` | 浮点数 (≥0) | `0.0` | 每 1000 个输入 token 的成本（美元），用于成本路由和熔断计算。 |
 | `cost_per_1k_output` | 浮点数 (≥0) | `0.0` | 每 1000 个输出 token 的成本（美元）。 |
 
@@ -160,13 +160,13 @@
 
 ---
 
-## 多模态预留 `[multimodal]` （v1.5+）
+## 多模态预留 `[multimodal]` （后续版本）
 
-> **注意**：此配置段在当前版本（v1.0）仅作为占位，多模态功能将在 v1.5 版本中正式启用。您可以在配置中预先设置相关参数，系统会加载它们但不会生效，以确保未来升级时无需修改配置。
+> **注意**：此配置段在当前版本仅作为占位，多模态功能将在后续版本中正式启用。您可以在配置中预先设置相关参数，系统会加载它们但不会生效，以确保未来升级时无需修改配置。
 
 | 字段名 | 类型 | 默认值 | 描述 |
 |--------------------------|---------------------|-----------|----------------------------------------------------------------------|
-| `enabled` | 布尔值 | `false` | 是否启用多模态功能（v1.5 起可用）。 |
+| `enabled` | 布尔值 | `false` | 是否启用多模态功能（后续版本起可用）。 |
 | `vision_model` | 字符串或 `null` | `null` | 指定用于视觉任务的模型名称，若为空则自动选择 `supports_vision=true` 的首个提供商。 |
 | `max_image_size_mb` | 整数 (≥1) | `10` | 单张图片的最大大小（MB），超限将拒绝或压缩。 |
 | `enable_ocr_fallback` | 布尔值 | `true` | 当图片解析失败时是否降级为 OCR 文本提取。 |
@@ -276,7 +276,7 @@ enable_audit = true
 enable_prometheus = true
 prometheus_port = 9091
 
-[multimodal] # v1.5 预留
+[multimodal] # 后续版本预留
 enabled = true
 vision_model = "gpt-4-vision"
 max_image_size_mb = 20

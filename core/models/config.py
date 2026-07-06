@@ -1,7 +1,7 @@
 """
 core/models/config.py
 配置数据模型定义，与 chachaConfig.toml 严格对应。
-使用 Pydantic v2 进行类型校验与解析，为 v1.5+ 多模态预留扩展字段。
+使用 Pydantic v2 进行类型校验与解析，为后续版本多模态预留扩展字段。
 """
 
 from pathlib import Path
@@ -20,7 +20,7 @@ class ModelProviderConfig(BaseModel):
     api_key: Optional[SecretStr] = Field(None, description="API 密钥，支持从环境变量读取")
     base_url: Optional[str] = Field(None, description="自定义 API 端点，用于代理或兼容服务")
     default_model: str = Field(..., description="默认使用的模型名称")
-    supports_vision: bool = Field(False, description="【预留】是否支持视觉多模态，v1.5+ 启用")
+    supports_vision: bool = Field(False, description="【预留】是否支持视觉多模态，后续版本启用")
     cost_per_1k_input: float = Field(0.0, ge=0, description="每千输入 token 成本（美元）")
     cost_per_1k_output: float = Field(0.0, ge=0, description="每千输出 token 成本（美元）")
     context_window: int = Field(1_048_576, description="上下文窗口大小（token），用于自动压缩阈值")
@@ -104,12 +104,12 @@ class MemoryConfig(BaseModel):
 
 
 # ==========================
-# 多模态预留配置（v1.5+）
-# TODO(v1.5): 当 VisionClient 实现后，MultimodalConfig 将被 PolicyEngine 和 ModelRouter 消费
-# TODO(v1.5): supports_vision 字段需要在 ModelRouter 路由决策中生效
+# 多模态预留配置（后续版本）
+# TODO: 当 VisionClient 实现后，MultimodalConfig 将被 PolicyEngine 和 ModelRouter 消费
+# TODO: supports_vision 字段需要在 ModelRouter 路由决策中生效
 # ==========================
 class MultimodalConfig(BaseModel):
-    """多模态扩展配置（当前版本仅占位，v1.5+ 启用）"""
+    """多模态扩展配置（当前版本仅占位，后续版本启用）"""
 
     enabled: bool = Field(False, description="是否启用多模态功能")
     vision_model: Optional[str] = Field(

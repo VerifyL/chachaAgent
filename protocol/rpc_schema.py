@@ -10,7 +10,7 @@ JSON-RPC 2.0 消息模型 —— ChachaAgent 的统一通信协议。
   1. 严格遵循 JSON-RPC 2.0 规范（jsonrpc/id/method/params/error）
   2. GatewayMessage 为外层包装，承载 seq/project_id/session_id 路由信息
   3. 事件（Event）无 id 字段，表示服务端单向推送
-  4. 多模态预留：union 类型中用注释标注 ImageChunk/AudioChunk 扩展点 (v1.5+)
+  4. 多模态预留：union 类型中用注释标注 ImageChunk/AudioChunk 扩展点 (后续版本)
 
 消息类型总览：
   ┌─ GatewayMessage（网关包装）
@@ -67,7 +67,7 @@ class GatewayMessage(BaseModel):
         "RPCEvent",
     ] = Field(..., description="JSON-RPC 2.0 消息体")
 
-    # ==== 多模态预留 (v1.5+) ====
+    # ==== 多模态预留 (后续版本) ====
     # payload 的 union 类型可扩展为：
     #   Union[RPCRequest, RPCResponse, RPCEvent, ImageChunk, AudioChunk]
     # ImageChunk: {type: "image", data: bytes, mime_type: str, width?: int, height?: int}
@@ -328,7 +328,7 @@ GatewayPayload = Union[
     SystemNotificationEvent,
     RPCRequest,
     RPCResponse,
-    # ==== v1.5+ 多模态扩展预留 ====
-    # TODO(v1.5): ImageChunk, AudioChunk — 见 GatewayMessage 中的注释
+    # ==== 后续版本多模态扩展预留 ====
+    # TODO: ImageChunk, AudioChunk — 见 GatewayMessage 中的注释
 ]
 """Gateway 可路由的所有消息类型"""

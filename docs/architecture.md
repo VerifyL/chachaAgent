@@ -99,7 +99,7 @@ ChaChaConfig (config.py)
  ├── PolicyConfig (黑名单/成本上限/审批 TTL)
  ├── SandboxConfig (命令白名单/超时)
  ├── TelemetryConfig (日志/审计/Prometheus)
- ├── MultimodalConfig (预留, v1.5+)
+ ├── MultimodalConfig (预留, 后续版本)
  ├── MemoryConfig (记忆根目录/清理间隔)
  └── InterfaceConfig (CLI 主题/Web 端口, Web 部分预留)
 
@@ -466,7 +466,7 @@ class BaseTool(ABC):
 | Code-RAG (rag/) | 骨架，symbol_parser/vector_store 待实现 |
 | OpenClaw 加载器 (openclaw_loader.py) | 骨架 |
 | 插件安装器 (plugin_installer.py) | 骨架 |
-| 多模态 (multimodal/) | 仅 __init__.py，配置模型已预留 (v1.5+) |
+| 多模态 (multimodal/) | 仅 __init__.py，配置模型已预留 (后续版本) |
 
 ---
 
@@ -536,12 +536,12 @@ CLI app.py
 
 | 层面 | 预留项 | 计划版本 |
 |------|--------|----------|
-| 协议层 | GatewayMessage.payload 承载 ImageChunk/AudioChunk | v1.5+ |
-| 模型层 | supports_vision / VisionClient / 多模态 token 折算 | v1.5+ |
-| 上下文层 | multimodal_compression 策略 (drop/describe/keep) | v1.5+ |
-| 能力层 | capabilities/multimodal/ 目录 (截图识别/语音转文字) | v1.5+ |
-| 安全层 | 图片元数据校验、防提示词注入 | v1.5+ |
-| 表现层 | Web 原生富媒体渲染 / CLI 降级文字 | v1.5+ |
+| 协议层 | GatewayMessage.payload 承载 ImageChunk/AudioChunk | 后续版本 |
+| 模型层 | supports_vision / VisionClient / 多模态 token 折算 | 后续版本 |
+| 上下文层 | multimodal_compression 策略 (drop/describe/keep) | 后续版本 |
+| 能力层 | capabilities/multimodal/ 目录 (截图识别/语音转文字) | 后续版本 |
+| 安全层 | 图片元数据校验、防提示词注入 | 后续版本 |
+| 表现层 | Web 原生富媒体渲染 / CLI 降级文字 | 后续版本 |
 
 ---
 

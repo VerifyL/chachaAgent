@@ -63,7 +63,7 @@ class GatewayMessage(BaseModel):
 | `session_id` | 会话标识，同一会话的所有消息共享，支持断线重连后恢复 |
 | `payload` | JSON-RPC 2.0 消息体，具体类型由 Gateway/MCP 客户端按 `method` 字段路由 |
 
-> 🔮 **多模态预留（v1.5+）**：`payload` 的联合类型可扩展为 `Union[..., ImageChunk, AudioChunk]`，在不改动现有模型的前提下支持图片/音频消息。
+> 🔮 **多模态预留（后续版本）**：`payload` 的联合类型可扩展为 `Union[..., ImageChunk, AudioChunk]`，在不改动现有模型的前提下支持图片/音频消息。
 
 ---
 
@@ -319,4 +319,4 @@ Orchestrator 推送结果
 
 5. **事件不等待响应**：`RPCEvent` 无 `id`，服务端推送不需要客户端确认，适合高频流式场景。
 
-6. **多模态预留扩展**：`GatewayMessage.payload` 的 union 类型可直接添加 `ImageChunk`/`AudioChunk`（v1.5+），不破坏已有消息格式。
+6. **多模态预留扩展**：`GatewayMessage.payload` 的 union 类型可直接添加 `ImageChunk`/`AudioChunk`（后续版本），不破坏已有消息格式。

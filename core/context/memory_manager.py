@@ -7,7 +7,7 @@ MemoryManager — 纯文件 I/O，为 memory 工具提供底层存储。
   list_days() + read(today)  加载当日记忆
   remember(content)        追加记忆条目
 
-MEMORY.md 由 autoDream 管道定期构建（v1.0），作为轻量索引注入上下文。
+MEMORY.md 由 autoDream 管道定期构建（后续版本），作为轻量索引注入上下文。
 
 v2.0 新增:
   - CHACHA_MEMORY.md 永久记忆（无条目上限，保护区，永不删除）

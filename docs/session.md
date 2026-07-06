@@ -42,7 +42,7 @@ class Attachment(BaseModel):
 | `mime_type` | `str` | MIME 类型，如 `image/png`、`audio/mpeg`，用于客户端正确解析 |
 | `filename` | `str \| None` | 原始文件名（可选），便于用户识别 |
 
-**设计考量**：目前此模型仅作预留，v1.5+ 将完整支持多模态输入。`data` 字段采用 `bytes` 而非 Base64 字符串，便于与 LLM API 的多模态接口直接对接。
+**设计考量**：目前此模型仅作预留，后续版本将完整支持多模态输入。`data` 字段采用 `bytes` 而非 Base64 字符串，便于与 LLM API 的多模态接口直接对接。
 
 ---
 

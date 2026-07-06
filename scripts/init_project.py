@@ -83,7 +83,7 @@ cost_limit_dollars = 10.0
 [telemetry]
 log_level = "INFO"
 
-[multimodal]   # v1.5 预留
+[multimodal]   # 后续版本预留
 enabled = false
 
 [interface]
