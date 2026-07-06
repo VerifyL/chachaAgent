@@ -130,7 +130,9 @@ class ConfigManager:
 
         cwd = Path.cwd()
         candidates = [
-            cwd / ".chacha" / "config.toml",         # 项目级（最高优先级）
+            cwd / "chachaConfig.toml",               # 优先查找新名称
+            cwd / "harness.toml",                    # 回退到旧名称
+            cwd / ".chacha" / "config.toml",         # 项目级 .chacha 目录
         ]
         for p in candidates:
             if p.exists():
