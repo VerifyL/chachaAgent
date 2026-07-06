@@ -22,10 +22,13 @@ compress() 为唯一入口，auto_compact() 委托到 compress()。
 import asyncio
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 
 from core.models.context import (
-    AssembledContext, BlockSource, CompressionLevel, ContextBlock,
+    AssembledContext,
+    BlockSource,
+    CompressionLevel,
+    ContextBlock,
 )
 
 logger = logging.getLogger(__name__)
@@ -245,7 +248,8 @@ class ContextCompressor:
         dynamic: List[ContextBlock],
     ) -> AssembledContext:
         """重组 AssembledContext，重新分配 priority。
-        
+
+
         使用 model_copy 而非直接赋值，因为 ContextBlock 是 frozen Pydantic model。
         """
         new_blocks: List[ContextBlock] = []

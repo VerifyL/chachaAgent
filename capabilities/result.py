@@ -7,8 +7,9 @@ ToolResult — 所有工具返回的统一结果结构。
   - 8 个工具共用同一个结构，通过 data / internal 承载各自差异
 """
 
-from pydantic import BaseModel, Field
 from typing import Literal
+
+from pydantic import BaseModel, Field
 
 
 class ToolResult(BaseModel):

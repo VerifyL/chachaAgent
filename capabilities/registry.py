@@ -4,14 +4,20 @@ ToolRegistry — 统一工具注册表。
 
 所有工具在此集中注册，`build_tools()` 和 CLI 共用同一来源。
 
-当前状态：11 工具全部就绪（read / write / edit / bash / grep / glob / task / memory / cache_read / clock / approval_control）。
+当前状态：11 工具全部就绪
+ （read / write / edit / bash / grep / glob / task / memory / cache_read / clock / approval_control）。
 """
 
 from pathlib import Path
 from typing import List, Optional
 
 
-def build_tools(root: Optional[Path] = None, memory_manager=None, subagent_spawner=None, mcp_tools: Optional[List] = None) -> List:
+def build_tools(
+    root: Optional[Path] = None,
+    memory_manager=None,
+    subagent_spawner=None,
+    mcp_tools: Optional[List] = None,
+) -> List:
     """返回完整的工具列表（单一路径）。
 
     逐个添加：read / write / edit / bash / grep / glob / task / memory / cache_read / approval_control

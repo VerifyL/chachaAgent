@@ -20,7 +20,6 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from core.models.config import PolicyConfig
 
-
 # ========================= 枚举 =========================
 
 class RiskLevel(str, Enum):
@@ -82,9 +81,12 @@ class RiskFactors:
 
     def to_level(self) -> RiskLevel:
         s = self.score()
-        if s < 20: return RiskLevel.LOW
-        if s < 50: return RiskLevel.MEDIUM
-        if s < 80: return RiskLevel.HIGH
+        if s < 20:
+            return RiskLevel.LOW
+        if s < 50:
+            return RiskLevel.MEDIUM
+        if s < 80:
+            return RiskLevel.HIGH
         return RiskLevel.CRITICAL
 
 
@@ -400,7 +402,10 @@ class PolicyEngine:
         返回 (allowed, reason, cumulative_cost)。
         """
         if not self._circuit_breaker.is_available():
-            return False, f"成本熔断: 累计 {self._circuit_breaker.cumulative_cost:.2f} > {self._cost_limit:.2f}", self._circuit_breaker.cumulative_cost
+            return False, (
+                f"成本熔断: 累计 {self._circuit_breaker.cumulative_cost:.2f}"
+                f" > {self._cost_limit:.2f}"
+            ), self._circuit_breaker.cumulative_cost
 
         self._circuit_breaker.add_cost(cost)
         return True, None, self._circuit_breaker.cumulative_cost

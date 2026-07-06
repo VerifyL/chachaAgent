@@ -1,5 +1,6 @@
 """glob_tool.py — find files by pattern."""
 from pathlib import Path
+
 from capabilities.base import BaseTool
 from capabilities.result import ToolResult
 

@@ -23,13 +23,20 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional
 
-from core.models.context import (
-    AssembledContext, BlockSource, CompressionLevel, ContextAssemblyMeta,
-    ContextBlock, TriggerReason,
-)
 from core.models.config import ContextConfig
+from core.models.context import (
+    AssembledContext,
+    BlockSource,
+    CompressionLevel,
+    ContextAssemblyMeta,
+    ContextBlock,
+    TriggerReason,
+)
 from core.models.session import (
-    ConversationState, MessageEvent, ToolCallEvent, ObservationEvent,
+    ConversationState,
+    MessageEvent,
+    ObservationEvent,
+    ToolCallEvent,
 )
 
 logger = logging.getLogger(__name__)
@@ -105,7 +112,7 @@ class ContextManager:
     def set_session_memory(self, content: str) -> None:
         """注入今日会话记忆（动态区）。"""
         self._session_memory = content
-        
+
     @staticmethod
     def build_system_prompt(project_root, base_prompt: str = "", memory_manager=None) -> str:
         """从所有来源加载上下文，返回组装好的完整系统提示词。
@@ -118,6 +125,7 @@ class ContextManager:
         5. MEMORY.md — 轻量索引
         """
         from pathlib import Path
+
         from core.context.memory_manager import MemoryManager
 
         sections = [base_prompt] if base_prompt else []
@@ -382,8 +390,9 @@ class ContextManager:
                           session_id: str = "",
                           project_id: str = "") -> ConversationState:
         """原始 OpenAI 消息列表 → ConversationState。"""
-        from core.models.session import ConversationState, SessionMetadata
         import json
+
+        from core.models.session import ConversationState, SessionMetadata
         meta = SessionMetadata(project_id=project_id or "",
                                session_id=session_id or str(uuid.uuid4()))
         state = ConversationState(metadata=meta)
@@ -443,7 +452,6 @@ class ContextManager:
         与 assemble() 产出相同，但绕过 events 中间态，减少转换损耗。
         cm 为 None 时跳过 protected zone 构建（用于 auto_compact 等场景）。
         """
-        import json
 
         blocks, protected_count = cm._build_protected_and_memory_blocks(
             static_rules=kwargs.get("static_rules"),

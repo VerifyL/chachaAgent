@@ -1,6 +1,7 @@
 """clock_tool.py — return current date/time."""
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
+
 from capabilities.base import BaseTool
 from capabilities.result import ToolResult
 
@@ -27,7 +28,6 @@ class ClockTool(BaseTool):
         """Return the current UTC time, local time, timestamp, and offset."""
         now_utc = datetime.now(timezone.utc)
         now_local = datetime.now().astimezone()
-        tz = now_local.tzinfo
         offset_seconds = int(now_local.utcoffset().total_seconds()) if now_local.utcoffset() else 0
         offset_hours = offset_seconds / 3600
 

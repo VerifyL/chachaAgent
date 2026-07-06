@@ -4,9 +4,9 @@ CLI 主题配置 — 类似 vimrc 的可自定义配色。
 加载 ~/.chacha/clirc.toml，未配置项使用默认值。
 """
 
+import logging
 from pathlib import Path
 from typing import Dict
-import logging
 
 logger = logging.getLogger(__name__)
 

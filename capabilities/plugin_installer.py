@@ -14,7 +14,7 @@ TODO(阶段7): 实现插件隔离（每个插件独立 venv）
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 

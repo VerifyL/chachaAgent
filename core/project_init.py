@@ -50,7 +50,8 @@ class ProjectInit:
         prompt += (
             "\n\n--- 工具使用规则 ---\n"
             "1. 信任工具结果：truncated=false 时输出完整，byte_count 准确，不重复执行已完成操作。\n"
-            "2. edit 精确性：old_string 必须包含足够上下文确保唯一匹配；new_string 必须与 old_string 不同（相同为无效调用）；写入前 read 确认，写入后 read 验证。\n"
+            "2. edit 精确性：old_string 必须包含足够上下文确保唯一匹配；new_string 必须与 old_string 不同"
+            "（相同为无效调用）；写入前 read 确认，写入后 read 验证。\n"
             "3. 高风险操作：write/edit/bash 如不确定后果，先询问用户。\n"
             "4. 回复前自检：用户偏好 / 技术决策 / 修复错误 / 踩坑经验 / 里程碑完成后，调用 memory remember 记录。"
         )

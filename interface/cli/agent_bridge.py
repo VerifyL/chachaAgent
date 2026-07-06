@@ -5,8 +5,6 @@ AgentBridge — CLI ↔ 核心的薄桥接层。消息历史 + 压缩托管给 C
 
 import logging
 import os
-import select
-import sys
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, List, Optional
 
@@ -87,13 +85,18 @@ class AgentBridge:
 
         self._api_key = (os.environ.get("DEEPSEEK_API_KEY") or
                          os.environ.get("OPENAI_API_KEY") or
-                         (default_provider.api_key.get_secret_value() if default_provider and default_provider.api_key and default_provider.api_key.get_secret_value() else ""))
+                         (default_provider.api_key.get_secret_value()
+             if default_provider and default_provider.api_key
+             and default_provider.api_key.get_secret_value()
+             else ""))
         self._base_url = (os.environ.get("DEEPSEEK_BASE_URL") or
                           os.environ.get("OPENAI_BASE_URL") or
                           (default_provider.base_url if default_provider and default_provider.base_url else "https://api.deepseek.com"))
         self._model = (os.environ.get("DEEPSEEK_MODEL") or
                        os.environ.get("OPENAI_MODEL") or
-                       (default_provider.default_model if default_provider and default_provider.default_model else "deepseek-v4-pro"))
+                       (default_provider.default_model
+             if default_provider and default_provider.default_model
+             else "deepseek-v4-pro"))
 
         # 上下文窗口：配置 → 模型名推断 → 默认 1M
         context_window = ChatEngine.infer_context_window(self._model)
@@ -124,9 +127,9 @@ class AgentBridge:
         self._orchestrator.set_engine(self._engine)
 
         # Hook 系统（可插拔模块：Git 感知等）
+        from core.git_context import GitContextHook
         from core.hook_orchestrator import HookOrchestrator
         from core.models.hook import HookPoint
-        from core.git_context import GitContextHook
         self._hooks = HookOrchestrator(telemetry=self._telemetry)
         self._hooks.register(
             "git-context",
@@ -170,12 +173,10 @@ class AgentBridge:
 
     async def initialize(self) -> str:
         """初始化 LLM + Dispatcher + 策略 + 重试 + 治理"""
-        from core.llm_invoker import LLMInvoker
         from core.llm_clients.openai_client import OpenAIClient
         from core.llm_clients.retry_handler import RetryHandler
+        from core.llm_invoker import LLMInvoker
         from core.output_governor import OutputGovernor
-        from core.tool_executor import ToolExecutor
-        from core.dispatcher import Dispatcher
 
         # 重试处理器 + 输出治理器
         retry = RetryHandler(max_retries=3)
@@ -232,9 +233,9 @@ class AgentBridge:
 
     async def rebuild(self) -> None:
         """重建 Dispatcher + ToolExecutor"""
-        from core.tool_executor import ToolExecutor
         from core.dispatcher import Dispatcher
         from core.policy_engine import PolicyEngine
+        from core.tool_executor import ToolExecutor
         policy = PolicyEngine()
 
         async def _cli_approval(req) -> bool:
@@ -315,8 +316,9 @@ class AgentBridge:
                 )
 
         # ContextManager — 注入记忆和技能
-        from core.context.memory_manager import MemoryManager
         import json
+
+        from core.context.memory_manager import MemoryManager
         try:
             mgr = getattr(self, '_session_memory', None) or MemoryManager(project_root=self._root)
             perm = mgr.read_permanent_memory()
@@ -517,7 +519,11 @@ class AgentBridge:
                 display = getattr(cfg, "url", "?")
             else:
                 display = getattr(cfg, "command", "?")
-            connected = "🟢" if (name in self._mcp_client._sessions or name in self._mcp_client._cached_servers) else "🔴"
+            connected = (
+                "🟢" if (name in self._mcp_client._sessions
+                         or name in self._mcp_client._cached_servers)
+                else "🔴"
+            )
             lines.append(f"  {connected} {name} ({display})")
         return "\n".join(lines)
 
@@ -567,7 +573,7 @@ class AgentBridge:
         elif exclude:
             lines.append(f"  exclude 过滤: {exclude}")
         else:
-            lines.append(f"  全量注入（配置 include/exclude 可裁剪）")
+            lines.append("  全量注入（配置 include/exclude 可裁剪）")
         return "\n".join(lines)
 
     # ====== 遥测查询（供 CLI 仪表盘使用） ======
@@ -587,7 +593,7 @@ class AgentBridge:
         uptime = snap.get("uptime_seconds", 0)
 
         lines = [
-            f"📊 遥测仪表盘",
+            "📊 遥测仪表盘",
             f"   状态: 🟢 已启用 | 日志级别: {snap['log_level']} | 运行: {int(uptime)}s",
             f"   日志目录: {snap['log_dir']} | 审计: {'开' if snap.get('audit_enabled') else '关'}",
             "",
@@ -608,7 +614,11 @@ class AgentBridge:
         tool_lat = histograms.get("chacha_tool_duration_ms", {})
         lines.append(f"   工具调用: {tool_total} 次")
         if tool_lat:
-            lines.append(f"   耗时: avg={tool_lat['avg']:.0f}ms p50={tool_lat['p50']:.0f}ms p99={tool_lat['p99']:.0f}ms")
+            lines.append(
+                f"   耗时: avg={tool_lat['avg']:.0f}ms"
+                f" p50={tool_lat['p50']:.0f}ms"
+                f" p99={tool_lat['p99']:.0f}ms"
+            )
 
         # 会话
         sess = counters.get("chacha_sessions_total", 0)
@@ -618,14 +628,13 @@ class AgentBridge:
 
         # 成本
         cost = self._telemetry.cost_summary()
-        lines.append(f"")
-        lines.append(f"   ═══ 成本 ═══")
+        lines.append("")
+        lines.append("   ═══ 成本 ═══")
         lines.append(f"   累计: ${cost['total_cost_usd']:.4f}")
         for model, c in cost.get("by_model", {}).items():
             lines.append(f"     {model}: ${c:.4f}")
 
         # 日志文件大小
-        import os
         log_dir = Path(snap["log_dir"])
         for fname in ["debug.jsonl", "audit.jsonl"]:
             fp = log_dir / fname
@@ -696,7 +705,7 @@ class AgentBridge:
             return "⚠️ 遥测未启用"
         cost = self._telemetry.cost_summary()
         lines = [
-            f"💰 成本汇总",
+            "💰 成本汇总",
             f"   累计: ${cost['total_cost_usd']:.6f}",
         ]
         for model, c in cost.get("by_model", {}).items():

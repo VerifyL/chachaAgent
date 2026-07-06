@@ -5,7 +5,7 @@ core/subagent/definitions.py
 LLM 根据 description 自动判断何时委托子Agent。
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List
 
 

@@ -4,12 +4,13 @@ core/config_manager.py
 仅依赖 core.models.config 和标准库。
 """
 
-import os
-import tomllib
 import logging
-from pathlib import Path
-from typing import Optional, Dict, Any, List
+import os
 import threading
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import tomllib
 
 from core.models.config import ChaChaConfig
 
@@ -79,8 +80,8 @@ class ConfigManager:
 
     def start_watch(self, callback: Optional[callable] = None) -> None:
         try:
-            from watchdog.observers import Observer
             from watchdog.events import FileSystemEventHandler
+            from watchdog.observers import Observer
         except ImportError:
             logger.warning("watchdog 未安装，无法启用热加载。")
             return

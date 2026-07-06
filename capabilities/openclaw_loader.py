@@ -13,7 +13,7 @@ TODO(阶段7): 实现技能缓存与惰性加载
 import logging
 from enum import IntEnum
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 

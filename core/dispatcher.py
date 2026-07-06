@@ -19,40 +19,32 @@ Dispatcher — 工具调度器：桥接 ToolExecutor + LLMInvoker。
 
 import asyncio
 import json
-import logging
 import re
 import time
-from pathlib import Path
 from typing import Any, AsyncIterator, Dict, List, Optional
 
-from core.models.stream_event import (
-    TextEvent,
-    ReasoningEvent,
-    ToolCallStartEvent,
-    ToolCallEndEvent,
-    ToolExecStartEvent,
-    ToolExecEndEvent,
-    DoneEvent,
-    ErrorEvent,
-    CompactEvent,
-    StreamEvent,
-)
-
+from capabilities.result import ToolResult
 from core.llm_invoker import (
-    LLMResponse,
-    ToolCall,
-    TextChunk,
-    ReasoningChunk,
-    ToolCallStartChunk,
-    ToolCallDeltaChunk,
-    ToolCallEndChunk,
     DoneChunk,
     ErrorChunk,
+    LLMResponse,
+    ReasoningChunk,
+    TextChunk,
+    ToolCallDeltaChunk,
+    ToolCallEndChunk,
+    ToolCallStartChunk,
 )
-from capabilities.result import ToolResult
-
-
-
+from core.models.stream_event import (
+    DoneEvent,
+    ErrorEvent,
+    ReasoningEvent,
+    StreamEvent,
+    TextEvent,
+    ToolCallEndEvent,
+    ToolCallStartEvent,
+    ToolExecEndEvent,
+    ToolExecStartEvent,
+)
 
 MAX_TOOL_ROUNDS = 200          # 防止无限工具循环
 KEEP_TOOL_RESULTS = 8
@@ -203,7 +195,7 @@ class Dispatcher:
                     args = json.loads(tc_info["args"]) if tc_info["args"] else {}
                 except json.JSONDecodeError:
                     args = {}
-                summary = _tool_args_summary(tc_info["name"], args)
+                _tool_args_summary(tc_info["name"], args)
                 safe_tool_calls.append({
                     "id": tc_info["id"],
                     "type": "function",
@@ -339,7 +331,9 @@ class Dispatcher:
                         "type": "function",
                         "function": {
                             "name": tc.name,
-                            "arguments": json.dumps(tc.arguments if tc.arguments is not None else {}, ensure_ascii=False),
+                            "arguments": json.dumps(
+                        tc.arguments if tc.arguments is not None else {}, ensure_ascii=False
+                    ),
                         },
                     }
                     for tc in resp.tool_calls
@@ -359,7 +353,7 @@ class Dispatcher:
                         tool_name=tc.name,
                         status="error",
                         content="",
-                        error="工具调用参数 JSON 被截断且无法自动修复。请缩小参数（如缩短 old_string、减少 context_lines）后重试。",
+                        error="工具调用参数 JSON 被截断且无法自动修复。请缩小参数（如缩短 old_string、减少 context_lines）后重试。",  # noqa: E501
                     )
                 else:
                     result = await self._tools.execute(
@@ -421,7 +415,10 @@ class Dispatcher:
 
     # ====== Stage 1 工具结果缓存（宽松） ======
 
-    def _freeze_old_tool_results(self, messages: List[Dict], session_id: str, tc_id_to_name: Optional[Dict[str, str]] = None) -> None:
+    def _freeze_old_tool_results(
+        self, messages: List[Dict], session_id: str,
+        tc_id_to_name: Optional[Dict[str, str]] = None,
+    ) -> None:
         """保持最近 KEEP_TOOL_RESULTS 个工具结果完整，更早的替换为 JSON 占位符。
 
         占位格式: {"t":"read","s":"读取 main.py 前200行..."}

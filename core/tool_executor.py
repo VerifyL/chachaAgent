@@ -20,11 +20,12 @@ ToolExecutor — 工具执行调度器：查找、审批、钩子、执行、遥
 import asyncio
 import logging
 import time
-from typing import Any, Callable, Coroutine, Dict, List, Optional, Union
+from typing import Any, Callable, Coroutine, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+
 from capabilities.result import ToolResult
-from core.models.audit import audit_factory, AuditEventCategory
+from core.models.audit import AuditEventCategory, audit_factory
 
 logger = logging.getLogger(__name__)
 
@@ -192,7 +193,10 @@ class ToolExecutor:
                     session_id=session_id,
                     tool_use_id=tool_use_id,
                     diff=diff,
-                    reason=f"工具 '{tool_name}' 需要审批 (风险等级: {decision.risk_level.value}, 分数: {decision.risk_score:.0f})",
+                    reason=(
+                f"工具 '{tool_name}' 需要审批 "
+                f"(风险等级: {decision.risk_level.value}, 分数: {decision.risk_score:.0f})"
+            ),
                 )
 
                 # 2. 调用审批处理器
@@ -218,9 +222,9 @@ class ToolExecutor:
                     self._policy.record_approval(decision.cache_key, True)
 
         # 2. 前置钩子（关键工具豁免：记忆读写不被拦截）
-        _HOOK_BYPASS_TOOLS = {"memory"}
-        if self._hooks and tool_name not in _HOOK_BYPASS_TOOLS:
-            from core.models.hook import ToolCallContext, HookPoint
+        _hook_bypass_tools = {"memory"}
+        if self._hooks and tool_name not in _hook_bypass_tools:
+            from core.models.hook import HookPoint, ToolCallContext
             tc = ToolCallContext(
                 tool_name=tool_name, tool_use_id=tool_use_id,
                 arguments=arguments,
@@ -242,7 +246,9 @@ class ToolExecutor:
                 arguments.update(result.modified_tool_args)
 
         # 3. 执行（带超时 + 重试）
-        output, error, status, tool_data, tool_warnings, tool_truncated, tool_cache_key = await self._execute_with_retry(tool_name, arguments)
+        output, error, status, tool_data, tool_warnings, tool_truncated, tool_cache_key = (
+            await self._execute_with_retry(tool_name, arguments)
+        )
 
         # 错误透传：output 为空时把 error 注入，避免 LLM 误判为"文件空"
         if not output and error:
@@ -372,7 +378,7 @@ class ToolExecutor:
                             timeout=self._timeout,
                         )
                 # ToolResult: 解包，避免双重包装；保留 data/warnings/truncated/cache_key 元数据
-                from capabilities.result import ToolResult as _TR
+                from capabilities.result import ToolResult as _TR  # noqa: N814
                 if isinstance(output, _TR):
                     return (output.content, output.error, output.status,
                             output.data, output.warnings,
@@ -380,7 +386,10 @@ class ToolExecutor:
                 return str(output), None, "success", {}, [], False, ""
 
             except asyncio.TimeoutError:
-                last_error = f"Tool '{tool_name}' timed out after {self._timeout}s (attempt {attempt + 1}/{self._max_retries + 1})"
+                last_error = (
+                    f"Tool '{tool_name}' timed out after {self._timeout}s "
+                    f"(attempt {attempt + 1}/{self._max_retries + 1})"
+                )
                 if attempt < self._max_retries:
                     backoff = 2 ** attempt
                     logger.warning("%s, retrying in %ds", last_error, backoff)
@@ -422,7 +431,7 @@ class ToolExecutor:
             offset = arguments.get("offset", 1)
             limit = arguments.get("limit", 100)
             return f"[hint] 可用 offset={offset + limit} 续读下一页"
-        return f"[hint] 可用 cache_key 续读完整输出"
+        return "[hint] 可用 cache_key 续读完整输出"
 
     def _get_cached_output(self, cache_key: str, offset: int = 0, limit: int = 500) -> str:
         """获取缓存的完整输出（分页）。"""

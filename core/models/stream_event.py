@@ -10,7 +10,6 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, Field
 
-
 # ── 事件类型枚举 ──
 
 class StreamEventType(str, Enum):

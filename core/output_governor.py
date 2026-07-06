@@ -26,7 +26,6 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, List, Optional, Tuple
 
-
 # ========================= 块类型与修复置信度 =========================
 
 class BlockType(str, Enum):
@@ -81,7 +80,7 @@ DEFAULT_CONTENT_RULES = [
 class JSONRepairState:
     """JSON 修复状态机"""
     depth: int = 0                         # {} 嵌套深度
-    array_depth: int = 0                   # [] 嵌套深度  
+    array_depth: int = 0                   # [] 嵌套深度
     in_string: bool = False                # 是否在字符串内
     escape_next: bool = False              # 下一个字符是否被转义
     buffer: List[str] = field(default_factory=list)

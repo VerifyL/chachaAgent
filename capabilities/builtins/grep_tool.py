@@ -111,7 +111,7 @@ class GrepTool(BaseTool):
         if truncated:
             content += f"\n────────────────\n共 {len(lines)}+ 条匹配，仅显示前 {self.MAX_MATCHES} 条。请缩小范围。"
 
-        files = sorted(set(l.split(":")[0] for l in lines))
+        files = sorted(set(line.split(":")[0] for line in lines))
 
         return ToolResult(
             status="success",

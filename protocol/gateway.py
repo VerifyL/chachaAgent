@@ -15,7 +15,7 @@ import logging
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, AsyncIterator, Callable, Coroutine, Dict, List, Optional, Set
+from typing import Any, AsyncIterator, Callable, Coroutine, Dict, List, Optional
 
 from protocol.rpc_schema import GatewayMessage
 

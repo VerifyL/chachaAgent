@@ -15,14 +15,13 @@ LLMInvoker — 流式 LLM 调用器：流式分块、工具调用增量解析、
     # resp.text, resp.tool_calls, resp.usage
 """
 
-import json
 import asyncio
+import json
 import logging
 import time
 from enum import Enum
-from typing import Any, Annotated, AsyncIterator, Dict, List, Literal, Optional, Union
+from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
-from core.models.context import CompressionLevel
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)

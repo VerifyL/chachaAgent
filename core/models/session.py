@@ -8,11 +8,11 @@
 3. 事件是不可变的、仅追加的日志，支持完整回放与审计。
 """
 
-from datetime import timedelta,  datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Literal, Optional
 from uuid import uuid4
 
-from pydantic import BaseModel, Field, field_validator, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # ========================= 1. 基础类型定义 =========================
 

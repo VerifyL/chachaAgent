@@ -298,7 +298,7 @@ class MCPClient:
 
     async def call_tool(
         self, server_name: str, tool_name: str, arguments: Dict[str, Any],
-    ) -> "ToolResult":
+    ) -> "ToolResult":  # noqa: F821
         """调用指定 MCP server 的工具。"""
         from capabilities.result import ToolResult
 
@@ -606,8 +606,8 @@ class MCPClient:
             return
 
         if transport == "streamable-http":
-            from mcp.client.streamable_http import streamable_http_client
             import httpx
+            from mcp.client.streamable_http import streamable_http_client
 
             url = getattr(cfg, "url", None)
             if not url:
@@ -630,7 +630,7 @@ class MCPClient:
             return
 
         # stdio: 使用 SDK 的 stdio_client 管理子进程
-        from mcp.client.stdio import stdio_client, StdioServerParameters
+        from mcp.client.stdio import StdioServerParameters, stdio_client
 
         command = getattr(cfg, "command", "")
         args = getattr(cfg, "args", [])

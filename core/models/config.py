@@ -4,9 +4,10 @@ core/models/config.py
 使用 Pydantic v2 进行类型校验与解析，为 v1.5+ 多模态预留扩展字段。
 """
 
-from pydantic import BaseModel, Field, field_validator, SecretStr
-from typing import Optional, Literal, Dict, List, Any
 from pathlib import Path
+from typing import Dict, List, Literal, Optional
+
+from pydantic import BaseModel, Field, SecretStr, field_validator
 
 
 # ==========================
@@ -22,7 +23,7 @@ class ModelProviderConfig(BaseModel):
     cost_per_1k_input: float = Field(0.0, ge=0, description="每千输入 token 成本（美元）")
     cost_per_1k_output: float = Field(0.0, ge=0, description="每千输出 token 成本（美元）")
     context_window: int = Field(1_048_576, description="上下文窗口大小（token），用于自动压缩阈值")
-    max_tokens: Optional[int] = Field(None, description="最大输出 token 数（None=使用客户端默认值 16384）。DeepSeek 等服务商建议 65536~131072")
+    max_tokens: Optional[int] = Field(None, description="最大输出 token 数（None=使用客户端默认值 16384）。DeepSeek 等服务商建议 65536~131072")  # noqa: E501
 
 
 class ModelConfig(BaseModel):
@@ -79,7 +80,7 @@ class ContextConfig(BaseModel):
     summarize_keep_tail: int = Field(8, ge=1, description="SUMMARIZED: 保留后 N 条消息")
 
     # 多模态压缩策略预留（当前透传）
-    multimodal_compression: Literal["drop", "describe", "keep"] = Field("keep", description="【预留】压缩时对多模态内容的处理方式")
+    multimodal_compression: Literal["drop", "describe", "keep"] = Field("keep", description="【预留】压缩时对多模态内容的处理方式")  # noqa: E501
 
 
 # ==========================
@@ -100,7 +101,7 @@ class MemoryConfig(BaseModel):
 class MultimodalConfig(BaseModel):
     """多模态扩展配置（当前版本仅占位，v1.5+ 启用）"""
     enabled: bool = Field(False, description="是否启用多模态功能")
-    vision_model: Optional[str] = Field(None, description="指定视觉模型名称，若为空则自动选择 supports_vision=True 的第一个提供商")
+    vision_model: Optional[str] = Field(None, description="指定视觉模型名称，若为空则自动选择 supports_vision=True 的第一个提供商")  # noqa: E501
     max_image_size_mb: int = Field(10, ge=1, description="单张图片最大大小（MB）")
     enable_ocr_fallback: bool = Field(True, description="图片解析失败时是否降级为 OCR 文本提取")
 

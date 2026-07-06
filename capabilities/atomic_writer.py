@@ -19,7 +19,7 @@ import os
 import shutil
 import subprocess
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
@@ -222,7 +222,6 @@ class AtomicWriter:
         Returns:
             WriteResult
         """
-        action = "updated" if path.exists() else "created"
         existing = path.read_text(encoding="utf-8") if path.exists() else ""
         new_content = (existing.rstrip() + "\n" + entry.strip() + "\n").lstrip()
 

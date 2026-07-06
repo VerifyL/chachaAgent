@@ -4,11 +4,11 @@ scripts/init_project.py
 初始化 ChachaAgent 项目运行时目录与配置文件
 """
 
-import os
-import sys
 import argparse
+import os
 import shutil
 from pathlib import Path
+
 
 def main():
     parser = argparse.ArgumentParser(description="初始化 ChachaAgent 项目")
@@ -19,7 +19,7 @@ def main():
     project_id = args.project_id
     force = args.force
 
-    print(f"ChachaAgent 项目初始化")
+    print("ChachaAgent 项目初始化")
     print(f"项目ID: {project_id}")
     print(f"强制模式: {force}\n")
 

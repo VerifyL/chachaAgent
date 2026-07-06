@@ -26,15 +26,12 @@ JSON-RPC 2.0 消息模型 —— ChachaAgent 的统一通信协议。
   └─ PermissionResponse  —— 权限审批响应（嵌入 RPCResponse.result）
 """
 
-from datetime import datetime, timezone
-from enum import Enum
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, Optional, Union
 from uuid import uuid4
 
-from pydantic import BaseModel, Field, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from core.models.audit import AuditRecord
-
 
 # ========================= 1. 基础类型 =========================
 
@@ -152,7 +149,7 @@ class TokenChunkEvent(RPCEvent):
     @model_validator(mode="after")
     def _check_method_token(self) -> "TokenChunkEvent":
         if self.method != "stream/token":
-            raise ValueError(f"Expected method='stream/token'")
+            raise ValueError("Expected method='stream/token'")
         return self
 
 
@@ -178,7 +175,7 @@ class ToolStatusEvent(RPCEvent):
     @model_validator(mode="after")
     def _check_method_tool(self) -> "ToolStatusEvent":
         if self.method != "tool/status":
-            raise ValueError(f"Expected method='tool/status'")
+            raise ValueError("Expected method='tool/status'")
         return self
 
 
@@ -202,7 +199,7 @@ class PermissionRequestEvent(RPCEvent):
     @model_validator(mode="after")
     def _check_method_perm(self) -> "PermissionRequestEvent":
         if self.method != "permission/request":
-            raise ValueError(f"Expected method='permission/request'")
+            raise ValueError("Expected method='permission/request'")
         return self
 
 
@@ -227,7 +224,7 @@ class AuditTrailEvent(RPCEvent):
     @model_validator(mode="after")
     def _check_method_audit(self) -> "AuditTrailEvent":
         if self.method != "audit/trail":
-            raise ValueError(f"Expected method='audit/trail'")
+            raise ValueError("Expected method='audit/trail'")
         return self
 
     def model_dump(self, **kwargs) -> Dict[str, Any]:
@@ -261,7 +258,7 @@ class SessionLifecycleEvent(RPCEvent):
     @model_validator(mode="after")
     def _check_method_session(self) -> "SessionLifecycleEvent":
         if self.method != "session/lifecycle":
-            raise ValueError(f"Expected method='session/lifecycle'")
+            raise ValueError("Expected method='session/lifecycle'")
         return self
 
 
@@ -285,7 +282,7 @@ class SystemNotificationEvent(RPCEvent):
     @model_validator(mode="after")
     def _check_method_notify(self) -> "SystemNotificationEvent":
         if self.method != "system/notification":
-            raise ValueError(f"Expected method='system/notification'")
+            raise ValueError("Expected method='system/notification'")
         return self
 
 

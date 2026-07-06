@@ -19,7 +19,9 @@ import logging
 from typing import Any, Optional
 
 from core.models.stream_event import (
-    TextEvent, ErrorEvent, CompactEvent,
+    CompactEvent,
+    ErrorEvent,
+    TextEvent,
 )
 
 logger = logging.getLogger(__name__)
@@ -80,8 +82,8 @@ class Orchestrator:
         additional_blocks: list = []
         if self._hooks:
             try:
+                from core.models.context import BlockSource, ContextBlock
                 from core.models.hook import HookPoint
-                from core.models.context import ContextBlock, BlockSource
                 hook_result = await self._hooks.run(
                     session_id=session_id,
                     hook_point=HookPoint.PRE_CONTEXT_ASSEMBLY,

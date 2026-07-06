@@ -10,11 +10,9 @@ import re
 import signal
 import subprocess
 from pathlib import Path
-from typing import Optional
 
 from capabilities.base import BaseTool
 from capabilities.result import ToolResult
-
 
 # ── 破坏性命令黑名单 ──
 _BLOCKED_PATTERNS = [

@@ -4,14 +4,13 @@ ChatEngine — 对话编排核心，管理消息历史 + 上下文压缩。
 CLI/Web 均可调用，不依赖任何 UI 框架。
 """
 
-import json
 import logging
 import time
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, List, Optional
 
-from core.llm_invoker import LLMInvoker
 from core.dispatcher import Dispatcher
+from core.llm_invoker import LLMInvoker
 from core.tool_executor import ToolExecutor
 
 logger = logging.getLogger(__name__)
@@ -63,7 +62,8 @@ class ChatEngine:
 
     def rebuild(self, tools=None) -> None:
         """重新装配工具/Dispatcher（当前由 AgentBridge.rebuild() 统一管理）。
-        
+
+
         ChatEngine 自身不负责 PolicyEngine/ToolExecutor/Dispatcher 的创建，
         避免与 AgentBridge.rebuild() 产生双实例冲突。
         如未来 ChatEngine 需要独立运行，通过 agent_bridge 注入完成。
@@ -80,8 +80,9 @@ class ChatEngine:
         self._try_restore()
         # 更新 ContextManager 的全量记忆（跨 session 切换后刷新）
         if self._cm and self._project_root:
-            from core.context.memory_manager import MemoryManager
             from pathlib import Path
+
+            from core.context.memory_manager import MemoryManager
             try:
                 mgr = MemoryManager(project_root=self._project_root)
                 idx = mgr.read_index()

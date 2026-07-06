@@ -15,17 +15,17 @@ v2.0 新增:
   - 老化时间缩短为 7 天
 """
 
+import hashlib
 import logging
-import json
-from datetime import timedelta,  datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
-import hashlib
+
 from capabilities.atomic_writer import AtomicWriter
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_BASE = Path.home() / ".chacha" 
+_DEFAULT_BASE = Path.home() / ".chacha"
 _PERMANENT_MEMORY_FILENAME = "CHACHA_MEMORY.md"
 _PRUNE_DAYS = 7
 
@@ -288,7 +288,7 @@ class MemoryManager:
         - 条目严格单行（换行替换为空格）
         - MEMORY.md 超过 200 行时裁剪最旧条目
         """
-        from datetime import datetime, timedelta, timezone as _tz
+        from datetime import datetime, timedelta
 
         ts = datetime.now(tz=timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M")
         # 首行作为摘要，替换换行为空格，截断到上限

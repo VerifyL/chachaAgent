@@ -13,12 +13,14 @@ HookOrchestrator — 钩子责任链引擎。
 import asyncio
 import json
 import logging
-import subprocess
 from dataclasses import dataclass, field
 from typing import Any, Callable, Coroutine, Dict, List, Optional, Union
 
 from core.models.hook import (
-    HookAction, HookContext, HookMatcher, HookPoint, HookResult,
+    HookContext,
+    HookMatcher,
+    HookPoint,
+    HookResult,
 )
 
 logger = logging.getLogger(__name__)

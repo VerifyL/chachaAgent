@@ -20,18 +20,20 @@ DreamPipeline — 记忆整合管道（v2.0）。
         await pipeline.run(memory_manager)
 """
 
+import asyncio
 import logging
 import time
-from datetime import timedelta,  datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
-import asyncio
+
 logger = logging.getLogger(__name__)
 
 # 触发配置
 _DREAM_SESSION_COUNT = 10   # 每 N 次会话触发
 _DREAM_HOURS = 24            # 距上次运行超 N 小时触发
 
-DREAM_SYSTEM_PROMPT = """You are a memory consolidation assistant. Your task is to read raw conversation memories and produce TWO outputs:
+DREAM_SYSTEM_PROMPT = """You are a memory consolidation assistant.
+Your task is to read raw conversation memories and produce TWO outputs:
 1. An updated MEMORY.md (lightweight index — fully rebuilt each time)
 2. An updated CHACHA_MEMORY.md (incrementally merged permanent memory)
 
@@ -49,7 +51,8 @@ DREAM_SYSTEM_PROMPT = """You are a memory consolidation assistant. Your task is 
 5. Keep entries strictly one line — MEMORY.md is only an index pointing to full content
 6. Sort by importance within each category
 7. Format as Markdown with ## category headings
-8. MEMORY.md is only a lightweight index — it points to full content in topics/. Keep each entry strictly one line. Do NOT inline full topic content.
+8. MEMORY.md is only a lightweight index — it points to full content in topics/.
+   Keep each entry strictly one line. Do NOT inline full topic content.
 
 
 ## Rules for CHACHA_MEMORY.md (Incremental Merge):
@@ -86,7 +89,8 @@ continue from the highest existing number + 1.
 ### Step 3 — Output the merged result
 Output the COMPLETE merged CHACHA_MEMORY.md containing ALL [KEEP] + [UPDATE] + [NEW] entries.
 Remove only [DELETE] entries.
-Total output under ~3000 tokens. Use [KEEP]/[UPDATE]/[DELETE]/[NEW] as appropriate. If over budget, merge related entries or drop low-priority ones.
+Total output under ~3000 tokens. Use [KEEP]/[UPDATE]/[DELETE]/[NEW] as appropriate.
+If over budget, merge related entries or drop low-priority ones.
 Sort entries by importance within each category.
 
 ### Entry format for CHACHA_MEMORY.md:
@@ -227,7 +231,7 @@ class DreamPipeline:
             elapsed, len(memory_md), len(permanent_md),
         )
 
-        
+
         # 5. 通知 GlobalDream
         try:
             from core.context.global_dream import get_global_dream
@@ -354,11 +358,3 @@ class DreamPipeline:
 
 
 # ====== GlobalDream：跨 session 长期学习 ======
-
-        logger.info("GlobalDream 完成 (%d chars)", len(resp.text))
-        return resp.text.strip()
-
-    @staticmethod
-    def _read(path) -> str:
-        from pathlib import Path
-        return path.read_text(encoding="utf-8").strip() if isinstance(path, Path) and path.exists() else ""

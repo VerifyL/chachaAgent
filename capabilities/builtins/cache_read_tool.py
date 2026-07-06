@@ -8,7 +8,6 @@ cache_key 分页读取完整输出。
 """
 
 import logging
-from typing import Any
 
 from capabilities.base import BaseTool
 from capabilities.result import ToolResult

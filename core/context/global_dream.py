@@ -13,10 +13,9 @@ GlobalDream — 用户级永久记忆整合（跨项目提炼）。
   4. 写入 ~/.chacha/USER_MEMORY.md
 """
 
-import asyncio
 import logging
 import time
-from datetime import timedelta,  datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -64,7 +63,8 @@ Continue numbering from highest existing + 1.
 ### Step 3 — Output the merged result
 Output the COMPLETE merged USER_MEMORY.md.
 Sort by importance within each category.
-Total output under ~2000 tokens (shared across all projects). Use [KEEP]/[UPDATE]/[DELETE]/[NEW] as appropriate. Drop low-priority entries if over budget.
+Total output under ~2000 tokens (shared across all projects).
+Use [KEEP]/[UPDATE]/[DELETE]/[NEW] as appropriate. Drop low-priority entries if over budget.
 
 ## Entry format:
 ```

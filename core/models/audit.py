@@ -10,13 +10,12 @@ core/models/audit.py
 5. 事件分类覆盖：工具调用、记忆变更、成本、权限、会话生命周期、模型调用
 """
 
-from datetime import timedelta,  datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import Enum
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, Literal, Optional, Union
 from uuid import uuid4
 
-from pydantic import BaseModel, Field, ConfigDict
-
+from pydantic import BaseModel, ConfigDict, Field
 
 # ========================= 1. 敏感信息处理 =========================
 

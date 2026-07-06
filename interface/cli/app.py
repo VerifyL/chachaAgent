@@ -13,23 +13,27 @@ from pathlib import Path
 from typing import Optional
 
 from prompt_toolkit import PromptSession
-from core.cli_history import SessionHistory
-from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.formatted_text import HTML
-
+from prompt_toolkit.key_binding import KeyBindings
+from rich import box
 from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
-from rich import box
 
-from interface.cli.agent_bridge import AgentBridge
-from core.project_init import ProjectInit
+from core.cli_history import SessionHistory
+from core.cli_theme import load_theme, write_default_theme
 from core.models.stream_event import (
-    TextEvent, ReasoningEvent, ToolCallStartEvent, ToolCallEndEvent,
-    ToolExecStartEvent, ToolExecEndEvent, DoneEvent, ErrorEvent, CompactEvent,
+    CompactEvent,
+    DoneEvent,
+    ErrorEvent,
+    ReasoningEvent,
+    TextEvent,
+    ToolCallEndEvent,
+    ToolCallStartEvent,
+    ToolExecStartEvent,
 )
 from core.session_service import SessionService
-from core.cli_theme import load_theme, write_default_theme
+from interface.cli.agent_bridge import AgentBridge
 
 RICH_CONSOLE = Console()
 
@@ -116,7 +120,10 @@ class ChachaCLI:
         self._bridge.set_checkpoint_dir(
             self._session.memory_manager.session_dir)
         # 构建 Orchestrator（为 Hook/Policy 准备）
-        self._bridge.build_orchestrator(session_id=self._session.session_id, memory_manager=self._session.memory_manager)
+        self._bridge.build_orchestrator(
+            session_id=self._session.session_id,
+            memory_manager=self._session.memory_manager,
+        )
         return msg
 
     # ====== 主循环 ======
@@ -141,7 +148,11 @@ class ChachaCLI:
         self._print_system(init_msg)
         if self._session.project_init._rules:
             self._print_system("[cyan]📜 CHACHA.md 已加载[/]")
-        self._print_system("Ctrl+N 新会话  Ctrl+S 保存  Ctrl+F 调试  Ctrl+B 会话列表  Ctrl+X 压缩  Ctrl+L 清屏  Ctrl+R 推理  Ctrl+T 遥测  Ctrl+C 中断  Ctrl+D 退出  Ctrl+\\ 强退  Ctrl+J 换行  /help 命令")
+        self._print_system(
+            "Ctrl+N 新会话  Ctrl+S 保存  Ctrl+F 调试  Ctrl+B 会话列表  "
+            "Ctrl+X 压缩  Ctrl+L 清屏  Ctrl+R 推理  Ctrl+T 遥测  "
+            "Ctrl+C 中断  Ctrl+D 退出  Ctrl+\\ 强退  Ctrl+J 换行  /help 命令"
+        )
         self._print_system("")
 
         # 输入循环
@@ -258,7 +269,11 @@ class ChachaCLI:
                     # 静默工具：不打印调用（memory, cache_read）
                     if chunk.tool_name not in ("memory", "cache_read"):
                         if chunk.args:
-                            RICH_CONSOLE.print(f"  [{self._t['tool_thinking']}]🔧 {escape(chunk.tool_name)} — {escape(chunk.args)}[/]")
+                            RICH_CONSOLE.print(
+                                f"  [{self._t['tool_thinking']}]🔧"
+                                f" {escape(chunk.tool_name)}"
+                                f" — {escape(chunk.args)}[/]"
+                            )
                         else:
                             RICH_CONSOLE.print(f"  [{self._t['tool_thinking']}]🔧 {escape(chunk.tool_name)}[/]")
 
@@ -280,7 +295,7 @@ class ChachaCLI:
 
         except KeyboardInterrupt:
             RICH_CONSOLE.print(f"\n[{self._t['separator']}]" + "─" * 30 + "[/]")
-            RICH_CONSOLE.print(f"[yellow]⏹ 已中断[/]")
+            RICH_CONSOLE.print("[yellow]⏹ 已中断[/]")
             # 移除未完成轮次的 user message，避免下一轮残留旧提问
             msgs = self._bridge._messages
             if msgs and msgs[-1].get("role") == "user":
@@ -457,7 +472,7 @@ class ChachaCLI:
             self._bridge._messages = msgs
             return f"📦 {n} → {len(msgs)} 条"
         except KeyboardInterrupt:
-            RICH_CONSOLE.print(f"\n⏹ 已中断")
+            RICH_CONSOLE.print("\n⏹ 已中断")
         except Exception as e:
             return f"压缩失败: {e}"
 

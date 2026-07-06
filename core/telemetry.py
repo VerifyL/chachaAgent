@@ -18,20 +18,18 @@ Telemetry — 统一可观测性：结构化日志、指标收集、审计写入
 
 import hashlib
 import json
-import logging
 import threading
 import time
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import timedelta,  datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from core.models.audit import AuditRecord
 from core.models.config import TelemetryConfig
-
 
 # ========================= 日志级别 =========================
 

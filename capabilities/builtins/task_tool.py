@@ -7,7 +7,7 @@ LLM 调用 task 工具孵化 explore/plan/worker 子Agent，
 """
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Optional
 
 from capabilities.base import BaseTool
 from capabilities.result import ToolResult
@@ -97,7 +97,11 @@ class TaskTool(BaseTool):
         # 子Agent 返回空文本 → 追加提示
         content = result.text
         if not content or not content.strip():
-            content = f"[子Agent {subagent_type} 返回了空结果（执行了 {result.tool_calls_made} 次工具调用，耗时 {result.duration_ms}ms）]"
+            content = (
+                f"[子Agent {subagent_type} 返回了空结果"
+                f"（执行了 {result.tool_calls_made} 次工具调用，"
+                f"耗时 {result.duration_ms}ms）]"
+            )
 
         # 映射 SubAgentResult → ToolResult
         status = "success" if result.status == "success" else "error"
