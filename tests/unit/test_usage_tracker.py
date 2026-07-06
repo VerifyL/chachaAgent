@@ -3,8 +3,6 @@ tests/unit/test_usage_tracker.py
 单元测试：core/model/usage_tracker.py UsageTracker
 """
 
-import pytest
-
 from core.llm_clients.usage_tracker import UsageTracker
 
 

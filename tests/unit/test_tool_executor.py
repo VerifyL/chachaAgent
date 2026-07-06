@@ -136,7 +136,7 @@ async def test_telemetry_called():
     t.start()
 
     executor = ToolExecutor({"echo": _echo}, telemetry=t)
-    result = await executor.execute("echo", {}, "s1", "c1")
+    _ = await executor.execute("echo", {}, "s1", "c1")
 
     # 验证遥测记录
     key = 'chacha_tool_calls_total{status="success",tool="echo"}'
