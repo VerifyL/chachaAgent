@@ -34,11 +34,14 @@ class ModelFactory:
         if ptype in ("openai",):
             from core.llm_clients.openai_client import OpenAIClient
 
-            return OpenAIClient(
+            kwargs = dict(
                 api_key=api_key,
                 model=provider_cfg.default_model,
                 base_url=provider_cfg.base_url or None,
             )
+            if provider_cfg.max_tokens is not None:
+                kwargs["max_tokens"] = provider_cfg.max_tokens
+            return OpenAIClient(**kwargs)
 
         if ptype == "ollama":
             from core.llm_clients.openai_client import OpenAIClient

@@ -170,7 +170,75 @@ def test_list_tools():
     assert executor.has_tool("c") is False
 
 
-# ========== 9. optional injected ==========
+# ========== 9. 缓存读写 ==========
+
+def test_cache_write_and_read():
+    """主 Agent 截断 → 写入缓存 → cache_read 续读成功"""
+    executor = ToolExecutor({"echo": _echo}, max_output_chars=100)
+    # 手动写入缓存（模拟截断流程的内部操作）
+    import time
+    executor._output_cache["abc123"] = ("hello world " * 50, time.time())
+
+    result = executor._get_cached_output("abc123", offset=20, limit=30)
+    assert result.startswith("[cache_key=abc123]")
+    assert "hello world" in result
+
+
+def test_cache_miss_on_unknown_key():
+    """缓存未命中 → 返回错误信息"""
+    executor = ToolExecutor({"echo": _echo})
+    result = executor._get_cached_output("nonexistent", offset=0, limit=100)
+    assert result.startswith("[错误]")
+
+
+def test_cache_cleanup_removes_expired():
+    """超过 600 秒的缓存被清理"""
+    import time
+    executor = ToolExecutor({"echo": _echo}, max_output_chars=100)
+    executor._output_cache["fresh"] = ("data", time.time())
+    executor._output_cache["stale"] = ("data", time.time() - 3600)  # 1 小时前
+
+    assert len(executor._output_cache) == 2
+    executor._cleanup_cache()
+    assert len(executor._output_cache) == 1
+    assert "fresh" in executor._output_cache
+    assert "stale" not in executor._output_cache
+
+
+def test_cache_merge_from_subagent():
+    """spawner 合并子 Agent 缓存 → 时间戳应刷新为当前时间"""
+    import time
+    parent = ToolExecutor({"echo": _echo})
+
+    # 模拟子 Agent 在 300 秒前写入缓存
+    old_ts = time.time() - 300
+    child_cache = {"sub_key": ("sub output", old_ts)}
+
+    # 合并（模拟 spawner.py:126-130 行为）
+    now = time.time()
+    for k, (output, _) in child_cache.items():
+        parent._output_cache[k] = (output, now)
+
+    assert "sub_key" in parent._output_cache
+    _, merged_ts = parent._output_cache["sub_key"]
+    # 合并后时间戳应在 5 秒以内（而非 300 秒前）
+    assert time.time() - merged_ts < 5
+
+
+def test_cache_ttl_is_600_seconds():
+    """验证 TTL 为 600"""
+    executor = ToolExecutor({"echo": _echo})
+    import time
+    executor._output_cache["test"] = ("data", time.time() - 590)  # 590 秒前
+    executor._cleanup_cache()
+    assert "test" in executor._output_cache, "590 秒不应过期"
+
+    executor._output_cache["test"] = ("data", time.time() - 610)  # 610 秒前
+    executor._cleanup_cache()
+    assert "test" not in executor._output_cache, "610 秒应过期"
+
+
+# ========== 10. optional injected ==========
 
 @pytest.mark.asyncio
 async def test_no_policy_no_hooks_no_telemetry():

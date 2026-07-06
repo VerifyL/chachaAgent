@@ -274,10 +274,10 @@ default_model = "deepseek-v4-pro"
 # command = "python"
 # args = ["-m", "my_mcp_server"]
 #
-# streamable-http 远程 server 示例（需先启动 server）：
 # [mcp.servers.web-search]
-# transport = "streamable-http"
-# url = "http://localhost:3000/mcp"
+# command = "npx"
+# args = ["-y", "open-websearch@latest"]
+# env = { MODE = "stdio" }
 """, encoding="utf-8")
 
 def get_config() -> ChaChaConfig:

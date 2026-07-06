@@ -34,6 +34,7 @@ class SubAgentResult(BaseModel):
     tokens_used: int = 0          # Token 消耗
     duration_ms: int = 0
     status: str = "success"       # success | timeout | error
+    truncated: bool = False       # LLM 输出因 max_tokens 被截断（finish_reason="length"）
 
 
 class SubAgentSpawner:
@@ -123,8 +124,11 @@ class SubAgentSpawner:
             )
 
             # 将子 executor 的输出缓存合并到父 executor，确保父 agent 的 cache_read 能命中
+            # 注意：刷新时间戳为当前时间，防止因子Agent运行耗时导致缓存过早过期
             if self._parent_tools and hasattr(tools, '_output_cache'):
-                self._parent_tools._output_cache.update(tools._output_cache)
+                now = time.time()
+                for k, (output, _) in tools._output_cache.items():
+                    self._parent_tools._output_cache[k] = (output, now)
 
             elapsed = int((time.monotonic() - t0) * 1000)
             sub_result = SubAgentResult(
@@ -135,6 +139,7 @@ class SubAgentSpawner:
                 duration_ms=elapsed,
                 status="success" if not result.error else "error",
                 tool_calls_made=dispatcher.tool_calls_made,
+                truncated=(result.finish_reason == "length"),
             )
 
             # 后置钩子

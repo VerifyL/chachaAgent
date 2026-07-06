@@ -242,15 +242,16 @@ class ToolExecutor:
                 arguments.update(result.modified_tool_args)
 
         # 3. 执行（带超时 + 重试）
-        output, error, status, tool_data, tool_warnings = await self._execute_with_retry(tool_name, arguments)
+        output, error, status, tool_data, tool_warnings, tool_truncated, tool_cache_key = await self._execute_with_retry(tool_name, arguments)
 
         # 错误透传：output 为空时把 error 注入，避免 LLM 误判为"文件空"
         if not output and error:
             output = f"[Tool Error] {error}"
 
         # 4. 智能截断（在 \n 边界，不切断行）
-        truncated = False
-        cache_key = ""
+        # 合并工具自身报告的截断标志（如 task 子Agent LLM 截断）
+        truncated = tool_truncated
+        cache_key = tool_cache_key
         if len(output) > self._max_output_chars and not getattr(tool_fn, 'no_truncate', False):
             # 在 \n 边界截断，避免切断行
             cut = output[:self._max_output_chars]
@@ -344,12 +345,14 @@ class ToolExecutor:
         """超时退避重试（参考 Harness：权限/黑名单不重试，超时/网络错误重试）。
 
         Returns:
-            (content, error, status, data, warnings):
+            (content, error, status, data, warnings, truncated, cache_key):
               - content (str): 主体内容（ToolResult 时取 .content，否则 str()）
               - error (str|None): 错误描述
               - status (str): "success" | "timeout" | "error"
               - data (dict): 工具元数据（ToolResult 透传，否则 {}）
               - warnings (list[str]): 非致命警告（ToolResult 透传，否则 []）
+              - truncated (bool): 工具自身报告的截断标志（ToolResult 透传，否则 False）
+              - cache_key (str): 工具自身的缓存 key（ToolResult 透传，否则 ""）
         """
         last_error = None
 
@@ -368,11 +371,13 @@ class ToolExecutor:
                             tool(arguments),
                             timeout=self._timeout,
                         )
-                # ToolResult: 解包，避免双重包装；保留 data/warnings 元数据
+                # ToolResult: 解包，避免双重包装；保留 data/warnings/truncated/cache_key 元数据
                 from capabilities.result import ToolResult as _TR
                 if isinstance(output, _TR):
-                    return output.content, output.error, output.status, output.data, output.warnings
-                return str(output), None, "success", {}, []
+                    return (output.content, output.error, output.status,
+                            output.data, output.warnings,
+                            output.truncated, output.cache_key or "")
+                return str(output), None, "success", {}, [], False, ""
 
             except asyncio.TimeoutError:
                 last_error = f"Tool '{tool_name}' timed out after {self._timeout}s (attempt {attempt + 1}/{self._max_retries + 1})"
@@ -381,7 +386,7 @@ class ToolExecutor:
                     logger.warning("%s, retrying in %ds", last_error, backoff)
                     await asyncio.sleep(backoff)
                 else:
-                    return "", last_error, "timeout", {}, []
+                    return "", last_error, "timeout", {}, [], False, ""
 
             except RETRYABLE_EXCEPTIONS as e:
                 last_error = (
@@ -393,13 +398,13 @@ class ToolExecutor:
                     logger.warning("%s, retrying in %ds", last_error, backoff)
                     await asyncio.sleep(backoff)
                 else:
-                    return "", last_error, "error", {}, []
+                    return "", last_error, "error", {}, [], False, ""
 
             except NON_RETRYABLE_EXCEPTIONS as e:
                 # 永久性错误不重试，立即失败
-                return "", f"{type(e).__name__}: {e}", "error", {}, []
+                return "", f"{type(e).__name__}: {e}", "error", {}, [], False, ""
 
-        return "", last_error or "unknown", "timeout", {}, []
+        return "", last_error or "unknown", "timeout", {}, [], False, ""
 
 
     # ====== 截断辅助 ======

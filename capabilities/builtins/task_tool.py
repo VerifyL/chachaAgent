@@ -116,6 +116,7 @@ class TaskTool(BaseTool):
             content=content,
             error=error,
             error_type=error_type,
+            truncated=result.truncated,
             data={
                 "agent_type": result.agent_type,
                 "task": result.task,

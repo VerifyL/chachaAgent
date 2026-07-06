@@ -22,6 +22,7 @@ class ModelProviderConfig(BaseModel):
     cost_per_1k_input: float = Field(0.0, ge=0, description="每千输入 token 成本（美元）")
     cost_per_1k_output: float = Field(0.0, ge=0, description="每千输出 token 成本（美元）")
     context_window: int = Field(1_048_576, description="上下文窗口大小（token），用于自动压缩阈值")
+    max_tokens: Optional[int] = Field(None, description="最大输出 token 数（None=使用客户端默认值 16384）。DeepSeek 等服务商建议 65536~131072")
 
 
 class ModelConfig(BaseModel):
