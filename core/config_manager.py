@@ -10,7 +10,10 @@ import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import tomllib
+try:
+    import tomllib
+except ModuleNotFoundError:
+    import tomli as tomllib  # py3.10 兼容
 
 from core.models.config import ChaChaConfig
 
