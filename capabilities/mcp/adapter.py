@@ -66,5 +66,17 @@ class MCPToolAdapter(BaseTool):
 
     # ====== 辅助 ======
 
+    def _resolve_conflict(self) -> None:
+        """消歧：同名工具冲突时追加唯一后缀。
+
+        当多个 MCP server 暴露同名工具时（如两个 server 都有 'read_file'），
+        _apply_conflict_resolution 会调用此方法修改 name 以避免冲突。
+        """
+        import hashlib
+        suffix = hashlib.md5(
+            f"{self._server}_{self._tool_name}".encode()
+        ).hexdigest()[:6]
+        self.name = f"{self.name}__dup_{suffix}"
+
     def __repr__(self) -> str:
         return f"<MCPToolAdapter mcp__{self._server}__{self._tool_name}>"

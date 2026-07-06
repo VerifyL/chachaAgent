@@ -17,7 +17,6 @@ import hashlib
 import json
 import logging
 import os
-import signal
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -29,7 +28,6 @@ logger = logging.getLogger(__name__)
 # 进程生命周期常量
 _CONNECT_TIMEOUT = 15.0       # initialize 超时（秒）
 _CALL_TIMEOUT = 60.0          # tools/call 超时（秒）
-_FORCE_KILL_TIMEOUT = 2.0     # 强制 kill 等待（秒）
 
 # 缓存
 CACHE_PATH = Path.home() / ".chacha" / "mcp_tools_cache.json"
@@ -91,9 +89,6 @@ class MCPClient:
         self._server_configs: Dict[str, Any] = server_configs or {}
         # SDK session 和传输层
         self._sessions: Dict[str, ClientSession] = {}
-        self._processes: Dict[str, asyncio.subprocess.Process] = {}
-        self._readers: Dict[str, asyncio.StreamReader] = {}
-        self._writers: Dict[str, asyncio.StreamWriter] = {}
         self._server_caps: Dict[str, dict] = {}
         self._http_cms: Dict[str, Any] = {}  # streamable-http 上下文管理器引用
         self._transport_cms: Dict[str, Any] = {}  # stdio/sse 传输层上下文管理器引用
@@ -187,11 +182,14 @@ class MCPClient:
             except Exception:
                 pass
         self._transport_cms.clear()
-        self._processes.clear()
-        self._readers.clear()
-        self._writers.clear()
-        self._server_caps.clear()
+        # 清理 streamable-http 上下文管理器（与 transport_cms 同理）
+        for name, cm in list(self._http_cms.items()):
+            try:
+                await cm.__aexit__(None, None, None)
+            except Exception:
+                pass
         self._http_cms.clear()
+        self._server_caps.clear()
         self._connected = False
         # 断开后台客户端
         if self._bg_client:
@@ -284,7 +282,16 @@ class MCPClient:
                 a._resolve_conflict()
 
     async def refresh_tools(self) -> int:
-        tools = await self.get_tools()
+        """强制刷新工具列表（忽略缓存，直接从 MCP server 重新获取）。"""
+        if self._bg_client is not None:
+            tools = await self._bg_client.get_tools()
+        else:
+            was_cached = self._from_cache
+            self._from_cache = False
+            try:
+                tools = await self.get_tools()
+            finally:
+                self._from_cache = was_cached
         return len(tools)
 
     # ====== 工具调用 ======
@@ -314,15 +321,20 @@ class MCPClient:
                 error=f"MCP server '{server_name}' 未连接", error_type="unknown",
             )
 
+        cfg = self._server_configs.get(server_name)
+        timeout = _CALL_TIMEOUT
+        if cfg is not None:
+            timeout = float(getattr(cfg, "timeout", _CALL_TIMEOUT) or _CALL_TIMEOUT)
+
         try:
             result = await asyncio.wait_for(
                 session.call_tool(tool_name, arguments),
-                timeout=_CALL_TIMEOUT,
+                timeout=timeout,
             )
         except asyncio.TimeoutError:
             return ToolResult(
                 status="error", content="",
-                error=f"MCP 调用超时 ({_CALL_TIMEOUT}s): {server_name}/{tool_name}",
+                error=f"MCP 调用超时 ({timeout}s): {server_name}/{tool_name}",
                 error_type="timeout",
             )
         except (ConnectionResetError, BrokenPipeError, EOFError,
@@ -333,6 +345,13 @@ class MCPClient:
                 status="error", content="",
                 error=f"MCP server '{server_name}' 连接断开，已移除其工具: {e}",
                 error_type="connection_lost",
+            )
+        except Exception as e:
+            logger.error("[mcp] call_tool %s/%s 异常: %s", server_name, tool_name, e)
+            return ToolResult(
+                status="error", content="",
+                error=f"MCP 调用失败 ({server_name}/{tool_name}): {type(e).__name__}: {e}",
+                error_type="mcp_error",
             )
 
         # SDK 返回 CallToolResult，其 content 是 list[TextContent|ImageContent|...]
@@ -417,21 +436,14 @@ class MCPClient:
             except Exception:
                 pass
 
-        old_process = self._processes.pop(server_name, None)
-        if old_process and old_process.returncode is None:
+        old_http_cm = self._http_cms.pop(server_name, None)
+        if old_http_cm:
             try:
-                old_process.terminate()
-                try:
-                    await asyncio.wait_for(old_process.wait(), timeout=3)
-                except asyncio.TimeoutError:
-                    old_process.kill()
+                await old_http_cm.__aexit__(None, None, None)
             except Exception:
                 pass
 
-        self._readers.pop(server_name, None)
-        self._writers.pop(server_name, None)
         self._server_caps.pop(server_name, None)
-        self._http_cms.pop(server_name, None)
 
         # 2. 重新连接
         try:
@@ -640,40 +652,17 @@ class MCPClient:
         self._server_caps[name] = session.get_server_capabilities() or {}
         logger.info("[mcp] %s: 已连接（stdio）", name)
 
-    async def _disconnect_one(self, name: str) -> None:
-        session = self._sessions.pop(name, None)
-        if session:
-            try:
-                await session.send_notification({"jsonrpc": "2.0", "method": "notifications/shutdown"})
-            except Exception:
-                pass
-        # 清理传输层 context manager
-        cm = self._transport_cms.pop(name, None)
-        if cm:
-            try:
-                await cm.__aexit__(None, None, None)
-            except Exception:
-                pass
-
     def _force_kill_all_sync(self) -> None:
-        """同步强制终止所有子进程（信号处理器路径，无 async/await）。
-        
-        注意: stdio transport 由 SDK 的 anyio 管理，此方法仅处理遗留的
-        asyncio 子进程引用（如 _processes 中的残留）。
+        """同步强制终止所有连接（信号处理器路径，无 async/await）。
+
+        stdio/SSE transport 由 SDK 的 anyio 管理子进程生命周期，
+        此方法无法在同步上下文中执行异步清理。它只清空引用，
+        实际子进程终止依赖 SDK 内部的进程组管理。
         """
-        for name in list(self._processes.keys()):
-            process = self._processes.get(name)
-            if process is None or process.returncode is not None:
-                continue
-            try:
-                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            except Exception:
-                pass
-        self._processes.clear()
         self._sessions.clear()
         self._transport_cms.clear()
+        self._http_cms.clear()
+        self._server_caps.clear()
 
     # ====== 属性 ======
 
