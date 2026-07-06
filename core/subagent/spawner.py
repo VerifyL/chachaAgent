@@ -122,6 +122,10 @@ class SubAgentSpawner:
                 timeout=timeout,
             )
 
+            # 将子 executor 的输出缓存合并到父 executor，确保父 agent 的 cache_read 能命中
+            if self._parent_tools and hasattr(tools, '_output_cache'):
+                self._parent_tools._output_cache.update(tools._output_cache)
+
             elapsed = int((time.monotonic() - t0) * 1000)
             sub_result = SubAgentResult(
                 agent_type=agent_type,
