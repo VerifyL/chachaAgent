@@ -103,6 +103,14 @@ class TaskTool(BaseTool):
                 f"耗时 {result.duration_ms}ms）]"
             )
 
+        # 子Agent LLM 输出被截断 → 追加说明（无法通过 cache_read 恢复）
+        if result.truncated:
+            content = (
+                f"[注意: 子Agent 的 LLM 输出因达到最大 token 限制而被截断，"
+                f"无法通过 cache_read 续读。请基于已有内容继续工作。]\n\n"
+                f"{content}"
+            )
+
         # 映射 SubAgentResult → ToolResult
         status = "success" if result.status == "success" else "error"
         error_type = None

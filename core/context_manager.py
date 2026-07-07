@@ -397,12 +397,25 @@ class ContextManager:
                     # 分级截断：保留更多可读内容
                     max_chars = 8000
                     if len(event.content) > max_chars:
-                        content = event.content[:max_chars] + (
-                            f"\n...[二次截断，原始 {len(event.content)} 字符。"
-                            f"使用 cache_read 工具凭 cache_key={event.cache_key} 续读]"
-                        )
+                        content = event.content[:max_chars]
+                        if event.cache_key:
+                            content += (
+                                f"\n...[二次截断，原始 {len(event.content)} 字符。"
+                                f"使用 cache_read 工具凭 cache_key={event.cache_key} 续读]"
+                            )
+                        else:
+                            content += (
+                                f"\n...[二次截断，原始 {len(event.content)} 字符。"
+                                f"内容在源头被截断，无法续读]"
+                            )
                     else:
                         content = event.content
+                        if not event.cache_key:
+                            # truncated=True 但无 cache_key → 源头截断（如子Agent LLM 输出超限）
+                            content += (
+                                "\n[注意: 此结果在源头被截断（如子Agent 输出超限），"
+                                "无法通过 cache_read 续读。请基于已有内容继续工作。]"
+                            )
                 blocks.append(
                     ContextBlock(
                         source=BlockSource.TOOL_RESULT,
