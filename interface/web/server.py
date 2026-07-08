@@ -12,6 +12,8 @@ FastAPI 服务入口 — WebSocket + REST API + 静态文件托管。
 import logging
 import os
 from contextlib import asynccontextmanager
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as pkg_version
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -91,10 +93,15 @@ def create_app(project_root: Path | None = None) -> FastAPI:
             await _bridge.shutdown()
         _bridge = None
 
+    try:
+        _version = pkg_version("chachaAgent")
+    except (PackageNotFoundError, ModuleNotFoundError):
+        _version = "dev"
+
     app = FastAPI(
         title="ChachaAgent Web",
         description="ChachaAgent Web 服务 — 流式 AI 对话",
-        version="0.1.0",
+        version=_version,
         lifespan=lifespan,
     )
 

@@ -66,6 +66,16 @@ class WebBridge:
         """注入运行时依赖到 Orchestrator"""
         self._bridge.build_orchestrator(session_id=session_id, memory_manager=memory_manager)
 
+    # ====== Checkpoint ======
+
+    def set_checkpoint_dir(self, path) -> None:
+        """设置当前 session 的 checkpoint 目录"""
+        self._bridge.set_checkpoint_dir(path)
+
+    def save_checkpoint(self) -> None:
+        """保存当前会话状态的 checkpoint"""
+        self._bridge.save_checkpoint()
+
     # ====== 属性 ======
 
     @property

@@ -55,6 +55,7 @@ async def ws_chat(websocket: WebSocket):
 
     # 注入 session 工具 + 运行时依赖
     bridge.set_tools_for_session(session_svc.memory_manager)
+    bridge.set_checkpoint_dir(session_svc.memory_manager.session_dir)
     bridge.build_orchestrator(
         session_id=session_svc.session_id,
         memory_manager=session_svc.memory_manager,
@@ -94,6 +95,8 @@ async def ws_chat(websocket: WebSocket):
                         memory_manager=session_svc.memory_manager,
                     ):
                         await websocket.send_json(event)
+                    # 每轮对话结束后保存 checkpoint
+                    bridge.save_checkpoint()
                 except Exception as e:
                     logger.error(f"[ws] 聊天异常: {e}")
                     await websocket.send_json(
@@ -106,6 +109,7 @@ async def ws_chat(websocket: WebSocket):
             elif msg_type == "new_session":
                 session_svc.new()
                 bridge.set_tools_for_session(session_svc.memory_manager)
+                bridge.set_checkpoint_dir(session_svc.memory_manager.session_dir)
                 bridge.build_orchestrator(
                     session_id=session_svc.session_id,
                     memory_manager=session_svc.memory_manager,
