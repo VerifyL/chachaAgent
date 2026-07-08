@@ -717,10 +717,46 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="ChachaAgent CLI")
-    parser.add_argument("project", nargs="?", default=".", help="项目路径")
-    parser.add_argument("-d", "--debug", action="store_true", help="启用遥测（结构化日志+指标+审计）")
-    parser.add_argument("-v", "--verbose", action="store_true", help="启用遥测并设置 DEBUG 日志级别")
-    args = parser.parse_args()
+    subparsers = parser.add_subparsers(dest="command", help="子命令")
+
+    # chacha (默认 CLI 模式)
+    cli_parser = subparsers.add_parser("chat", help="启动 CLI 对话模式（默认）")
+    cli_parser.add_argument("project", nargs="?", default=".", help="项目路径")
+    cli_parser.add_argument("-d", "--debug", action="store_true", help="启用遥测")
+    cli_parser.add_argument("-v", "--verbose", action="store_true", help="启用遥测并设置 DEBUG 日志级别")
+
+    # chacha web
+    web_parser = subparsers.add_parser("web", help="启动 Web 服务")
+    web_parser.add_argument("project", nargs="?", default=".", help="项目路径")
+    web_parser.add_argument("--host", default="0.0.0.0", help="监听地址 (默认 0.0.0.0)")
+    web_parser.add_argument("--port", type=int, default=8100, help="端口号 (默认 8100)")
+    web_parser.add_argument("--reload", action="store_true", help="开发模式热重载")
+
+    # 兼容旧用法: chacha <project> (无子命令时当作 chat)
+    args, unknown = parser.parse_known_args()
+    if args.command is None:
+        # 回退到简单解析
+        args2 = argparse.Namespace(
+            command="chat",
+            project=".",
+            debug=False,
+            verbose=False,
+        )
+        # 重新解析位置参数
+        simple_parser = argparse.ArgumentParser()
+        simple_parser.add_argument("project", nargs="?", default=".")
+        simple_parser.add_argument("-d", "--debug", action="store_true")
+        simple_parser.add_argument("-v", "--verbose", action="store_true")
+        simple_args, _ = simple_parser.parse_known_args(unknown)
+        args2.project = simple_args.project or args.project if hasattr(args, 'project') else "."
+        args2.debug = simple_args.debug
+        args2.verbose = simple_args.verbose
+        args = args2
+
+    if args.command == "web":
+        _run_web(args)
+        return
+
     cli = ChachaCLI(args.project, debug=args.debug, verbose=args.verbose)
 
     # Ctrl+C → 中断标志（C 级 signal，绕过 asyncio 屏蔽）
@@ -760,6 +796,76 @@ def main():
             pass
         asyncio.set_event_loop(None)
         loop.close()
+
+
+def _run_web(args):
+    """启动 Web 服务"""
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    import uvicorn
+
+    from interface.web.server import create_app
+
+    project_root = Path(args.project).resolve()
+    if not project_root.exists():
+        print(f"错误: 项目路径不存在: {project_root}")
+        sys.exit(1)
+
+    os.chdir(str(project_root))
+
+    # ── 自动构建前端 ──
+    _CHACHA_PKG = Path(__file__).parent.parent  # interface/
+    _FRONTEND_DIR = _CHACHA_PKG / "web" / "frontend"
+    _DIST_DIR = _FRONTEND_DIR / "dist"
+
+    if not _DIST_DIR.exists() and _FRONTEND_DIR.exists():
+        print("  🔨 前端未构建，正在自动构建...")
+        try:
+            if not (_FRONTEND_DIR / "node_modules").exists():
+                print("  📦 安装依赖...")
+                subprocess.run(
+                    ["npm", "install"],
+                    cwd=str(_FRONTEND_DIR),
+                    check=True,
+                    capture_output=True,
+                )
+            print("  🔧 构建前端...")
+            subprocess.run(
+                ["npm", "run", "build"],
+                cwd=str(_FRONTEND_DIR),
+                check=True,
+                capture_output=True,
+            )
+            print("  ✅ 前端构建完成")
+        except FileNotFoundError:
+            print("  ⚠ 未检测到 Node.js/npm，跳过前端构建")
+            print("    请先安装 Node.js 并手动运行:")
+            print(f"    cd {_FRONTEND_DIR} && npm install && npm run build")
+        except subprocess.CalledProcessError as e:
+            print(f"  ⚠ 前端构建失败: {e.stderr.decode() if e.stderr else e}")
+            print(f"    请手动运行: cd {_FRONTEND_DIR} && npm run build")
+    elif _DIST_DIR.exists():
+        print("  ✅ 前端已就绪")
+
+    app = create_app(project_root=project_root)
+
+    print("\n  🕸️  ChachaAgent Web 服务")
+    print(f"  📍 地址: http://{args.host}:{args.port}")
+    print(f"  📁 项目: {project_root}")
+    print(f"  📡 API:  http://{args.host}:{args.port}/api/sessions")
+    print(f"  🔌 WS:   ws://{args.host}:{args.port}/ws/chat")
+    print()
+
+    uvicorn.run(
+        app,
+        host=args.host,
+        port=args.port,
+        reload=args.reload,
+        log_level="info",
+    )
 
 
 if __name__ == "__main__":
