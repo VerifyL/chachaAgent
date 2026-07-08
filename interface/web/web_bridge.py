@@ -64,9 +64,7 @@ class WebBridge:
 
     def build_orchestrator(self, session_id: str = "", memory_manager=None) -> None:
         """注入运行时依赖到 Orchestrator"""
-        self._bridge.build_orchestrator(
-            session_id=session_id, memory_manager=memory_manager
-        )
+        self._bridge.build_orchestrator(session_id=session_id, memory_manager=memory_manager)
 
     # ====== 属性 ======
 

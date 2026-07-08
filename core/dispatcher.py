@@ -496,9 +496,9 @@ class Dispatcher:
 
     # ====== Stage 1 assistant 消息截断（零 LLM 成本） ======
 
-    _FREEZE_ASSISTANT_MAX_CHARS = 6000   # 超过才处理
-    _FREEZE_ASSISTANT_KEEP_HEAD = 3000   # 首部保留
-    _FREEZE_ASSISTANT_KEEP_TAIL = 800    # 尾部保留（仅无 tool_calls 时）
+    _FREEZE_ASSISTANT_MAX_CHARS = 6000  # 超过才处理
+    _FREEZE_ASSISTANT_KEEP_HEAD = 3000  # 首部保留
+    _FREEZE_ASSISTANT_KEEP_TAIL = 800  # 尾部保留（仅无 tool_calls 时）
 
     @classmethod
     def _freeze_long_assistant_messages(cls, messages: List[Dict]) -> None:
@@ -523,8 +523,7 @@ class Dispatcher:
                 if truncated <= 0:
                     continue
                 msg["content"] = (
-                    content[: cls._FREEZE_ASSISTANT_KEEP_HEAD]
-                    + f"\n\n...(中间推理已截断 {truncated} 字符)..."
+                    content[: cls._FREEZE_ASSISTANT_KEEP_HEAD] + f"\n\n...(中间推理已截断 {truncated} 字符)..."
                 )
             else:
                 truncated = len(content) - cls._FREEZE_ASSISTANT_KEEP_HEAD - cls._FREEZE_ASSISTANT_KEEP_TAIL
@@ -533,5 +532,5 @@ class Dispatcher:
                 msg["content"] = (
                     content[: cls._FREEZE_ASSISTANT_KEEP_HEAD]
                     + f"\n\n...(中间内容已截断 {truncated} 字符)...\n\n"
-                    + content[-cls._FREEZE_ASSISTANT_KEEP_TAIL:]
+                    + content[-cls._FREEZE_ASSISTANT_KEEP_TAIL :]
                 )

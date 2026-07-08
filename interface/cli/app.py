@@ -748,7 +748,7 @@ def main():
         simple_parser.add_argument("-d", "--debug", action="store_true")
         simple_parser.add_argument("-v", "--verbose", action="store_true")
         simple_args, _ = simple_parser.parse_known_args(unknown)
-        args2.project = simple_args.project or args.project if hasattr(args, 'project') else "."
+        args2.project = simple_args.project or args.project if hasattr(args, "project") else "."
         args2.debug = simple_args.debug
         args2.verbose = simple_args.verbose
         args = args2

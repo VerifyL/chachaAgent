@@ -49,11 +49,13 @@ async def list_sessions():
         if len(sid) > 14:
             time_str = f"{sid[:4]}-{sid[4:6]}-{sid[6:8]} {sid[9:11]}:{sid[11:13]}:{sid[13:15]}"
 
-        result.append({
-            "id": sid,
-            "preview": preview,
-            "time": time_str or sid,
-        })
+        result.append(
+            {
+                "id": sid,
+                "preview": preview,
+                "time": time_str or sid,
+            }
+        )
 
     # 新建在前
     result.sort(key=lambda s: s["id"], reverse=True)

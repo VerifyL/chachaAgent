@@ -405,8 +405,7 @@ class ContextManager:
                             )
                         else:
                             content += (
-                                f"\n...[二次截断，原始 {len(event.content)} 字符。"
-                                f"内容在源头被截断，无法续读]"
+                                f"\n...[二次截断，原始 {len(event.content)} 字符。" f"内容在源头被截断，无法续读]"
                             )
                     else:
                         content = event.content

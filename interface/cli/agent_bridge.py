@@ -211,11 +211,13 @@ class AgentBridge:
 
         # 1. LLM — 走 ModelFactory 分发，env var 覆盖配置
         if self._provider_cfg:
-            cfg = self._provider_cfg.model_copy(update={
-                "api_key": self._api_key or None,
-                "default_model": self._model,
-                "base_url": self._base_url or None,
-            })
+            cfg = self._provider_cfg.model_copy(
+                update={
+                    "api_key": self._api_key or None,
+                    "default_model": self._model,
+                    "base_url": self._base_url or None,
+                }
+            )
         else:
             from core.models.config import ModelProviderConfig
 

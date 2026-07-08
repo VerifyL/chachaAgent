@@ -60,17 +60,17 @@ async def ws_chat(websocket: WebSocket):
         memory_manager=session_svc.memory_manager,
     )
 
-    logger.info(
-        f"[ws] 新连接, session={session_svc.session_id}, model={bridge.model}"
-    )
+    logger.info(f"[ws] 新连接, session={session_svc.session_id}, model={bridge.model}")
 
     try:
         # 发送会话 ID 给客户端
-        await websocket.send_json({
-            "type": "session_created",
-            "session_id": session_svc.session_id,
-            "model": bridge.model,
-        })
+        await websocket.send_json(
+            {
+                "type": "session_created",
+                "session_id": session_svc.session_id,
+                "model": bridge.model,
+            }
+        )
 
         while True:
             data = await websocket.receive_json()
@@ -79,10 +79,12 @@ async def ws_chat(websocket: WebSocket):
             if msg_type == "chat":
                 content = data.get("content", "").strip()
                 if not content:
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": "消息内容不能为空",
-                    })
+                    await websocket.send_json(
+                        {
+                            "type": "error",
+                            "message": "消息内容不能为空",
+                        }
+                    )
                     continue
 
                 try:
@@ -94,10 +96,12 @@ async def ws_chat(websocket: WebSocket):
                         await websocket.send_json(event)
                 except Exception as e:
                     logger.error(f"[ws] 聊天异常: {e}")
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": str(e),
-                    })
+                    await websocket.send_json(
+                        {
+                            "type": "error",
+                            "message": str(e),
+                        }
+                    )
 
             elif msg_type == "new_session":
                 session_svc.new()
@@ -106,20 +110,24 @@ async def ws_chat(websocket: WebSocket):
                     session_id=session_svc.session_id,
                     memory_manager=session_svc.memory_manager,
                 )
-                await websocket.send_json({
-                    "type": "session_created",
-                    "session_id": session_svc.session_id,
-                    "model": bridge.model,
-                })
+                await websocket.send_json(
+                    {
+                        "type": "session_created",
+                        "session_id": session_svc.session_id,
+                        "model": bridge.model,
+                    }
+                )
 
             elif msg_type == "ping":
                 await websocket.send_json({"type": "pong"})
 
             else:
-                await websocket.send_json({
-                    "type": "error",
-                    "message": f"未知消息类型: {msg_type}",
-                })
+                await websocket.send_json(
+                    {
+                        "type": "error",
+                        "message": f"未知消息类型: {msg_type}",
+                    }
+                )
 
     except WebSocketDisconnect:
         logger.info(f"[ws] 客户端断开, session={session_svc.session_id}")
