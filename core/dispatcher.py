@@ -300,8 +300,9 @@ class Dispatcher:
                     }
                 )
 
-            # Stage 1: 缓存旧工具结果
+            # Stage 1: 缓存旧工具结果 + 截断长 assistant 消息
             self._freeze_old_tool_results(messages, session_id, _tc_id_to_name)
+            self._freeze_long_assistant_messages(messages)
 
         yield DoneEvent(text="".join(text_parts), tokens=llm_tokens, usage=llm_usage)
 
@@ -406,12 +407,13 @@ class Dispatcher:
                     }
                 )
 
-            # Stage 1: 缓存旧工具结果
+            # Stage 1: 缓存旧工具结果 + 截断长 assistant 消息
             # 增量计 token（只算本轮新增的非 tool 消息）
             new_msgs = [m for m in messages[pre_len:] if m.get("role") != "tool"]
             total_tokens += sum(len(str(m.get("content", ""))) for m in new_msgs) // 3
 
             self._freeze_old_tool_results(messages, session_id, _tc_id_to_name)
+            self._freeze_long_assistant_messages(messages)
 
             final_finish = resp.finish_reason or "tool_use"
 
@@ -491,3 +493,45 @@ class Dispatcher:
                     if tc.get("id") == target_id:
                         return tc.get("function", {}).get("name", "unknown")
         return "unknown"
+
+    # ====== Stage 1 assistant 消息截断（零 LLM 成本） ======
+
+    _FREEZE_ASSISTANT_MAX_CHARS = 6000   # 超过才处理
+    _FREEZE_ASSISTANT_KEEP_HEAD = 3000   # 首部保留
+    _FREEZE_ASSISTANT_KEEP_TAIL = 800    # 尾部保留（仅无 tool_calls 时）
+
+    @classmethod
+    def _freeze_long_assistant_messages(cls, messages: List[Dict]) -> None:
+        """截断过长的 assistant 消息，零 LLM 成本。
+
+        分两种情况：
+        - 有 tool_calls：只截断 content 首部，tool_calls 字段原样保留
+        - 无 tool_calls：保留首部 + 尾部，中间替换为标记
+        """
+        for msg in messages:
+            if msg.get("role") != "assistant":
+                continue
+
+            content = msg.get("content") or ""
+            if len(content) <= cls._FREEZE_ASSISTANT_MAX_CHARS:
+                continue
+
+            has_tc = bool(msg.get("tool_calls"))
+
+            if has_tc:
+                truncated = len(content) - cls._FREEZE_ASSISTANT_KEEP_HEAD
+                if truncated <= 0:
+                    continue
+                msg["content"] = (
+                    content[: cls._FREEZE_ASSISTANT_KEEP_HEAD]
+                    + f"\n\n...(中间推理已截断 {truncated} 字符)..."
+                )
+            else:
+                truncated = len(content) - cls._FREEZE_ASSISTANT_KEEP_HEAD - cls._FREEZE_ASSISTANT_KEEP_TAIL
+                if truncated <= 0:
+                    continue
+                msg["content"] = (
+                    content[: cls._FREEZE_ASSISTANT_KEEP_HEAD]
+                    + f"\n\n...(中间内容已截断 {truncated} 字符)...\n\n"
+                    + content[-cls._FREEZE_ASSISTANT_KEEP_TAIL:]
+                )
