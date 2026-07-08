@@ -12,7 +12,7 @@
 interface/ 表现层
  ├── cli/app.py ✅ prompt_toolkit + Rich 终端 (v0.2)
  ├── cli/agent_bridge.py ✅ CLI ↔ 核心桥接层
- └── web/ 🚧 FastAPI + React (仅 __init__.py 占位)
+ └── web/ ✅ FastAPI + React (完整 Web 界面)
 
 protocol/ 网关与协议层
  ├── gateway.py ✅ ChaChaAsyncGateway JSON-RPC 2.0 消息总线

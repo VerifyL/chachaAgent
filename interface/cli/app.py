@@ -817,25 +817,25 @@ def _run_web(args):
     os.chdir(str(project_root))
 
     # ── 自动构建前端 ──
-    _CHACHA_PKG = Path(__file__).parent.parent  # interface/
-    _FRONTEND_DIR = _CHACHA_PKG / "web" / "frontend"
-    _DIST_DIR = _FRONTEND_DIR / "dist"
+    _chacha_pkg = Path(__file__).parent.parent  # interface/
+    _frontend_dir = _chacha_pkg / "web" / "frontend"
+    _dist_dir = _frontend_dir / "dist"
 
-    if not _DIST_DIR.exists() and _FRONTEND_DIR.exists():
+    if not _dist_dir.exists() and _frontend_dir.exists():
         print("  🔨 前端未构建，正在自动构建...")
         try:
-            if not (_FRONTEND_DIR / "node_modules").exists():
+            if not (_frontend_dir / "node_modules").exists():
                 print("  📦 安装依赖...")
                 subprocess.run(
                     ["npm", "install"],
-                    cwd=str(_FRONTEND_DIR),
+                    cwd=str(_frontend_dir),
                     check=True,
                     capture_output=True,
                 )
             print("  🔧 构建前端...")
             subprocess.run(
                 ["npm", "run", "build"],
-                cwd=str(_FRONTEND_DIR),
+                cwd=str(_frontend_dir),
                 check=True,
                 capture_output=True,
             )
@@ -843,11 +843,11 @@ def _run_web(args):
         except FileNotFoundError:
             print("  ⚠ 未检测到 Node.js/npm，跳过前端构建")
             print("    请先安装 Node.js 并手动运行:")
-            print(f"    cd {_FRONTEND_DIR} && npm install && npm run build")
+            print(f"    cd {_frontend_dir} && npm install && npm run build")
         except subprocess.CalledProcessError as e:
             print(f"  ⚠ 前端构建失败: {e.stderr.decode() if e.stderr else e}")
-            print(f"    请手动运行: cd {_FRONTEND_DIR} && npm run build")
-    elif _DIST_DIR.exists():
+            print(f"    请手动运行: cd {_frontend_dir} && npm run build")
+    elif _dist_dir.exists():
         print("  ✅ 前端已就绪")
 
     app = create_app(project_root=project_root)

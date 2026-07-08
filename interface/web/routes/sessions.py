@@ -6,7 +6,7 @@ interface/web/routes/sessions.py
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException
 
 from core.context.memory_manager import MemoryManager
 

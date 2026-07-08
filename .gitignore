@@ -10,7 +10,7 @@ __pycache__/
 .Python
 build/
 develop-eggs/
-dist/
+/dist/
 downloads/
 eggs/
 .eggs/
@@ -239,7 +239,7 @@ ENV/
 *.swp
 
 # 打包输出
-dist/
+/dist/
 build/
 *.egg-info/
 

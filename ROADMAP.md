@@ -11,11 +11,6 @@
 
 ## 中优先级 🟡
 
-### Web 前端
-- **目标**：基于 FastAPI + React 的 Web 管理界面
-- **涉及**：`interface/web/`（目录已创建）
-- **依赖**：`fastapi`、`uvicorn`、`websockets`（已安装）
-
 ### Code-RAG 引擎
 - **目标**：基于代码语义的检索增强生成，含符号解析器 + 向量存储
 - **涉及**：`capabilities/rag/`（骨架：`symbol_parser`、`vector_store`）
@@ -35,10 +30,6 @@
 ### 插件安装器
 - **目标**：社区插件的一键安装与管理
 - **涉及**：`capabilities/plugin_installer.py`（骨架已创建）
-
-### Web 服务器配置
-- **目标**：Web 前端的服务器配置（端口/CORS/SSL）
-- **配置**：`[interface]` 段已预留
 
 ### 测试基础设施
 - **涉及**：`tests/benchmark/`、`tests/evaluation/`、`tests/fuzz/`、`tests/mocks/`（目录已创建）

@@ -1,0 +1,2 @@
+graft interface/web/frontend/dist
+prune interface/web/frontend/node_modules

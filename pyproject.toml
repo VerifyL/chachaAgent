@@ -68,7 +68,8 @@ Issues = "https://github.com/VerifyL/chachaAgent/issues"
 include = ["core*", "protocol*", "capabilities*", "interface*", "scripts*"]
 
 [tool.setuptools.package-data]
-"*" = ["*.toml", "*.md", "*.jsonl", "*.template"]
+"*" = ["*.toml", "*.jsonl", "*.template"]
+"interface.web" = ["frontend/dist/**/*"]
 
 [tool.black]
 line-length = 120

@@ -90,6 +90,63 @@ CLI 启动后在对话中使用 `/` 前缀命令：
 
 ---
 
+## Web 前端
+
+### 启动
+
+```bash
+# 生产模式（一个命令）
+chacha web
+
+# 开发模式（热更新）
+chacha web                          # 终端 1
+cd interface/web/frontend && npm run dev  # 终端 2
+# 浏览器打开 http://localhost:5173
+```
+
+### 技术栈
+
+| 层 | 选型 |
+|----|------|
+| 后端 | FastAPI + WebSocket |
+| 前端 | React 18 + TypeScript + Vite + Tailwind CSS 4 |
+| 状态管理 | Zustand |
+| Markdown | react-markdown + remark-gfm + rehype-highlight |
+
+### 项目结构
+
+```
+interface/web/
+├── server.py              # FastAPI 入口 + 静态文件托管
+├── web_bridge.py          # WebSocket ↔ AgentBridge 适配
+├── routes/
+│   ├── chat.py            # WebSocket /api/ws/chat 流式对话
+│   └── sessions.py        # REST /api/sessions 会话管理
+└── frontend/
+    ├── vite.config.ts     # Vite + Tailwind + API 代理
+    └── src/
+        ├── components/    # Sidebar / ChatArea / MessageList / ChatInput
+        ├── hooks/         # useWebSocket / useSessions
+        ├── store/         # Zustand 全局状态
+        └── types/         # 共享类型定义
+```
+
+### 构建与发布
+
+```bash
+# 开发模式（无需构建，热更新）
+cd interface/web/frontend && npm run dev
+
+# 生产构建
+cd interface/web/frontend && npm run build
+
+# 打包 whl（CI 自动完成）
+python -m build --wheel
+```
+
+WebSocket 协议详见 [docs/web.md](web.md)。
+
+
 ## 项目初始化
 
 首次在项目目录运行 `chacha` 时自动初始化，无需手动操作。
