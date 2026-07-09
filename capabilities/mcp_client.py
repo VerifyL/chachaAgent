@@ -26,7 +26,7 @@ from mcp import ClientSession
 logger = logging.getLogger(__name__)
 
 # 进程生命周期常量
-_SPAWN_TIMEOUT = 30.0   # 子进程/传输层启动超时（秒），比 initialize 长，适应 npx 首次下载
+_SPAWN_TIMEOUT = 60.0   # 子进程/传输层启动超时（秒），比 initialize 长，适应 npx 首次下载（部分 server 首次需 45s+）
 _CONNECT_TIMEOUT = 15.0  # initialize 超时（秒）
 _CALL_TIMEOUT = 60.0  # tools/call 超时（秒）
 _PER_SERVER_TIMEOUT = _SPAWN_TIMEOUT + _CONNECT_TIMEOUT  # 单 server 总超时

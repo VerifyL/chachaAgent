@@ -3,6 +3,7 @@ import { useChatStore } from "./store/chatStore";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { Sidebar } from "./components/Sidebar";
 import { ChatArea } from "./components/ChatArea";
+import { ApprovalDialog } from "./components/ApprovalDialog";
 import type { ChatMessage, ClientMessage } from "./types";
 
 let msgSeq = 0;
@@ -79,6 +80,7 @@ function App() {
     <div className="flex h-screen w-screen overflow-hidden">
       <Sidebar onNewSession={handleNewSession} />
       <ChatArea onSend={onSend} onStop={stop} onCompact={sendCompact} />
+      <ApprovalDialog />
     </div>
   );
 }

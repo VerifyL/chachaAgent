@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { ChatMessage, SessionSummary, ToolCallCard } from "../types";
+import type { ChatMessage, PendingApproval, SessionSummary, ToolCallCard } from "../types";
 
 interface ChatState {
   // 会话
@@ -17,6 +17,9 @@ interface ChatState {
   lastRunningToolId: string | null;
   lastUserInput: string | null; // 用于错误后重试
   toast: string | null; // 临时提示（如压缩通知）
+
+  // 审批
+  pendingApproval: PendingApproval | null;
 
   // actions
   setSessionId: (id: string | null) => void;
@@ -38,6 +41,7 @@ interface ChatState {
   setMessages: (msgs: ChatMessage[]) => void;
   clearMessages: () => void;
   showToast: (msg: string) => void;
+  setPendingApproval: (a: PendingApproval | null) => void;
   retry: () => void; // 占位，由 App 层注入
   setRetry: (fn: () => void) => void;
 }
@@ -62,6 +66,7 @@ export const useChatStore = create<ChatState>((set) => ({
   lastRunningToolId: null,
   lastUserInput: null,
   toast: null,
+  pendingApproval: null,
 
   setSessionId: (id) => set({ sessionId: id }),
   setSessions: (sessions) => set({ sessions }),
@@ -187,6 +192,7 @@ export const useChatStore = create<ChatState>((set) => ({
     set({ toast: msg });
     setTimeout(() => set({ toast: null }), 3000);
   },
+  setPendingApproval: (a) => set({ pendingApproval: a }),
 }));
 
 /** 获取当前会话的消息列表（用于组件） */

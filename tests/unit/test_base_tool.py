@@ -66,7 +66,7 @@ async def test_execute(read_tool):
 
 def test_risk_level(read_tool):
     assert read_tool.risk == "low"
-    assert read_tool.requires_approval is False
+    assert read_tool.requires_approval is None  # 默认 None，由 PolicyEngine 决定
 
 
 def test_high_risk_tool():

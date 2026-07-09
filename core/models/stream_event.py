@@ -25,6 +25,7 @@ class StreamEventType(str, Enum):
     DONE = "done"
     ERROR = "error"
     COMPACT = "compact"
+    PERMISSION_REQUEST = "permission_request"
 
 
 # ── 各事件模型 ──
@@ -73,6 +74,7 @@ class ToolExecEndEvent(BaseModel):
     type: Literal[StreamEventType.TOOL_EXEC_END] = StreamEventType.TOOL_EXEC_END
     tool_name: str
     preview: str = ""
+    diff: str = ""  # edit/write 的 unified diff（其他工具为空）
 
 
 class DoneEvent(BaseModel):
@@ -98,6 +100,19 @@ class CompactEvent(BaseModel):
     reason: str
 
 
+class PermissionRequestEvent(BaseModel):
+    """审批请求事件 — 工具执行前需要用户确认（Web 端审批对话框）"""
+
+    type: Literal[StreamEventType.PERMISSION_REQUEST] = StreamEventType.PERMISSION_REQUEST
+    request_id: str
+    tool_name: str
+    arguments: dict = Field(default_factory=dict)
+    risk_level: str = ""
+    risk_score: float = 0.0
+    reason: str = ""
+    diff: str | None = None
+
+
 # ── 联合类型（Pydantic v2 discriminated union）──
 
 StreamEvent = Annotated[
@@ -111,6 +126,7 @@ StreamEvent = Annotated[
         DoneEvent,
         ErrorEvent,
         CompactEvent,
+        PermissionRequestEvent,
     ],
     Field(discriminator="type"),
 ]

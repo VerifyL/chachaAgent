@@ -34,6 +34,7 @@ async def ws_chat(websocket: WebSocket):
         {"type": "chat", "content": "用户输入"}
         {"type": "new_session"}
         {"type": "stop"}
+        {"type": "permission_response", "request_id": "...", "approved": true}
 
     服务端事件格式:
         {"type": "text", "content": "..."}
@@ -42,6 +43,7 @@ async def ws_chat(websocket: WebSocket):
         {"type": "tool_call_end", "tool_index": 0}
         {"type": "tool_exec_start", "tool_name": "...", "args": "..."}
         {"type": "tool_exec_end", "tool_name": "...", "preview": "..."}
+        {"type": "permission_request", "request_id": "...", "tool_name": "...", ...}
         {"type": "done", "tokens": 0, "cancelled": true}  (取消时)
         {"type": "error", "message": "..."}
         {"type": "compact", "reason": "...", "old_msgs": N, "new_msgs": N, "old_tokens": N, "new_tokens": N}
@@ -200,6 +202,11 @@ async def ws_chat(websocket: WebSocket):
                             "new_tokens": 0,
                         }
                     )
+
+            elif msg_type == "permission_response":
+                request_id = data.get("request_id", "")
+                approved = data.get("approved", False)
+                bridge.resolve_approval(request_id, approved)
 
             else:
                 await websocket.send_json({"type": "error", "message": f"未知消息类型: {msg_type}"})

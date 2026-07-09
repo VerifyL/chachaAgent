@@ -25,7 +25,7 @@ class BaseTool(ABC):
     description: str = ""
     parameters: Dict[str, Any] = {}
     risk: str = "low"  # low | medium | high
-    requires_approval: bool = False  # 是否需要用户确认
+    requires_approval: Optional[bool] = None  # None=由PolicyEngine决定, False=显式声明安全, True=显式声明需审批
     no_truncate: bool = False  # 设为 True 时 ToolExecutor 不截断该工具的输出
 
     # ====== 运行时注入 ======

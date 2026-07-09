@@ -386,6 +386,11 @@ class AgentBridge:
         except Exception:
             pass
 
+    def set_approval_handler(self, handler) -> None:
+        """替换 ToolExecutor 的审批处理器（供 WebBridge 注入异步审批）"""
+        if self._executor:
+            self._executor._approval_handler = handler
+
     # ====== 发送消息（委托 ChatEngine） ======
 
     def build_orchestrator(self, session_id: str = "", memory_manager=None) -> None:

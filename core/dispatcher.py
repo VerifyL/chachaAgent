@@ -18,6 +18,7 @@ Dispatcher — 工具调度器：桥接 ToolExecutor + LLMInvoker。
 """
 
 import asyncio
+import difflib
 import json
 import re
 import time
@@ -82,6 +83,30 @@ def _tool_args_summary(name: str, args: dict) -> str:
     elif name == "cache_read":
         return f"cache_read {args.get('cache_key', '?')[:40]}"
     return " ".join(f"{k}={v}" for k, v in args.items())
+
+
+def _generate_diff(tool_name: str, args: dict) -> str:
+    """为 edit/write 工具生成 unified diff 供前端展示。"""
+    if tool_name == "edit":
+        old_str = args.get("old_string", "")
+        new_str = args.get("new_string", "")
+        if old_str == new_str:
+            return ""
+        old_lines = old_str.splitlines(keepends=True)
+        new_lines = new_str.splitlines(keepends=True)
+        diff_lines = list(
+            difflib.unified_diff(
+                old_lines, new_lines,
+                fromfile="old", tofile="new",
+            )
+        )
+        return "".join(diff_lines) if diff_lines else ""
+    elif tool_name == "write":
+        path = args.get("path", "?")
+        content = args.get("content", "")
+        lines = content.count("\n") + (1 if content else 0)
+        return f"写入 {path} ({len(content)} bytes, {lines} 行)"
+    return ""
 
 
 class Dispatcher:
@@ -237,7 +262,7 @@ class Dispatcher:
                 self.tool_calls_made += 1
                 arg_summary = _tool_args_summary(tc_info["name"], args)
                 yield ToolExecStartEvent(tool_name=tc_info["name"], args=arg_summary)
-                _tc_infos.append((tc_info, arg_summary))
+                _tc_infos.append((tc_info, arg_summary, args))
                 tasks.append(
                     self._tools.execute(
                         tool_name=tc_info["name"],
@@ -268,7 +293,7 @@ class Dispatcher:
                 raise
 
             # Phase 3: 按原始顺序处理结果（Circuit Breaker 顺序累加，行为不变）
-            for i, (tc_info, arg_summary) in enumerate(_tc_infos):
+            for i, (tc_info, arg_summary, args) in enumerate(_tc_infos):
                 raw = results[i]
                 if isinstance(raw, Exception):
                     result = ToolResult(
@@ -305,8 +330,11 @@ class Dispatcher:
                         ),
                     )
                     return
+                diff = _generate_diff(tc_info["name"], args)
                 yield ToolExecEndEvent(
-                    tool_name=tc_info["name"], preview=(result.content or result.error or "")[:80].split("\n")[0]
+                    tool_name=tc_info["name"],
+                    preview=(result.content or result.error or "")[:80].split("\n")[0],
+                    diff=diff,
                 )
                 messages.append(
                     {

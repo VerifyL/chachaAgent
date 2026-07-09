@@ -328,13 +328,36 @@ function ToolCallMini({ tc }: { tc: ToolCallCard }) {
       </button>
       {expanded && (
         <div
-          className="mt-2 p-2 rounded font-mono text-[11px] whitespace-pre-wrap max-h-48 overflow-y-auto"
+          className="mt-2 p-2 rounded font-mono text-[11px] whitespace-pre-wrap max-h-64 overflow-y-auto"
           style={{ backgroundColor: "var(--bg-primary)" }}
         >
           {tc.args && (
-            <div className="mb-1">
+            <div className="mb-2">
               <span className="opacity-50">参数: </span>
-              {tc.args}
+              <span>{tc.args}</span>
+            </div>
+          )}
+          {tc.diff && (
+            <div className="mb-2">
+              <span className="opacity-50">Diff:</span>
+              <div className="mt-1 text-[11px] leading-relaxed">
+                {tc.diff.split("\n").map((line, i) => (
+                  <div
+                    key={i}
+                    className={
+                      line.startsWith("+")
+                        ? "text-green-500 dark:text-green-400"
+                        : line.startsWith("-")
+                          ? "text-red-500 dark:text-red-400"
+                          : line.startsWith("@@")
+                            ? "text-blue-400 dark:text-blue-300"
+                            : "opacity-60"
+                    }
+                  >
+                    {line || "\u00A0"}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
           {tc.preview && (
