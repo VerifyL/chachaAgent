@@ -26,8 +26,10 @@ from mcp import ClientSession
 logger = logging.getLogger(__name__)
 
 # 进程生命周期常量
+_SPAWN_TIMEOUT = 30.0   # 子进程/传输层启动超时（秒），比 initialize 长，适应 npx 首次下载
 _CONNECT_TIMEOUT = 15.0  # initialize 超时（秒）
 _CALL_TIMEOUT = 60.0  # tools/call 超时（秒）
+_PER_SERVER_TIMEOUT = _SPAWN_TIMEOUT + _CONNECT_TIMEOUT  # 单 server 总超时
 
 # 缓存
 CACHE_PATH = Path.home() / ".chacha" / "mcp_tools_cache.json"
@@ -147,8 +149,14 @@ class MCPClient:
 
         async def _connect_safe(name, cfg):
             try:
-                await self._connect_one(name, cfg)
+                await asyncio.wait_for(
+                    self._connect_one(name, cfg),
+                    timeout=_PER_SERVER_TIMEOUT,
+                )
                 return True
+            except asyncio.TimeoutError:
+                logger.error("[mcp] %s 连接超时（%ss）", name, _PER_SERVER_TIMEOUT)
+                return False
             except Exception as e:
                 logger.error("[mcp] %s 连接失败: %s", name, e)
                 return False
@@ -307,7 +315,15 @@ class MCPClient:
         if self._from_cache:
             if not self._bg_ready.is_set():
                 logger.info("[mcp] 等待后台连接完成（%s/%s）...", server_name, tool_name)
-                await self._bg_ready.wait()
+                try:
+                    await asyncio.wait_for(self._bg_ready.wait(), timeout=_PER_SERVER_TIMEOUT * len(self._server_configs))
+                except asyncio.TimeoutError:
+                    return ToolResult(
+                        status="error",
+                        content="",
+                        error=f"MCP server '{server_name}' 后台连接超时，请稍后重试",
+                        error_type="timeout",
+                    )
             if self._bg_client:
                 return await self._bg_client.call_tool(server_name, tool_name, arguments)
             return ToolResult(
@@ -540,7 +556,12 @@ class MCPClient:
             bg.set_tool_executor(tool_executor)
             for name, cfg in self._server_configs.items():
                 try:
-                    await bg._connect_one(name, cfg)
+                    await asyncio.wait_for(
+                        bg._connect_one(name, cfg),
+                        timeout=_PER_SERVER_TIMEOUT,
+                    )
+                except asyncio.TimeoutError:
+                    logger.error("[mcp] 后台连接 %s 超时（%ss）", name, _PER_SERVER_TIMEOUT)
                 except Exception as e:
                     logger.error("[mcp] 后台连接 %s 失败: %s", name, e)
             fresh_tools = await bg.get_tools()
@@ -610,7 +631,7 @@ class MCPClient:
             logger.info("[mcp] %s: 连接 SSE %s", name, url)
             cm = sse_client(url=url, headers=headers)
             self._transport_cms[name] = cm
-            read, write = await cm.__aenter__()
+            read, write = await asyncio.wait_for(cm.__aenter__(), timeout=_SPAWN_TIMEOUT)
             session = await ClientSession(read, write).__aenter__()
             await asyncio.wait_for(session.initialize(), timeout=_CONNECT_TIMEOUT)
             self._sessions[name] = session
@@ -634,7 +655,7 @@ class MCPClient:
             # 用 async with 避免 anyio 任务组竞态
             cm = streamable_http_client(url=url, http_client=http_client)
             self._http_cms[name] = cm  # 保存引用，断开时清理
-            read, write, _get_sid = await cm.__aenter__()
+            read, write, _get_sid = await asyncio.wait_for(cm.__aenter__(), timeout=_SPAWN_TIMEOUT)
             session = await ClientSession(read, write).__aenter__()
             await asyncio.wait_for(session.initialize(), timeout=_CONNECT_TIMEOUT)
             self._sessions[name] = session
@@ -658,7 +679,7 @@ class MCPClient:
         )
         cm = stdio_client(server_params, errlog=open(os.devnull, "w"))
         self._transport_cms[name] = cm
-        read, write = await cm.__aenter__()
+        read, write = await asyncio.wait_for(cm.__aenter__(), timeout=_SPAWN_TIMEOUT)
         session = await ClientSession(read, write).__aenter__()
         await asyncio.wait_for(session.initialize(), timeout=_CONNECT_TIMEOUT)
         self._sessions[name] = session
