@@ -55,7 +55,10 @@ export function ChatInput({ onSend, onStop }: Props) {
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
           onCompositionStart={() => { isComposingRef.current = true; }}
-          onCompositionEnd={() => { isComposingRef.current = false; }}
+          onCompositionEnd={() => {
+            // 延迟重置：compositionend 可能在 keydown 之前触发
+            setTimeout(() => { isComposingRef.current = false; }, 0);
+          }}
           placeholder="输入消息，Enter 发送，Shift+Enter 换行..."
           rows={1}
           disabled={streaming}
