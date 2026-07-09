@@ -81,6 +81,7 @@ export function useWebSocket() {
         break;
 
       case "done":
+        // 取消时消息保留在屏幕（后端已通过 restore_checkpoint 清理上下文）
         setStreaming(false);
         break;
 

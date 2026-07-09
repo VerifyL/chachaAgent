@@ -199,6 +199,7 @@ class LLMInvoker:
             return
         except (KeyboardInterrupt, asyncio.CancelledError):
             yield ErrorChunk(error="用户中断")
+            raise  # 重新抛出，让上层（dispatcher/orchestrator）知道流已被取消
 
     async def _invoke_impl(
         self,

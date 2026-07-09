@@ -5,10 +5,12 @@ bash_tool.py — BashTool: 执行 Shell 命令。
 截断由 tool_executor 自动处理。
 """
 
+import asyncio
 import os
 import re
 import signal
 import subprocess
+import time
 from pathlib import Path
 
 from capabilities.base import BaseTool
@@ -96,7 +98,10 @@ class BashTool(BaseTool):
                     data={"workdir": workdir},
                 )
 
-        # ── 3. 执行（进程组方式，确保超时时清理所有子进程）──
+        # ── 3. 执行（进程组方式，确保超时/取消时清理所有子进程）──
+        poll_interval = 0.5
+        t0 = time.monotonic()
+        p = None
         try:
             p = subprocess.Popen(
                 command,
@@ -107,30 +112,49 @@ class BashTool(BaseTool):
                 cwd=str(cwd),
                 preexec_fn=os.setsid,  # 新进程组
             )
-            stdout, stderr_str = p.communicate(timeout=timeout)
-            exit_code = p.returncode
-        except subprocess.TimeoutExpired:
-            # 超时：杀整个进程组，不留孤儿
-            try:
-                os.killpg(os.getpgid(p.pid), signal.SIGKILL)
-            except (ProcessLookupError, OSError):
-                pass
-            try:
-                stdout, stderr_str = p.communicate(timeout=1)
-            except subprocess.TimeoutExpired:
-                p.kill()
-                stdout, stderr_str = p.communicate()
-            return ToolResult(
-                status="error",
-                content=stdout if stdout else "",
-                error=f"命令超时 ({timeout}s): {command}",
-                error_type="timeout",
-                data={
-                    "command": command,
-                    "timeout": timeout,
-                    "workdir": str(cwd),
-                },
-            )
+            while True:
+                try:
+                    stdout, stderr_str = p.communicate(timeout=poll_interval)
+                    exit_code = p.returncode
+                    break
+                except subprocess.TimeoutExpired:
+                    elapsed = time.monotonic() - t0
+                    if elapsed >= timeout:
+                        # 总超时：杀整个进程组
+                        try:
+                            os.killpg(os.getpgid(p.pid), signal.SIGKILL)
+                        except (ProcessLookupError, OSError):
+                            pass
+                        try:
+                            stdout, stderr_str = p.communicate(timeout=1)
+                        except subprocess.TimeoutExpired:
+                            p.kill()
+                            stdout, stderr_str = p.communicate()
+                        return ToolResult(
+                            status="error",
+                            content=stdout if stdout else "",
+                            error=f"命令超时 ({timeout}s): {command}",
+                            error_type="timeout",
+                            data={
+                                "command": command,
+                                "timeout": timeout,
+                                "workdir": str(cwd),
+                            },
+                        )
+                    await asyncio.sleep(0)  # yield to event loop
+        except asyncio.CancelledError:
+            # 用户取消 → 杀整个进程组
+            if p is not None:
+                try:
+                    os.killpg(os.getpgid(p.pid), signal.SIGKILL)
+                except (ProcessLookupError, OSError):
+                    pass
+                try:
+                    p.communicate(timeout=1)
+                except subprocess.TimeoutExpired:
+                    p.kill()
+                    p.communicate()
+            raise
         except FileNotFoundError:
             return ToolResult(
                 status="error",

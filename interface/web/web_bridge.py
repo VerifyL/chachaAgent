@@ -76,6 +76,10 @@ class WebBridge:
         """保存当前会话状态的 checkpoint"""
         self._bridge.save_checkpoint()
 
+    def restore_checkpoint(self) -> None:
+        """回滚到上次保存的 checkpoint"""
+        self._bridge.restore_checkpoint()
+
     # ====== 属性 ======
 
     @property

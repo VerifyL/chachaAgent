@@ -427,6 +427,9 @@ class AgentBridge:
     def save_checkpoint(self) -> None:
         self._engine.save_checkpoint()
 
+    def restore_checkpoint(self) -> None:
+        self._engine.restore_checkpoint()
+
     async def reset(self) -> None:
         self._engine.reset()
 

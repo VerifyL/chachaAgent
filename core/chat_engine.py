@@ -124,6 +124,11 @@ class ChatEngine:
             except Exception:
                 pass
 
+    def restore_checkpoint(self) -> None:
+        """回滚到上次保存的 checkpoint（用于取消对话后恢复干净上下文）。"""
+        self._reset_messages()
+        self._try_restore()
+
     # ====== 发送消息 ======
 
     async def send_message(self, user_input: str) -> AsyncIterator[Dict[str, Any]]:

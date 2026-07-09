@@ -10,7 +10,7 @@ export type ServerMessage =
   | { type: "tool_call_args"; tool_name: string; args: string }
   | { type: "tool_exec_start"; tool_name: string; preview: string }
   | { type: "tool_exec_end"; tool_name: string; preview: string; truncated?: boolean; cache_key?: string }
-  | { type: "done"; tokens: number }
+  | { type: "done"; tokens: number; cancelled?: boolean }
   | { type: "error"; message: string }
   | { type: "compact"; summary: string }
   | { type: "session_created"; session_id: string }

@@ -155,6 +155,9 @@ class Orchestrator:
                 yield chunk
         except GeneratorExit:
             return
+        except asyncio.CancelledError:
+            # 用户取消：不保存 checkpoint、不压缩、不记录记忆
+            raise
         except Exception as e:
             yield ErrorEvent(message=str(e))
 
