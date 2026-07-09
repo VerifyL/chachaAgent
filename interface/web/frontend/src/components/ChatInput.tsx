@@ -10,6 +10,7 @@ interface Props {
 export function ChatInput({ onSend, onStop }: Props) {
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const isComposingRef = useRef(false); // 输入法组合状态
   const { streaming } = useChatStore();
 
   const handleSend = () => {
@@ -20,6 +21,9 @@ export function ChatInput({ onSend, onStop }: Props) {
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // 输入法正在组合（如中文输入法选词），不处理 Enter
+    if (isComposingRef.current || e.nativeEvent.isComposing) return;
+
     if (e.key === "Enter") {
       if (e.shiftKey) {
         // Shift+Enter 换行（默认行为，不拦截）
@@ -50,6 +54,8 @@ export function ChatInput({ onSend, onStop }: Props) {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
+          onCompositionStart={() => { isComposingRef.current = true; }}
+          onCompositionEnd={() => { isComposingRef.current = false; }}
           placeholder="输入消息，Enter 发送，Shift+Enter 换行..."
           rows={1}
           disabled={streaming}
