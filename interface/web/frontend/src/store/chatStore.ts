@@ -40,9 +40,12 @@ interface ChatState {
   setRetry: (fn: () => void) => void;
 }
 
+const EMPTY_MESSAGES: ChatMessage[] = [];
+
 /** 从分组中获取当前会话的消息 */
 function getCurrentMessages(s: ChatState): ChatMessage[] {
-  return s.sessionId ? (s.messagesBySession[s.sessionId] ?? []) : [];
+  if (!s.sessionId) return EMPTY_MESSAGES;
+  return s.messagesBySession[s.sessionId] ?? EMPTY_MESSAGES;
 }
 
 export const useChatStore = create<ChatState>((set) => ({
