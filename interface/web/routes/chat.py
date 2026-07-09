@@ -43,15 +43,15 @@ async def ws_chat(websocket: WebSocket):
 
     # 尝试从 query param 恢复已有会话
     requested_sid = websocket.query_params.get("session_id")
-    session_svc = SessionService(project_root)
-
+    existing_sid = None
     if requested_sid:
-        try:
-            result = await session_svc.switch_to(requested_sid)
-            if "✅" in result:
-                logger.info(f"[ws] 恢复已有会话 session={requested_sid}")
-        except Exception:
-            logger.info(f"[ws] 会话 {requested_sid} 不可恢复，创建新会话")
+        from core.context.memory_manager import MemoryManager
+
+        mm = MemoryManager(project_root=project_root)
+        if requested_sid in mm.list_all_sessions():
+            existing_sid = requested_sid
+
+    session_svc = SessionService(project_root, session_id=existing_sid)
 
     # 注入 session 工具 + 运行时依赖
     bridge.set_tools_for_session(session_svc.memory_manager)

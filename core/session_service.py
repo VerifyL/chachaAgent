@@ -31,6 +31,7 @@ class SessionService:
         global_dream_rounds: int = None,
         global_dream_hours: int = None,
         telemetry=None,
+        session_id: str = None,
     ):
         self._root = project_root
         self._llm = llm_invoker
@@ -51,8 +52,8 @@ class SessionService:
         self._global_dream_rounds = global_dream_rounds or auto.get("global_dream_rounds") or self.GLOBAL_DREAM_ROUNDS
         self._global_dream_hours = global_dream_hours or auto.get("global_dream_hours") or self.GLOBAL_DREAM_HOURS
 
-        # 当前 session
-        self._session_id = self._gen_id()
+        # 当前 session（传入已有 ID 时不新建，避免产生垃圾 session）
+        self._session_id = session_id or self._gen_id()
         self._init = ProjectInit(self._root, self._session_id)
         self._memory = self._init.memory_manager
 
