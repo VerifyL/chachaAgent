@@ -22,7 +22,10 @@ export function ChatInput({ onSend, onStop }: Props) {
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     // 输入法正在组合（如中文输入法选词），不处理 Enter
-    if (isComposingRef.current || e.nativeEvent.isComposing) return;
+    // isComposingRef: React 合成事件
+    // nativeEvent.isComposing: 原生事件
+    // keyCode === 229: 浏览器底层 IME 处理信号（兜底）
+    if (isComposingRef.current || e.nativeEvent.isComposing || e.keyCode === 229) return;
 
     if (e.key === "Enter") {
       if (e.shiftKey) {
