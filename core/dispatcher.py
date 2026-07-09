@@ -96,8 +96,10 @@ def _generate_diff(tool_name: str, args: dict) -> str:
         new_lines = new_str.splitlines(keepends=True)
         diff_lines = list(
             difflib.unified_diff(
-                old_lines, new_lines,
-                fromfile="old", tofile="new",
+                old_lines,
+                new_lines,
+                fromfile="old",
+                tofile="new",
             )
         )
         return "".join(diff_lines) if diff_lines else ""
