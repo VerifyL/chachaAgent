@@ -2,11 +2,12 @@ import { useRef, useEffect, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
-import { useChatStore } from "../store/chatStore";
+import { useChatStore, useCurrentMessages } from "../store/chatStore";
 import type { ChatMessage, ToolCallCard } from "../types";
 
 export function MessageList() {
-  const { messages, streaming, error, retry, setError } = useChatStore();
+  const messages = useCurrentMessages();
+  const { streaming, error, retry, setError } = useChatStore();
   const bottomRef = useRef<HTMLDivElement>(null);
 
   // 自动滚到底部

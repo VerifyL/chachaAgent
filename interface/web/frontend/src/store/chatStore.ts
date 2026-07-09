@@ -5,7 +5,8 @@ interface ChatState {
   // 会话
   sessionId: string | null;
   sessions: SessionSummary[];
-  messages: ChatMessage[];
+  /** 按 sessionId 分组的消息，切换会话不丢失 */
+  messagesBySession: Record<string, ChatMessage[]>;
   loading: boolean;
   streaming: boolean;
 
@@ -39,10 +40,15 @@ interface ChatState {
   setRetry: (fn: () => void) => void;
 }
 
+/** 从分组中获取当前会话的消息 */
+function getCurrentMessages(s: ChatState): ChatMessage[] {
+  return s.sessionId ? (s.messagesBySession[s.sessionId] ?? []) : [];
+}
+
 export const useChatStore = create<ChatState>((set) => ({
   sessionId: null,
   sessions: [],
-  messages: [],
+  messagesBySession: {},
   loading: false,
   streaming: false,
   error: null,
@@ -59,10 +65,18 @@ export const useChatStore = create<ChatState>((set) => ({
       return { sessions: [session, ...s.sessions] };
     }),
   addMessage: (msg) =>
-    set((s) => ({ messages: [...s.messages, msg], error: null })),
+    set((s) => {
+      if (!s.sessionId) return { messagesBySession: s.messagesBySession };
+      const msgs = [...(s.messagesBySession[s.sessionId] ?? []), msg];
+      return {
+        messagesBySession: { ...s.messagesBySession, [s.sessionId]: msgs },
+        error: null,
+      };
+    }),
   appendContent: (content) =>
     set((s) => {
-      const msgs = [...s.messages];
+      if (!s.sessionId) return s;
+      const msgs = [...(s.messagesBySession[s.sessionId] ?? [])];
       const last = msgs[msgs.length - 1];
       if (last && last.role === "assistant") {
         msgs[msgs.length - 1] = {
@@ -70,11 +84,14 @@ export const useChatStore = create<ChatState>((set) => ({
           content: last.content + content,
         };
       }
-      return { messages: msgs };
+      return {
+        messagesBySession: { ...s.messagesBySession, [s.sessionId!]: msgs },
+      };
     }),
   appendReasoning: (content) =>
     set((s) => {
-      const msgs = [...s.messages];
+      if (!s.sessionId) return s;
+      const msgs = [...(s.messagesBySession[s.sessionId] ?? [])];
       const last = msgs[msgs.length - 1];
       if (last && last.role === "assistant") {
         msgs[msgs.length - 1] = {
@@ -82,11 +99,14 @@ export const useChatStore = create<ChatState>((set) => ({
           reasoning: (last.reasoning || "") + content,
         };
       }
-      return { messages: msgs };
+      return {
+        messagesBySession: { ...s.messagesBySession, [s.sessionId!]: msgs },
+      };
     }),
   addToolCall: (tc) =>
     set((s) => {
-      const msgs = [...s.messages];
+      if (!s.sessionId) return s;
+      const msgs = [...(s.messagesBySession[s.sessionId] ?? [])];
       const last = msgs[msgs.length - 1];
       if (last && last.role === "assistant") {
         msgs[msgs.length - 1] = {
@@ -94,11 +114,15 @@ export const useChatStore = create<ChatState>((set) => ({
           toolCalls: [...last.toolCalls, tc],
         };
       }
-      return { messages: msgs, lastRunningToolId: tc.id };
+      return {
+        messagesBySession: { ...s.messagesBySession, [s.sessionId!]: msgs },
+        lastRunningToolId: tc.id,
+      };
     }),
   updateToolCall: (id, update) =>
     set((s) => {
-      const msgs = [...s.messages];
+      if (!s.sessionId) return s;
+      const msgs = [...(s.messagesBySession[s.sessionId] ?? [])];
       const last = msgs[msgs.length - 1];
       if (last && last.role === "assistant") {
         msgs[msgs.length - 1] = {
@@ -108,12 +132,14 @@ export const useChatStore = create<ChatState>((set) => ({
           ),
         };
       }
-      return { messages: msgs };
+      return {
+        messagesBySession: { ...s.messagesBySession, [s.sessionId!]: msgs },
+      };
     }),
   updateLastToolCall: (update) =>
     set((s) => {
-      if (!s.lastRunningToolId) return s;
-      const msgs = [...s.messages];
+      if (!s.lastRunningToolId || !s.sessionId) return s;
+      const msgs = [...(s.messagesBySession[s.sessionId] ?? [])];
       const last = msgs[msgs.length - 1];
       if (last && last.role === "assistant") {
         msgs[msgs.length - 1] = {
@@ -123,7 +149,9 @@ export const useChatStore = create<ChatState>((set) => ({
           ),
         };
       }
-      return { messages: msgs };
+      return {
+        messagesBySession: { ...s.messagesBySession, [s.sessionId!]: msgs },
+      };
     }),
   setLastRunningToolId: (id) => set({ lastRunningToolId: id }),
   setLoading: (v) => set({ loading: v }),
@@ -136,6 +164,22 @@ export const useChatStore = create<ChatState>((set) => ({
     set((s) => ({ darkMode: !s.darkMode })),
   toggleSidebar: () =>
     set((s) => ({ sidebarOpen: !s.sidebarOpen })),
-  setMessages: (msgs) => set({ messages: msgs }),
-  clearMessages: () => set({ messages: [], sessionId: null, lastRunningToolId: null }),
+  setMessages: (msgs) =>
+    set((s) => {
+      if (!s.sessionId) return { messagesBySession: s.messagesBySession };
+      return {
+        messagesBySession: { ...s.messagesBySession, [s.sessionId]: msgs },
+      };
+    }),
+  clearMessages: () =>
+    set((s) => {
+      if (!s.sessionId) return { messagesBySession: s.messagesBySession, sessionId: null, lastRunningToolId: null };
+      const { [s.sessionId]: _, ...rest } = s.messagesBySession;
+      return { messagesBySession: rest, sessionId: null, lastRunningToolId: null };
+    }),
 }));
+
+/** 获取当前会话的消息列表（用于组件） */
+export function useCurrentMessages(): ChatMessage[] {
+  return useChatStore((s) => getCurrentMessages(s));
+}

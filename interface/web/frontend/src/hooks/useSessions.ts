@@ -54,8 +54,9 @@ export function useSessions() {
           timestamp: Date.now(),
         }));
 
-        setMessages(messages);
+        // 先设 sessionId，再 setMessages 才会写入正确分组
         setSessionId(sessionId);
+        setMessages(messages);
       } catch (err) {
         console.warn("[sessions] load history failed:", err);
       }
