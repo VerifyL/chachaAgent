@@ -76,14 +76,41 @@ async def get_session_messages(session_id: str):
 
     for day in days:
         day_content = mgr.read_day(day)
+        # 状态机解析：Q: / A: 可能是多行，持续收集直到下一个标记
+        current_role = None  # "user" | "assistant" | None
+        current_lines: list[str] = []
+
+        def _flush():
+            nonlocal current_role, current_lines
+            if current_role and current_lines:
+                content = "\n".join(current_lines).strip()
+                if content:
+                    messages.append({"role": current_role, "content": content})
+            current_role = None
+            current_lines = []
+
         for line in day_content.split("\n"):
-            line = line.strip()
-            if not line:
+            stripped = line.strip()
+            # Q: / A: 标记 — 先 flush 上一个，再开始新的
+            if stripped.startswith("Q:"):
+                _flush()
+                current_role = "user"
+                current_lines.append(stripped[2:].strip())
+            elif stripped.startswith("A:"):
+                _flush()
+                current_role = "assistant"
+                current_lines.append(stripped[2:].strip())
+            elif stripped.startswith("##") and current_role is None:
+                # 时间标记行，跳过
                 continue
-            if line.startswith("Q:"):
-                messages.append({"role": "user", "content": line[2:].strip()})
-            elif line.startswith("A:"):
-                messages.append({"role": "assistant", "content": line[2:].strip()})
+            elif current_role and stripped:
+                # 多行内容的后续行
+                current_lines.append(stripped)
+            # 空行：属于多行内容的一部分，跳过而非截断
+            elif current_role:
+                current_lines.append("")
+
+        _flush()  # 文件末尾 flush 最后一个条目
 
     return {
         "session_id": session_id,
