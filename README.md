@@ -147,6 +147,62 @@ Web 前端特性：流式对话、代码高亮（亮/暗主题）、一键复制
 
 详细说明见 [docs/configuration.md](docs/configuration.md)
 
+### MCP 联网搜索 (web-search)
+
+ChaChaAgent 内置了 MCP 客户端，可以接入 [open-websearch](https://github.com/Aas-ee/open-webSearch) 获得免费联网搜索能力（无需 API Key）。
+
+#### 前置条件
+
+- **Node.js** ≥ 18（推荐最新 LTS，自带 `npx`）
+
+```bash
+# 检查版本，npx 随 Node.js 一起安装
+node -v   # ≥ 18
+npx -v    # 确认 npx 可用
+```
+
+#### 配置
+
+在 `~/.chacha/config.toml` 中添加：
+
+```toml
+[mcp.servers.web-search]
+command = "npx"
+args = ["-y", "open-websearch@latest"]
+env = { MODE = "stdio" }
+```
+
+首次启动时 `npx` 会自动下载 `open-websearch`，约需 30-45 秒。后续启动使用缓存，秒开。
+
+#### 可选：提前全局安装（避免首次等待）
+
+```bash
+npm install -g open-websearch
+```
+
+全局安装后，可将配置中的启动项改为：
+
+```toml
+[mcp.servers.web-search]
+command = "open-websearch"
+args = []
+env = { MODE = "stdio" }
+```
+
+#### 提供的工具
+
+| 工具 | 功能 |
+|------|------|
+| `search` | 多引擎网络搜索（Bing/Baidu/DuckDuckGo/CSDN/Juejin 等） |
+| `fetchWebContent` | 抓取公开网页/文档内容 |
+| `fetchGithubReadme` | 抓取 GitHub 仓库 README |
+| `fetchCsdnArticle` | 抓取 CSDN 文章全文 |
+| `fetchJuejinArticle` | 抓取掘金文章全文 |
+
+#### 鸣谢
+
+感谢 [**Aas-ee**](https://github.com/Aas-ee) 开发和维护 [open-websearch](https://github.com/Aas-ee/open-webSearch) MCP Server，为 AI Agent 提供了免费、开箱即用的联网搜索能力。
+
 ## 项目结构
 
 ```
