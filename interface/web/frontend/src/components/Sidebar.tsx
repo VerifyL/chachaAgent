@@ -27,6 +27,7 @@ export function Sidebar({ onNewSession }: Props) {
   const handleSelectSession = async (id: string) => {
     if (id === sessionId) return;
     await loadHistory(id);
+    localStorage.setItem("lastSessionId", id);
     // 刷新列表以更新 preview
     fetchSessions();
     if (isMobile) toggleSidebar();
@@ -35,7 +36,21 @@ export function Sidebar({ onNewSession }: Props) {
   const handleDelete = async (e: React.MouseEvent, sid: string) => {
     e.stopPropagation();
     if (!confirm(`确定删除会话 ${sid.slice(0, 15)}...？`)) return;
+
+    const wasCurrent = sessionId === sid;
     await deleteSession(sid);
+
+    if (wasCurrent) {
+      // 删除当前会话 → 自动切换到最新会话
+      const { sessions: updatedSessions } = useChatStore.getState();
+      if (updatedSessions.length > 0) {
+        const latestId = updatedSessions[0].id;
+        await loadHistory(latestId);
+        localStorage.setItem("lastSessionId", latestId);
+      } else {
+        localStorage.removeItem("lastSessionId");
+      }
+    }
   };
 
   const sidebarContent = (

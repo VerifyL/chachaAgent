@@ -25,16 +25,24 @@ export function useWebSocket() {
 
   const handleServerMessage = useCallback((msg: ServerMessage) => {
     switch (msg.type) {
-      case "session_created":
+      case "session_created": {
         setSessionId(msg.session_id);
+        // 判断是恢复已有会话还是真正新建
+        const lastSid = localStorage.getItem("lastSessionId");
+        const isRestore = lastSid === msg.session_id;
         localStorage.setItem("lastSessionId", msg.session_id);
-        // 把新会话加到侧边栏列表中（避免高亮失效）
-        addSession({
-          id: msg.session_id,
-          preview: "（新对话）",
-          time: new Date().toLocaleString(),
-        });
+
+        if (!isRestore) {
+          // 真正的新会话 → 加入侧边栏列表
+          addSession({
+            id: msg.session_id,
+            preview: "（新对话）",
+            time: new Date().toLocaleString(),
+          });
+        }
+        // 恢复已有会话 → fetchSessions 会填充列表，不重复添加
         break;
+      }
 
       case "text":
         appendContent(msg.content);
