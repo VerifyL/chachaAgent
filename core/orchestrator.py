@@ -213,7 +213,7 @@ class Orchestrator:
         try:
             tel = getattr(dispatcher, "_telemetry", None) if dispatcher else None
             if tel and tel.agent:
-                tel.agent.record_context(est, pct, compression_triggered=bool(reason))
+                tel.agent.record_context(est, pct, compression_triggered=bool(result))
         except Exception:
             pass
 
