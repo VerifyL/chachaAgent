@@ -430,6 +430,14 @@ class AgentBridge:
     def restore_checkpoint(self) -> None:
         self._engine.restore_checkpoint()
 
+    async def compact_context(self, *, force: bool = False) -> dict | None:
+        """手动压缩上下文。
+        返回压缩统计 dict（含 reason/old_msgs/new_msgs/old_tokens/new_tokens），
+        无需压缩时返回 None。force=True 跳过阈值检查。"""
+        if not self._orchestrator:
+            return None
+        return await self._orchestrator.compact(force=force)
+
     async def reset(self) -> None:
         self._engine.reset()
 

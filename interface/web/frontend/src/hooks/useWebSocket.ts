@@ -21,6 +21,7 @@ export function useWebSocket() {
     setError,
     setLastUserInput,
     addSession,
+    showToast,
   } = useChatStore();
 
   const handleServerMessage = useCallback((msg: ServerMessage) => {
@@ -91,7 +92,21 @@ export function useWebSocket() {
         break;
 
       case "compact":
-        // 上下文压缩通知，静默处理
+        // 上下文压缩通知 — 显示具体统计
+        {
+          const oldK = Math.round(msg.old_tokens / 1000);
+          const newK = Math.round(msg.new_tokens / 1000);
+          const saved = oldK - newK;
+          const ratio = oldK > 0 ? Math.round((saved / oldK) * 100) : 0;
+          if (msg.old_msgs === 0 && msg.new_msgs === 0) {
+            // 已是最小上下文，无需压缩
+            showToast("✅ 上下文已是最小，无需压缩");
+          } else {
+            showToast(
+              `✅ 压缩完成：消息 ${msg.old_msgs}→${msg.new_msgs}，token ${oldK}K→${newK}K（-${ratio}%）`,
+            );
+          }
+        }
         break;
 
       case "pong":
@@ -153,6 +168,10 @@ export function useWebSocket() {
     [send, setLastUserInput],
   );
 
+  const sendCompact = useCallback(() => {
+    send({ type: "compact_now" });
+  }, [send]);
+
   const disconnect = useCallback(() => {
     if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
     wsRef.current?.close();
@@ -165,5 +184,5 @@ export function useWebSocket() {
     return () => disconnect();
   }, []);
 
-  return { send, sendChat, stop, disconnect };
+  return { send, sendChat, sendCompact, stop, disconnect };
 }

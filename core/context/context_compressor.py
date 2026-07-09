@@ -311,15 +311,19 @@ class ContextCompressor:
             reason = f"压缩 {int(pct * 100)}% 窗口"
         elif not force:
             return messages, ""
+        else:
+            reason = "手动压缩"
 
         # messages → AssembledContext（简化版，无 ContextManager）
         ctx = ContextCompressor._messages_to_ctx(messages)
 
         # compress
+        # force=True 时用更激进的保留数（5），否则 force 对少量消息无效
+        preserve = _DEFAULT_PRESERVE_RECENT if force else trim_tail
         compressor_kwargs = dict(
             llm_invoker=llm,
             context_window=context_window,
-            preserve_recent=trim_tail,
+            preserve_recent=preserve,
         )
         if summary_model is not None:
             compressor_kwargs["summary_model"] = summary_model

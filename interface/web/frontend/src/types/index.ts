@@ -12,7 +12,7 @@ export type ServerMessage =
   | { type: "tool_exec_end"; tool_name: string; preview: string; truncated?: boolean; cache_key?: string }
   | { type: "done"; tokens: number; cancelled?: boolean }
   | { type: "error"; message: string }
-  | { type: "compact"; summary: string }
+  | { type: "compact"; reason: string; old_msgs: number; new_msgs: number; old_tokens: number; new_tokens: number }
   | { type: "session_created"; session_id: string }
   | { type: "pong" };
 
@@ -21,6 +21,7 @@ export type ClientMessage =
   | { type: "chat"; content: string }
   | { type: "new_session" }
   | { type: "stop" }
+  | { type: "compact_now" }
   | { type: "ping" };
 
 // 对话中的消息气泡

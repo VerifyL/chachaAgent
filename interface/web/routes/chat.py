@@ -44,7 +44,7 @@ async def ws_chat(websocket: WebSocket):
         {"type": "tool_exec_end", "tool_name": "...", "preview": "..."}
         {"type": "done", "tokens": 0, "cancelled": true}  (取消时)
         {"type": "error", "message": "..."}
-        {"type": "compact", "reason": "..."}
+        {"type": "compact", "reason": "...", "old_msgs": N, "new_msgs": N, "old_tokens": N, "new_tokens": N}
         {"type": "session_created", "session_id": "..."}
     """
     await websocket.accept()
@@ -183,6 +183,23 @@ async def ws_chat(websocket: WebSocket):
 
             elif msg_type == "ping":
                 await websocket.send_json({"type": "pong"})
+
+            elif msg_type == "compact_now":
+                # 手动压缩上下文（强制，跳过阈值检查）
+                payload = await bridge.compact_context(force=True)
+                if payload:
+                    await websocket.send_json(payload)
+                else:
+                    await websocket.send_json(
+                        {
+                            "type": "compact",
+                            "reason": "压缩完成（已是最小上下文）",
+                            "old_msgs": 0,
+                            "new_msgs": 0,
+                            "old_tokens": 0,
+                            "new_tokens": 0,
+                        }
+                    )
 
             else:
                 await websocket.send_json({"type": "error", "message": f"未知消息类型: {msg_type}"})

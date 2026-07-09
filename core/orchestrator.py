@@ -59,6 +59,43 @@ class Orchestrator:
         """注入 ChatEngine 实例（用于 run_stream）。"""
         self._engine = engine
 
+    async def compact(self, *, force: bool = False) -> dict | None:
+        """手动触发上下文压缩。
+
+        返回压缩统计 dict 或 None（无需压缩时）：
+            {"reason": str, "old_msgs": int, "new_msgs": int,
+             "old_tokens": int, "new_tokens": int}
+        force=True 时跳过阈值检查，强制执行。
+        """
+        if not self._engine:
+            return None
+
+        from core.context.context_compressor import ContextCompressor
+
+        old_msgs_count = len(self._engine._messages)
+        old_tokens = ContextCompressor.estimate_tokens(self._engine._messages)
+        msgs, reason = await ContextCompressor.auto_compact(
+            self._engine._messages,
+            self._engine._context_window,
+            llm=getattr(self._engine, "_llm", None),
+            force=force,
+        )
+        if reason:
+            new_msgs_count = len(msgs)
+            new_tokens = ContextCompressor.estimate_tokens(msgs)
+            # force=True 但消息/Token 无变化 → 上下文已最小
+            if new_msgs_count == old_msgs_count and new_tokens == old_tokens:
+                return None
+            self._engine._messages = msgs
+            return {
+                "reason": reason,
+                "old_msgs": old_msgs_count,
+                "new_msgs": new_msgs_count,
+                "old_tokens": old_tokens,
+                "new_tokens": new_tokens,
+            }
+        return None
+
     # ====== 流式入口（委托 ChatEngine，为 Hook/Policy 预留） ======
 
     async def run_stream(
@@ -168,14 +205,9 @@ class Orchestrator:
 
         est = ContextCompressor.estimate_tokens(self._engine._messages)
         pct = est / self._engine._context_window if self._engine._context_window else 0
-        msgs, reason = await ContextCompressor.auto_compact(
-            self._engine._messages,
-            self._engine._context_window,
-            llm=getattr(self._engine, "_llm", None),
-        )
-        if reason:
-            self._engine._messages = msgs
-            yield CompactEvent(reason=reason)
+        result = await self.compact()
+        if result:
+            yield CompactEvent(reason=result["reason"])
 
         # ── 8. 上下文利用率遥测 ──
         try:

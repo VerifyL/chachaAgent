@@ -8,7 +8,7 @@ import type { ChatMessage, ClientMessage } from "./types";
 let msgSeq = 0;
 
 function App() {
-  const { send, sendChat, stop } = useWebSocket();
+  const { send, sendChat, sendCompact, stop } = useWebSocket();
   const {
     darkMode,
     addMessage,
@@ -78,7 +78,7 @@ function App() {
   return (
     <div className="flex h-screen w-screen overflow-hidden">
       <Sidebar onNewSession={handleNewSession} />
-      <ChatArea onSend={onSend} onStop={stop} />
+      <ChatArea onSend={onSend} onStop={stop} onCompact={sendCompact} />
     </div>
   );
 }

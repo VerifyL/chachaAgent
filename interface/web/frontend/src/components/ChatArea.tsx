@@ -7,10 +7,11 @@ import type { ClientMessage } from "../types";
 interface Props {
   onSend: (msg: ClientMessage) => void;
   onStop: () => void;
+  onCompact: () => void;
 }
 
-export function ChatArea({ onSend, onStop }: Props) {
-  const { sidebarOpen, toggleSidebar } = useChatStore();
+export function ChatArea({ onSend, onStop, onCompact }: Props) {
+  const { sidebarOpen, toggleSidebar, toast } = useChatStore();
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
   useEffect(() => {
@@ -36,7 +37,24 @@ export function ChatArea({ onSend, onStop }: Props) {
           </button>
         )}
         <span className="text-sm font-medium">对话</span>
+        <div className="flex-1" />
+        <button
+          onClick={onCompact}
+          className="px-2 py-0.5 text-xs rounded border hover:opacity-70"
+          style={{ borderColor: "var(--border-color)" }}
+          title="压缩上下文（减少 token 消耗）"
+        >
+          🗜️ 压缩
+        </button>
       </div>
+
+      {/* Toast 提示 */}
+      {toast && (
+        <div className="px-4 py-1.5 text-xs text-center"
+          style={{ backgroundColor: "#dcfce7", color: "#166534" }}>
+          {toast}
+        </div>
+      )}
 
       {/* 消息列表 */}
       <MessageList />

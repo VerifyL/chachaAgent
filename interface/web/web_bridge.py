@@ -80,6 +80,14 @@ class WebBridge:
         """回滚到上次保存的 checkpoint"""
         self._bridge.restore_checkpoint()
 
+    async def compact_context(self, *, force: bool = False) -> dict | None:
+        """手动触发上下文压缩。返回 compact 事件 dict 或 None。
+        force=True 时跳过阈值检查，强制执行。"""
+        stats = await self._bridge.compact_context(force=force)
+        if stats:
+            return {"type": "compact", **stats}
+        return None
+
     # ====== 属性 ======
 
     @property

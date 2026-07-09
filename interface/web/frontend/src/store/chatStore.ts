@@ -16,6 +16,7 @@ interface ChatState {
   sidebarOpen: boolean;
   lastRunningToolId: string | null;
   lastUserInput: string | null; // 用于错误后重试
+  toast: string | null; // 临时提示（如压缩通知）
 
   // actions
   setSessionId: (id: string | null) => void;
@@ -36,6 +37,7 @@ interface ChatState {
   setLastUserInput: (v: string | null) => void;
   setMessages: (msgs: ChatMessage[]) => void;
   clearMessages: () => void;
+  showToast: (msg: string) => void;
   retry: () => void; // 占位，由 App 层注入
   setRetry: (fn: () => void) => void;
 }
@@ -59,6 +61,7 @@ export const useChatStore = create<ChatState>((set) => ({
   sidebarOpen: true,
   lastRunningToolId: null,
   lastUserInput: null,
+  toast: null,
 
   setSessionId: (id) => set({ sessionId: id }),
   setSessions: (sessions) => set({ sessions }),
@@ -180,6 +183,10 @@ export const useChatStore = create<ChatState>((set) => ({
       const { [s.sessionId]: _, ...rest } = s.messagesBySession;
       return { messagesBySession: rest, sessionId: null, lastRunningToolId: null };
     }),
+  showToast: (msg) => {
+    set({ toast: msg });
+    setTimeout(() => set({ toast: null }), 3000);
+  },
 }));
 
 /** 获取当前会话的消息列表（用于组件） */
