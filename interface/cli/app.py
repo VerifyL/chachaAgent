@@ -203,6 +203,8 @@ class ChachaCLI:
             try:
                 await self._active_task
             except asyncio.CancelledError:
+                global _interrupted
+                _interrupted = False  # 确保 task.cancel() 路径也清理标志位
                 if self._bridge:
                     self._bridge.restore_checkpoint()
                 RICH_CONSOLE.print(f"\n[{self._t['separator']}]" + "─" * 30 + "[/]")
