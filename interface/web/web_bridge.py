@@ -69,8 +69,6 @@ class WebBridge:
         - 审批事件来自 _web_approval_handler（tool 执行中触发）
         - 两者汇入同一个 _interleave_queue，保证事件时序正确
         """
-        stream_done = asyncio.Event()
-
         async def _run_bridge() -> None:
             """后台运行 bridge 流，所有事件 push 到混流队列"""
             try:

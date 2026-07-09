@@ -316,7 +316,8 @@ class MCPClient:
             if not self._bg_ready.is_set():
                 logger.info("[mcp] 等待后台连接完成（%s/%s）...", server_name, tool_name)
                 try:
-                    await asyncio.wait_for(self._bg_ready.wait(), timeout=_PER_SERVER_TIMEOUT * len(self._server_configs))
+                    timeout = _PER_SERVER_TIMEOUT * len(self._server_configs)
+                    await asyncio.wait_for(self._bg_ready.wait(), timeout=timeout)
                 except asyncio.TimeoutError:
                     return ToolResult(
                         status="error",
