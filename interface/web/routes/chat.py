@@ -65,7 +65,7 @@ async def ws_chat(websocket: WebSocket):
     session_svc = SessionService(project_root, session_id=existing_sid)
 
     # 注入 session 工具 + 运行时依赖
-    bridge.set_tools_for_session(session_svc.memory_manager)
+    await bridge.set_tools_for_session(session_svc.memory_manager)
     bridge.set_checkpoint_dir(session_svc.memory_manager.session_dir)
     bridge.build_orchestrator(
         session_id=session_svc.session_id,
@@ -167,7 +167,7 @@ async def ws_chat(websocket: WebSocket):
                 await _cancel_current()
 
                 session_svc.new()
-                bridge.set_tools_for_session(session_svc.memory_manager)
+                await bridge.set_tools_for_session(session_svc.memory_manager)
                 bridge.set_checkpoint_dir(session_svc.memory_manager.session_dir)
                 bridge.build_orchestrator(
                     session_id=session_svc.session_id,

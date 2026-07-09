@@ -265,8 +265,8 @@ class AgentBridge:
         self._initialized = True
         return f"API: {self._model} | 上下文: {self._context_window // 1000}K{mcp_msg}"
 
-    def set_tools_for_session(self, memory_manager) -> None:
-        """根据 session 的 MemoryManager 重建工具（统一走 registry）。"""
+    async def set_tools_for_session(self, memory_manager) -> None:
+        """根据 session 的 MemoryManager 重建工具（统一走 registry），并重建 executor/dispatcher。"""
         from capabilities.registry import build_tools
 
         self._session_memory = memory_manager
@@ -275,6 +275,7 @@ class AgentBridge:
             memory_manager=memory_manager,
             mcp_tools=self._mcp_tools,
         )
+        await self.rebuild()
 
     async def rebuild(self) -> None:
         """重建 Dispatcher + ToolExecutor"""

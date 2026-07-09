@@ -452,8 +452,7 @@ class ChachaCLI:
         # 保存旧 session
         self._bridge.save_checkpoint()
         # 重建工具 + Dispatcher
-        self._bridge.set_tools_for_session(self._session.memory_manager)
-        await self._bridge.rebuild()
+        await self._bridge.set_tools_for_session(self._session.memory_manager)
         # 重置引擎并切换 checkpoint 目录
         await self._bridge.reset()
         self._bridge.set_checkpoint_dir(self._session.memory_manager.session_dir)

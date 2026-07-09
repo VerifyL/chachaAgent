@@ -58,9 +58,9 @@ class WebBridge:
 
     # ====== 会话工具注入 ======
 
-    def set_tools_for_session(self, memory_manager) -> None:
+    async def set_tools_for_session(self, memory_manager) -> None:
         """为指定 session 重建工具集（含 memory 工具）"""
-        self._bridge.set_tools_for_session(memory_manager)
+        await self._bridge.set_tools_for_session(memory_manager)
 
     def build_orchestrator(self, session_id: str = "", memory_manager=None) -> None:
         """注入运行时依赖到 Orchestrator"""

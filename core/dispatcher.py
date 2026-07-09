@@ -249,7 +249,23 @@ class Dispatcher:
                 )
 
             # Phase 2: 并发执行所有工具（ToolExecutor 内部 Semaphore(5) 兜底）
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+            # 使用显式 Task 对象：取消时必须等待子任务完成清理（CancelledError / GeneratorExit 两条路径）
+            # （特别是 bash 工具的 os.killpg()，否则子进程成为孤儿进程）
+            child_tasks = [asyncio.ensure_future(coro) for coro in tasks]
+            try:
+                results = await asyncio.gather(*child_tasks, return_exceptions=True)
+            except (asyncio.CancelledError, GeneratorExit):
+                # 取消所有子任务，然后等待它们完成清理（bash 杀进程组等）
+                for t in child_tasks:
+                    if not t.done():
+                        t.cancel()
+                # 用 return_exceptions 接住子任务的 CancelledError，确保 gather 不抛
+                # timeout 防止极端情况下子任务 killpg 失败导致永久等待
+                await asyncio.wait_for(
+                    asyncio.gather(*child_tasks, return_exceptions=True),
+                    timeout=3.0,
+                )
+                raise
 
             # Phase 3: 按原始顺序处理结果（Circuit Breaker 顺序累加，行为不变）
             for i, (tc_info, arg_summary) in enumerate(_tc_infos):

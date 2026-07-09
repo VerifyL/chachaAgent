@@ -16,6 +16,8 @@ LLM ⇄ 工具循环 + 并发工具执行 + Circuit Breaker + 工具结果冻结
   ├─ Phase 1: 遍历 → 发出 tool_exec_start 事件 → 收集 tasks
   ├─ Phase 2: asyncio.gather(*tasks, return_exceptions=True)  ← 并发！
   │             ToolExecutor 内部 Semaphore(5) 做并发上限保护
+  │             若收到 CancelledError/GeneratorExit，先 cancel 子 Task 并等待
+  │             清理完成（3s 超时），确保 bash 子进程被 killpg 而非成为孤儿
   └─ Phase 3: 按原始顺序遍历结果 → Circuit Breaker 按序累加 → yield tool_exec_end
 ```
 

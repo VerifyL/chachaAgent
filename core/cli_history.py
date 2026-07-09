@@ -55,4 +55,8 @@ class SessionHistory(History):
 
     def store_string(self, string: str) -> None:
         """将一条命令持久化到当前 session 文件。"""
+        # FileHistory.store_string 不会自动创建父目录，
+        # 如果 session 目录被外部删除（如清理旧 session），需确保目录存在。
+        path = Path(self._file_history.filename)
+        path.parent.mkdir(parents=True, exist_ok=True)
         self._file_history.store_string(string)
