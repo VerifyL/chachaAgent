@@ -86,6 +86,7 @@ class ChachaCLI:
         self._t = load_theme()
         self._show_reasoning = True  # Ctrl+R 切换
         self._cli_history = None  # SessionHistory，initialize() 中创建
+        self._active_task: Optional[asyncio.Task] = None
 
     # ====== 启动 ======
 
@@ -195,7 +196,19 @@ class ChachaCLI:
             result = await self._handle_command(text)
             self._print_system(result)
         else:
-            await self._run_dialog(text)
+            # 保存 checkpoint（取消时回滚到本轮前）
+            if self._bridge:
+                self._bridge.save_checkpoint()
+            self._active_task = asyncio.create_task(self._run_dialog(text))
+            try:
+                await self._active_task
+            except asyncio.CancelledError:
+                if self._bridge:
+                    self._bridge.restore_checkpoint()
+                RICH_CONSOLE.print(f"\n[{self._t['separator']}]" + "─" * 30 + "[/]")
+                self._print_system("⏹ 已中断（上下文已回滚）")
+            finally:
+                self._active_task = None
 
     def _enable_tty_signals(self):
         """临时切到 cook 模式：信号 + 换行翻译 + 回显"""
@@ -234,7 +247,7 @@ class ChachaCLI:
                 # Ctrl+C 中断检查
                 if _interrupted:
                     _interrupted = False
-                    raise KeyboardInterrupt()
+                    raise asyncio.CancelledError()
 
                 if isinstance(chunk, ReasoningEvent):
                     if self._show_reasoning:
@@ -295,13 +308,6 @@ class ChachaCLI:
                 elif isinstance(chunk, CompactEvent):
                     self._print_system(f"🔄 自动压缩: {chunk.reason}")
 
-        except KeyboardInterrupt:
-            RICH_CONSOLE.print(f"\n[{self._t['separator']}]" + "─" * 30 + "[/]")
-            RICH_CONSOLE.print("[yellow]⏹ 已中断[/]")
-            # 移除未完成轮次的 user message，避免下一轮残留旧提问
-            msgs = self._bridge._messages
-            if msgs and msgs[-1].get("role") == "user":
-                msgs.pop()
         except Exception as e:
             errors.append(str(e))
             RICH_CONSOLE.print(f"[red]异常: {escape(str(e))}[/]")
@@ -766,6 +772,10 @@ def main():
         _interrupted = True
         if _in_approval:
             raise KeyboardInterrupt  # 审批时中断同步 input()
+        # 取消活跃 task（等同 Web 暂停按钮）
+        if cli._active_task and not cli._active_task.done():
+            loop = asyncio.get_event_loop()
+            loop.call_soon_threadsafe(cli._active_task.cancel)
 
     signal.signal(signal.SIGINT, _on_sigint)
 
