@@ -59,14 +59,24 @@ class TaskTool(BaseTool):
         if subagent_spawner is not None:
             self._spawner = subagent_spawner
 
+    # 各类型子Agent 超时时间（秒），匹配 max_rounds 避免过早截断
+    _TIMEOUT_BY_TYPE: dict = {
+        "explore": 600,   # 30 轮 × ~20s/轮
+        "plan": 600,      # 20 轮 × ~30s/轮
+        "worker": 900,    # 30 轮 + 可能慢的 bash 命令
+    }
+
     async def execute(
         self,
         subagent_type: str,
         description: str,
         prompt: Optional[str] = None,
-        timeout: float = 300,
+        timeout: Optional[float] = None,
     ) -> ToolResult:
         """孵化子Agent 并等待结果。"""
+        if timeout is None:
+            timeout = self._TIMEOUT_BY_TYPE.get(subagent_type, 600)
+
         if not self._spawner:
             return ToolResult(
                 status="error",
