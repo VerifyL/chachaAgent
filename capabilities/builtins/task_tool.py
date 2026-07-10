@@ -61,9 +61,9 @@ class TaskTool(BaseTool):
 
     # 各类型子Agent 超时时间（秒），匹配 max_rounds 避免过早截断
     _TIMEOUT_BY_TYPE: dict = {
-        "explore": 600,   # 30 轮 × ~20s/轮
-        "plan": 600,      # 20 轮 × ~30s/轮
-        "worker": 900,    # 30 轮 + 可能慢的 bash 命令
+        "explore": 600,  # 30 轮 × ~20s/轮
+        "plan": 600,  # 20 轮 × ~30s/轮
+        "worker": 900,  # 30 轮 + 可能慢的 bash 命令
     }
 
     async def execute(
