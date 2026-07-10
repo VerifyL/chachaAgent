@@ -73,6 +73,7 @@ class ContextConfig(BaseModel):
 
     max_tokens: int = Field(1_048_576, ge=1, description="上下文窗口总 token 上限")
     compression_trigger_ratio: float = Field(0.7, ge=0.5, le=1.0, description="触发压缩的 token 使用比例 (0-1)")
+    compression_round_interval: int = Field(30, ge=0, description="每 N 轮对话后强制压缩一次，0=禁用")
     warn_ratio: float = Field(0.9, ge=0.5, le=1.0, description="触发告警的 token 使用比例 (0-1)")
     max_keep_tool_results: int = Field(20, ge=8, description="保留完整工具结果的上限（硬保底 8）")
     memory_max_lines: int = Field(200, ge=1, description="MEMORY.md 最大行数，超出自动剪枝")

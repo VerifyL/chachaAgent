@@ -42,6 +42,7 @@ class Orchestrator:
         policy_engine: Optional[Any] = None,
         memory_manager: Optional[Any] = None,
         dream_pipeline: Optional[Any] = None,
+        compression_round_interval: int = 30,
     ):
         self._context = context_manager
         self._llm = llm_invoker
@@ -54,6 +55,11 @@ class Orchestrator:
         self._hooks = hook_orchestrator
         self._policy = policy_engine
         self._engine: Optional[Any] = None  # ChatEngine（由 set_engine 设置）
+
+        # 轮次压缩
+        self._compression_round_interval = compression_round_interval
+        self._round_count: int = 0
+        self._last_compress_round: int = 0
 
     def set_engine(self, engine) -> None:
         """注入 ChatEngine 实例（用于 run_stream）。"""
@@ -87,6 +93,7 @@ class Orchestrator:
             if new_msgs_count == old_msgs_count and new_tokens == old_tokens:
                 return None
             self._engine._messages = msgs
+            self._last_compress_round = self._round_count
             return {
                 "reason": reason,
                 "old_msgs": old_msgs_count,
@@ -112,6 +119,7 @@ class Orchestrator:
             raise RuntimeError("run_stream 需要 ChatEngine，请调用 set_engine()")
 
         # ── 1. 用户输入注入 ──
+        self._round_count += 1
         self._engine._messages.append({"role": "user", "content": user_input})
 
         # ── 2. Hook: PRE_CONTEXT_ASSEMBLY ──
@@ -200,7 +208,7 @@ class Orchestrator:
 
         final_text = "".join(response_parts)
 
-        # ── 7. 自动压缩 ──
+        # ── 7. 自动压缩（阈值触发） ──
         from core.context.context_compressor import ContextCompressor
 
         est = ContextCompressor.estimate_tokens(self._engine._messages)
@@ -208,6 +216,13 @@ class Orchestrator:
         result = await self.compact()
         if result:
             yield CompactEvent(reason=result["reason"])
+
+        # ── 7.5 轮次触发压缩（与阈值压缩共享计数器，避免重复） ──
+        if self._compression_round_interval > 0:
+            if self._round_count - self._last_compress_round >= self._compression_round_interval:
+                round_result = await self.compact(force=True)
+                if round_result:
+                    yield CompactEvent(reason=round_result["reason"])
 
         # ── 8. 上下文利用率遥测 ──
         try:

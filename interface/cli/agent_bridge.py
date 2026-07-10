@@ -149,6 +149,7 @@ class AgentBridge:
         self._orchestrator = Orchestrator(
             context_manager=self._context_manager,
             dream_pipeline=self._dream_pipeline,
+            compression_round_interval=compress_cfg.get("round_interval", 30),
         )
         self._orchestrator.set_engine(self._engine)
 
@@ -800,6 +801,7 @@ class AgentBridge:
                 "trim_tail": ctx.trim_keep_tail,
                 "summary_head": ctx.summarize_keep_head,
                 "summary_tail": ctx.summarize_keep_tail,
+                "round_interval": ctx.compression_round_interval,
             }
         except Exception:
             return {}

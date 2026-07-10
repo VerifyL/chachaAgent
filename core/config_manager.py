@@ -245,6 +245,7 @@ default_model = "deepseek-v4-pro"
 # [context]
 # 上下文压缩配置（0-1 百分比）
 # compression_trigger_ratio = 0.7      # 超过此值触发压缩
+# compression_round_interval = 30       # 每 N 轮强制压缩，0=禁用
 # warn_ratio = 0.9                     # 超过此值触发告警
 # trim_keep_head = 5                   # TRIMMED: 保留前 N 条消息
 # trim_keep_tail = 12                  # TRIMMED: 保留后 N 条消息
