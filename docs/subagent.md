@@ -18,11 +18,11 @@ LLM 调用 subagent(type="explore", task="梳理项目架构")
 
 ## 三种内置子Agent
 
-| 类型 | 用途 | 工具 | max_iter | skip_chacha_md |
-|------|------|------|----------|----------------|
-| `explore` | 代码库搜索 | read, grep, glob | 15 | ✅ |
-| `plan` | 规划设计 | read, grep, glob, memory | 10 | ❌ |
-| `worker` | 执行修改 | read, grep, glob, write, edit, bash | 10 | ❌ |
+| 类型 | 用途 | 工具 | max_rounds | timeout | skip_chacha_md |
+|------|------|------|----------|---------|----------------|
+| `explore` | 代码库搜索 | read, grep, glob | 30 | 600s | ✅ |
+| `plan` | 规划设计 | read, grep, glob, memory | 20 | 600s | ❌ |
+| `worker` | 执行修改 | read, grep, glob, write, edit, bash | 30 | 900s | ❌ |
 
 ## LLM 自决
 
@@ -84,5 +84,5 @@ orchestrator.register("cost-limit", HookPoint.PRE_SUBAGENT_SPAWN, async_handler)
 
 - 工具白名单：每个子Agent 类型只能使用指定工具
 - `skip_chacha_md`：explore 不加载 CHACHA.md（避免污染上下文）
-- 硬超时 300s（可配置）
+- 硬超时按类型分档：explore/plan 600s，worker 900s（可通过 `TaskTool(timeout=N)` 覆盖）
 - max_iterations 限制循环次数

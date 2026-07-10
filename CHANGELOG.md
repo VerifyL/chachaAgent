@@ -9,11 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- *(nothing yet)*
+- **轮次压缩** — `compression_round_interval` 配置项（默认 30），每 N 轮对话后 `force` 压缩一次（跳过 token 阈值检查），设为 `0` 禁用。与阈值压缩共享计数器，避免刚压完又压。
 
 ### Changed
 
-- *(nothing yet)*
+- **子 Agent 超时分档** — `TaskTool` 默认 timeout 从统一 300s 改为按类型分档：`explore` 600s、`plan` 600s、`worker` 900s，匹配各自的 `max_rounds`，减少长任务误杀。
 
 ### Fixed
 

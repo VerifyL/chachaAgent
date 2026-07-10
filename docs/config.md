@@ -56,6 +56,7 @@
 | `memory_max_lines`            | `int`                           | `200`       | `MEMORY.md` 最大行数，超过后自动剪枝（保留最新）。                  |
 | `keep_system_prompt_first`    | `bool`                          | `True`      | 系统提示是否始终位于消息列表最前（不被压缩顺序打乱）。              |
 | `enable_summarization`        | `bool`                          | `True`      | 是否启用 LLM 摘要压缩（否则仅修剪工具输出）。                        |
+| `compression_round_interval`  | `int` (≥0)                      | `30`        | 每 N 轮对话强制压缩一次（force=True），0 禁用。与阈值压缩共享计数器。 |
 | `multimodal_compression`      | `"drop"` / `"describe"` / `"keep"` | `"keep"`  | **预留** 压缩时对多模态内容的处理方式：丢弃、转为文本描述、保留。  |
 
 ---

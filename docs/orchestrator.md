@@ -22,7 +22,8 @@
   │     ├─ LLMInvoker.stream()
   │     ├─ asyncio.gather(*tools)   ← 同轮独立工具并发
   │     └─ Circuit Breaker 按序检查
-  ├─ 7. 自动压缩                    ← ContextCompressor.auto_compact()
+  ├─ 7. 自动压缩                    ← ContextCompressor.auto_compact()（token 阈值触发 + 轮次计数器更新）
+  ├─ 7.5. 轮次压缩                  ← compression_round_interval（默认 30 轮），force=True 跳过阈值检查
   ├─ 8. 上下文利用率遥测
   ├─ 9. 最终回答提取                ← DeepSeek think 兼容
   ├─ 10. 检查点保存                 ← CheckpointManager
@@ -71,7 +72,8 @@ Orchestrator(
   ├─ Gateway → SessionLifecycleEvent(event="started")
   ├─ ContextManager.assemble()（双区模型 + MEMORY.md）
   ├─ Dispatcher.dispatch_stream()（LLM + 并发工具循环）
-  ├─ ContextCompressor.auto_compact()（Token 压力触发）
+  ├─ ContextCompressor.auto_compact()（Token 阈值触发 + 轮次计数器更新）
+  ├─ compression_round_interval 触发（默认 30 轮 force 压缩）
   ├─ save_checkpoint()
   ├─ _save_round_memory(user_input, assistant_text)
   ├─ _end_session_cleanup()

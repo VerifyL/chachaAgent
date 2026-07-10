@@ -72,6 +72,7 @@
 | `memory_max_lines` | 整数 (≥1) | `200` | 核心记忆文件 `MEMORY.md` 的最大行数，超出则自动剪枝（保留最新）。 |
 | `keep_system_prompt_first` | 布尔值 | `true` | 系统提示是否始终位于消息列表最前端（避免被压缩排序影响）。 |
 | `enable_summarization` | 布尔值 | `true` | 是否启用 LLM 摘要压缩（若禁用，仅丢弃旧工具输出，不生成摘要）。 |
+| `compression_round_interval` | 整数 (≥0) | `30` | 每 N 轮对话后强制压缩一次（`force=True`，跳过 token 阈值检查），设为 `0` 禁用。与阈值压缩共享计数器（阈值压缩触发后轮次计数重置）。 |
 | `multimodal_compression` | `"drop"` / `"describe"` / `"keep"` | `"keep"` | **预留**：压缩时对多模态内容的处理策略。`drop` 丢弃，`describe` 转为文字描述，`keep` 保留原内容。 |
 
 **环境变量覆盖**：
@@ -80,6 +81,7 @@
 - `CHA_CHA_CONTEXT__MEMORY_MAX_LINES`
 - `CHA_CHA_CONTEXT__KEEP_SYSTEM_PROMPT_FIRST`
 - `CHA_CHA_CONTEXT__ENABLE_SUMMARIZATION`
+- `CHA_CHA_CONTEXT__COMPRESSION_ROUND_INTERVAL`
 - `CHA_CHA_CONTEXT__MULTIMODAL_COMPRESSION`
 
 ---
