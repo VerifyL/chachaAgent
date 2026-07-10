@@ -68,7 +68,14 @@ class WebBridge:
         - stream 事件来自 bridge.send_message_orchestrated()（后台 task）
         - 审批事件来自 _web_approval_handler（tool 执行中触发）
         - 两者汇入同一个 _interleave_queue，保证事件时序正确
+
+        取消安全：
+        - 每次调用使用唯一 done_token，防止上一轮 cancel 残留的
+          ("done", None) 毒化队列（导致下一轮 chat 立即退出）。
+        - finally 中清理残留队列 + await task 加超时。
         """
+        # ── 唯一 done_token：防止旧 cancel 残留毒化队列 ──
+        done_token = object()
 
         async def _run_bridge() -> None:
             """后台运行 bridge 流，所有事件 push 到混流队列"""
@@ -85,7 +92,14 @@ class WebBridge:
                 logger.error(f"[web] bridge 流异常: {e}")
                 await self._interleave_queue.put(("stream", {"type": "error", "message": str(e)}))
             finally:
-                await self._interleave_queue.put(("done", None))
+                await self._interleave_queue.put(("done", done_token))
+
+        # ── 清理上一轮 cancel 残留（防御性） ──
+        while not self._interleave_queue.empty():
+            try:
+                self._interleave_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
 
         task = asyncio.create_task(_run_bridge())
 
@@ -93,7 +107,10 @@ class WebBridge:
             while True:
                 kind, data = await self._interleave_queue.get()
                 if kind == "done":
-                    break
+                    # 仅匹配本轮 done_token；旧 cancel 残留的 done 直接忽略
+                    if data is done_token:
+                        break
+                    continue
                 # "stream" 和审批事件都走这里输出
                 yield data
         finally:
@@ -101,10 +118,17 @@ class WebBridge:
             if not task.done():
                 task.cancel()
                 try:
-                    await task
-                except asyncio.CancelledError:
+                    # 加超时防止 _run_bridge 卡在同步操作中永久阻塞
+                    await asyncio.wait_for(task, timeout=5.0)
+                except (asyncio.CancelledError, asyncio.TimeoutError):
                     pass
             self._reject_all_approvals()
+            # 清理本轮残留（含 _run_bridge finally 放入的 done_token）
+            while not self._interleave_queue.empty():
+                try:
+                    self._interleave_queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
 
     # ====== 审批系统 ======
 
