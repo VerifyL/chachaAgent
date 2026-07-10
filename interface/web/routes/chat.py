@@ -3,13 +3,13 @@ interface/web/routes/chat.py
 聊天 WebSocket 端点 — 流式对话。
 
 取消机制（通用方案）:
-  - 主循环**绝不 await**旧 task，只 fire-and-forget cancel
+  - cancel 后 await task（带 5s 超时），确保旧 task 完全终结再继续
   - 用 generation 号标记每一轮，旧 gen 的输出自动丢弃
-  - stop 时：cancel → gen+1 → restore_checkpoint → done(cancelled)
-  - 新 chat 时：save_checkpoint → cancel 旧 task → gen+1 → 立即创建新 task
+  - stop 时：cancel → wait → gen+1 → restore_checkpoint → done(cancelled)
+  - 新 chat 时：save_checkpoint → cancel 旧 task → wait → gen+1 → 立即创建新 task
 
   这确保无论如何阻塞（LLM 流 / MCP 异步 / bash 同步），
-  主循环始终响应，新消息立刻开始处理。
+  主循环始终响应，新消息立刻开始处理（最多等待旧 task 5 秒）。
 """
 
 import asyncio
@@ -114,12 +114,22 @@ async def ws_chat(websocket: WebSocket):
                 except Exception:
                     pass
 
+    async def _cancel_and_wait(task: asyncio.Task, timeout: float = 5.0) -> None:
+        """取消 task 并等待其真正结束（有限超时），避免竞态。"""
+        if task.done():
+            return
+        task.cancel()
+        try:
+            await asyncio.wait_for(task, timeout=timeout)
+        except (asyncio.CancelledError, asyncio.TimeoutError):
+            pass
+
     async def _cancel_current() -> None:
-        """取消当前 task：fire-and-forget + 递增 gen 号使旧输出失效。"""
+        """取消当前 task：等待真正结束 + 递增 gen 号使旧输出失效。"""
         nonlocal chat_task, generation
 
         if chat_task and not chat_task.done():
-            chat_task.cancel()
+            await _cancel_and_wait(chat_task)
             chat_task = None
         generation += 1  # 旧 gen 的所有输出自动丢弃
 
@@ -143,7 +153,7 @@ async def ws_chat(websocket: WebSocket):
                     await websocket.send_json({"type": "error", "message": "消息内容不能为空"})
                     continue
 
-                # 1. 取消正在运行的旧 task（不等待）
+                # 1. 取消正在运行的旧 task（等待其真正结束）
                 await _cancel_current()
 
                 # 2. 保存本轮前 checkpoint（用于取消时回滚）
@@ -154,12 +164,12 @@ async def ws_chat(websocket: WebSocket):
 
             elif msg_type == "stop":
                 if chat_task and not chat_task.done():
-                    # 取消旧 task（不等待）
-                    chat_task.cancel()
+                    # 取消旧 task 并等待其真正结束，避免竞态
+                    await _cancel_and_wait(chat_task)
                     chat_task = None
                     generation += 1
 
-                    # 回滚到本轮前干净状态
+                    # 回滚到本轮前干净状态（此时旧 task 已完全终结）
                     bridge.restore_checkpoint()
 
                 await websocket.send_json({"type": "done", "tokens": 0, "cancelled": True})
@@ -243,6 +253,6 @@ async def ws_chat(websocket: WebSocket):
         except Exception:
             pass
     finally:
-        # fire-and-forget：不等待 task 完成
+        # 断开时 fire-and-forget（不等待），因为连接已关闭无需保持状态一致性
         if chat_task and not chat_task.done():
             chat_task.cancel()
