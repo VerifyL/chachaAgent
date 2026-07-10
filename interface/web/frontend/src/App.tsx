@@ -1,6 +1,7 @@
 import { useEffect, useCallback } from "react";
 import { useChatStore } from "./store/chatStore";
 import { useWebSocket } from "./hooks/useWebSocket";
+import { useSessions } from "./hooks/useSessions";
 import { Sidebar } from "./components/Sidebar";
 import { ChatArea } from "./components/ChatArea";
 import { ApprovalDialog } from "./components/ApprovalDialog";
@@ -18,12 +19,22 @@ function App() {
     setRetry,
     lastUserInput,
     setError,
+    sessionId,
+    messagesBySession,
   } = useChatStore();
+  const { loadHistory } = useSessions();
 
   // 暗/亮主题切换
   useEffect(() => {
     document.documentElement.classList.toggle("dark", darkMode);
   }, [darkMode]);
+
+  // 页面刷新/重连后自动加载当前会话历史
+  useEffect(() => {
+    if (sessionId && !(sessionId in messagesBySession)) {
+      loadHistory(sessionId);
+    }
+  }, [sessionId, messagesBySession, loadHistory]);
 
   // 构建 retry 函数
   const handleSend = useCallback(
