@@ -164,6 +164,29 @@ async def ws_chat(websocket: WebSocket):
 
                 await websocket.send_json({"type": "done", "tokens": 0, "cancelled": True})
 
+            elif msg_type == "switch_session":
+                new_sid = data.get("session_id", "")
+                if not new_sid:
+                    await websocket.send_json({"type": "error", "message": "缺少 session_id"})
+                    continue
+
+                # 取消当前 task
+                await _cancel_current()
+
+                # 切换 session（SessionService.switch_to 已包含验证）
+                result = await session_svc.switch_to(new_sid)
+                if result.startswith("Session 不存在"):
+                    await websocket.send_json({"type": "error", "message": result})
+                    continue
+
+                await bridge.set_tools_for_session(session_svc.memory_manager)
+                bridge.set_checkpoint_dir(session_svc.memory_manager.session_dir)
+                bridge.build_orchestrator(
+                    session_id=session_svc.session_id,
+                    memory_manager=session_svc.memory_manager,
+                )
+                logger.info(f"[ws] 切换到 session={session_svc.session_id}")
+
             elif msg_type == "new_session":
                 # 取消当前 task
                 await _cancel_current()

@@ -21,6 +21,7 @@ export type ServerMessage =
 export type ClientMessage =
   | { type: "chat"; content: string }
   | { type: "new_session" }
+  | { type: "switch_session"; session_id: string }
   | { type: "stop" }
   | { type: "compact_now" }
   | { type: "permission_response"; request_id: string; approved: boolean }

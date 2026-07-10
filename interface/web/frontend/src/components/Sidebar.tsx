@@ -2,11 +2,14 @@ import { useEffect, useState } from "react";
 import { useChatStore } from "../store/chatStore";
 import { useSessions } from "../hooks/useSessions";
 
+import type { ClientMessage } from "../types";
+
 interface Props {
   onNewSession: () => void;
+  send: (msg: ClientMessage) => void;
 }
 
-export function Sidebar({ onNewSession }: Props) {
+export function Sidebar({ onNewSession, send }: Props) {
   const { sessions, sidebarOpen, toggleSidebar, sessionId } = useChatStore();
   const { fetchSessions, loadHistory, deleteSession } = useSessions();
   const [hoverId, setHoverId] = useState<string | null>(null);
@@ -27,6 +30,7 @@ export function Sidebar({ onNewSession }: Props) {
   const handleSelectSession = async (id: string) => {
     if (id === sessionId) return;
     await loadHistory(id);
+    send({ type: "switch_session", session_id: id });
     localStorage.setItem("lastSessionId", id);
     // 刷新列表以更新 preview
     fetchSessions();

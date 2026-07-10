@@ -112,6 +112,9 @@ class ChatEngine:
             except Exception:
                 pass
 
+        # 没有 checkpoint → 清空上下文（新 session 或切换后不应保留旧消息）
+        self._reset_messages()
+
     def save_checkpoint(self) -> None:
         if not self._checkpoint_dir:
             return

@@ -89,7 +89,7 @@ function App() {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden">
-      <Sidebar onNewSession={handleNewSession} />
+      <Sidebar onNewSession={handleNewSession} send={send} />
       <ChatArea onSend={onSend} onStop={stop} onCompact={sendCompact} />
       <ApprovalDialog />
     </div>
