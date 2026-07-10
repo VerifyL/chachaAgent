@@ -50,6 +50,7 @@ export function Sidebar({ onNewSession, send }: Props) {
       if (updatedSessions.length > 0) {
         const latestId = updatedSessions[0].id;
         await loadHistory(latestId);
+        send({ type: "switch_session", session_id: latestId });
         localStorage.setItem("lastSessionId", latestId);
       } else {
         // 最后一个会话被删除 → 立即创建新会话，避免无会话状态
