@@ -48,7 +48,9 @@ export function Sidebar({ onNewSession }: Props) {
         await loadHistory(latestId);
         localStorage.setItem("lastSessionId", latestId);
       } else {
+        // 最后一个会话被删除 → 立即创建新会话，避免无会话状态
         localStorage.removeItem("lastSessionId");
+        onNewSession();
       }
     }
   };
